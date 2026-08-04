@@ -5,7 +5,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
 
-import weaponRoutes from './routes/weapon.js';
 import resultRoutes from './routes/result.js';
 import adminRoutes from './routes/admin.js';
 import { registerSessionHandlers } from './socket/session.js';
@@ -18,7 +17,6 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
 
-app.use('/api/weapon', weaponRoutes);
 app.use('/api/result', resultRoutes);
 app.use('/api/admin', adminRoutes);
 
