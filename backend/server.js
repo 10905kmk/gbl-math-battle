@@ -7,6 +7,8 @@ import { Server } from 'socket.io';
 
 import resultRoutes from './routes/result.js';
 import adminRoutes from './routes/admin.js';
+import weaponChatRoutes from './routes/weaponChat.js';
+import weaponEvaluateRoutes from './routes/weaponEvaluate.js';
 import { registerSessionHandlers } from './socket/session.js';
 import { registerBattleHandlers } from './socket/battle.js';
 
@@ -19,6 +21,8 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 
 app.use('/api/result', resultRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/weapon/chat', weaponChatRoutes);
+app.use('/api/weapon/evaluate', weaponEvaluateRoutes);
 
 const server = http.createServer(app);
 const io = new Server(server);
