@@ -15,4 +15,11 @@ assert.strictEqual(koch0.length, 3);
 const koch1 = kochSnowflakePoints(60, 1);
 assert.strictEqual(koch1.length, 12);
 
+// 각 변의 돌출점(bump)은 도형 중심(0,0)이 아니라 바깥쪽으로 튀어나와야 한다.
+// (점 개수만 세면 돌출 방향이 반대로 뒤집혀 중심으로 붕괴하는 버그를 못 잡는다)
+// 한 변은 [시작점, 1/3점, 돌출점(bump), 2/3점] 순서로 4개 점을 낸다 — koch1[2]가 첫 변의 돌출점.
+const bumpPoint = koch1[2];
+const distFromCenter = Math.hypot(bumpPoint.x, bumpPoint.y);
+assert.ok(distFromCenter > 20, `돌출점이 중심에서 충분히 떨어져 있어야 함 (실제: ${distFromCenter})`);
+
 console.log('fractals.test.mjs: OK');
