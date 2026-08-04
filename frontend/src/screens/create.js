@@ -1,73 +1,75 @@
 import { h } from 'preact';
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import htm from 'htm';
+import { CanvasEditor } from './create/CanvasEditor.js';
+import { ChatPanel } from './create/ChatPanel.js';
 
 const html = htm.bind(h);
 
-// TODO: 학습한 도형/프랙탈 목록으로 채우기 (shapes/shapes.js, shapes/fractals.js 참고)
-const SHAPES = [];
-
-// 2단계 구성(도형 선택 -> 자연어 설명) + 생성 후 대기 화면. docs/초안.md 7-② 참고.
-// AI 실패 시 기본 무기 대체, 자동 확정(재생성 없음)은 잠정 결정 — 초안 8번 참고.
+// 캔버스(좌) + AI 채팅(우) 병렬 구조. docs/초안.md 7-②, 2026-08-05 설계 문서 참고.
 export function CreateScreen({ socket, state }) {
-  const [step, setStep] = useState('select-shape');
-  const [shape, setShape] = useState(null);
-  const [description, setDescription] = useState('');
-  const [weapon, setWeapon] = useState(null);
-  const [progress, setProgress] = useState({ done: 0, total: 5 });
+  const [weaponState, setWeaponState] = useState({ parts: [] });
+  const [phase, setPhase] = useState('editing'); // editing | evaluating | waiting
+  const [progress] = useState({ done: 0, total: 5 });
+  const stageRef = useRef(null);
 
-  async function generate() {
-    setStep('loading');
-    let result;
+  async function evaluate() {
+    setPhase('evaluating');
+    let damage = 1;
     try {
-      const res = await fetch('/api/weapon', {
+      const res = await fetch('/api/weapon/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shape, description }),
+        body: JSON.stringify({ weaponState }),
       });
-      if (!res.ok) throw new Error('weapon generation failed');
-      result = await res.json();
+      const data = await res.json();
+      damage = data.damage;
     } catch (err) {
-      result = { name: `${shape?.name ?? '도형'}의 기본형`, stats: shape?.baseStats ?? {} };
+      damage = 1;
     }
-    setWeapon(result);
-    state.weapon = result;
-    setStep('waiting');
-    socket.emit('create:done', result);
+    const previewImage = stageRef.current ? stageRef.current.toDataURL() : null;
+    const weapon = {
+      name: '내가 만든 무기',
+      image: previewImage,
+      stats: { attack: damage, defense: damage },
+      damage,
+      parts: weaponState.parts,
+    };
+    state.weapon = weapon;
+    setPhase('waiting');
+    socket.emit('create:done', weapon);
   }
 
-  if (step === 'select-shape') {
+  if (phase === 'waiting') {
     return html`
-      <div class="shape-grid">
-        ${SHAPES.map((s) => html`
-          <button onClick=${() => { setShape(s); setStep('describe'); }}>${s.name}</button>
-        `)}
+      <div class="weapon-card">
+        <h3>${state.weapon?.name}</h3>
+        <p>다른 도전자를 기다리는 중... (${progress.done}/${progress.total})</p>
       </div>
     `;
-  }
-
-  if (step === 'describe') {
-    return html`
-      <div class="describe-form">
-        <p>선택: ${shape?.name}</p>
-        <textarea
-          value=${description}
-          onInput=${(e) => setDescription(e.target.value)}
-          placeholder="이 도형으로 어떤 무기를 만들까요?"
-        />
-        <button onClick=${generate}>생성하기</button>
-      </div>
-    `;
-  }
-
-  if (step === 'loading') {
-    return html`<p>무기를 단조 중입니다...</p>`;
   }
 
   return html`
-    <div class="weapon-card">
-      <h3>${weapon?.name}</h3>
-      <p>다른 도전자를 기다리는 중... (${progress.done}/${progress.total})</p>
+    <div class="create-shell">
+      <${CanvasEditor}
+        parts=${weaponState.parts}
+        onChange=${(parts) => setWeaponState({ parts })}
+        onStageReady=${(stage) => {
+          stageRef.current = stage;
+        }}
+      />
+      <${ChatPanel}
+        weaponState=${weaponState}
+        onWeaponChange=${setWeaponState}
+        disabled=${phase !== 'editing'}
+      />
+      <button
+        class="evaluate-btn"
+        onClick=${evaluate}
+        disabled=${phase !== 'editing' || weaponState.parts.length === 0}
+      >
+        ${phase === 'evaluating' ? '평가 중...' : 'AI 평가받기'}
+      </button>
     </div>
   `;
 }
