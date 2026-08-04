@@ -40,4 +40,17 @@ const before = cacheSize();
 seedCache([{ parts: [{ id: 'x', shapeId: 'koch', x: 0, y: 0, rotation: 0, scale: 1 }], damage: 999 }]);
 assert.strictEqual(cacheSize(), before + 1);
 
+// 여러 부품이 있을 때, 추가한 "순서"가 아니라 "내용"만으로 캐시 키가 결정되어야 한다
+// (같은 shapeId/x/y 버킷에 rotation/scale만 다른 부품이 있을 때 정렬이 안정적이지 않으면
+// 입력 순서에 따라 다른 캐시 키가 나올 수 있음 — 이건 그 회귀 방지 테스트)
+const m1 = { parts: [
+  { id: 'a', shapeId: 'square', x: 100, y: 100, rotation: 10, scale: 1 },
+  { id: 'b', shapeId: 'square', x: 100, y: 100, rotation: 190, scale: 1 },
+] };
+const m2 = { parts: [
+  { id: 'b', shapeId: 'square', x: 100, y: 100, rotation: 190, scale: 1 },
+  { id: 'a', shapeId: 'square', x: 100, y: 100, rotation: 10, scale: 1 },
+] };
+assert.strictEqual(cacheKey(m1), cacheKey(m2), '부품 추가 순서와 무관하게 같은 캐시 키가 나와야 함');
+
 console.log('weaponCache.test.mjs: OK');

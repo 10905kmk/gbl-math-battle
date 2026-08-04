@@ -13,7 +13,7 @@ export function normalize(weaponState) {
       rotation: (((Math.round(p.rotation / 15) * 15) % 360) + 360) % 360,
       scale: Math.round(p.scale * 10) / 10,
     }))
-    .sort((a, b) => a.shapeId.localeCompare(b.shapeId) || a.x - b.x || a.y - b.y);
+    .sort((a, b) => a.shapeId.localeCompare(b.shapeId) || a.x - b.x || a.y - b.y || a.rotation - b.rotation || a.scale - b.scale);
 }
 
 export function cacheKey(weaponState) {
