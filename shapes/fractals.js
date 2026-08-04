@@ -38,7 +38,7 @@ function kochSegment(a, b, depth) {
   const dy = (b.y - a.y) / 3;
   const p1 = { x: a.x + dx, y: a.y + dy };
   const p3 = { x: a.x + dx * 2, y: a.y + dy * 2 };
-  const angle = Math.atan2(dy, dx) - Math.PI / 3;
+  const angle = Math.atan2(dy, dx) + Math.PI / 3;
   const dist = Math.sqrt(dx * dx + dy * dy);
   const p2 = { x: p1.x + Math.cos(angle) * dist, y: p1.y + Math.sin(angle) * dist };
   return [
