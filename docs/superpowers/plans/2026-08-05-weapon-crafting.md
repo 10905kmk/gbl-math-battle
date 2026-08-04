@@ -132,6 +132,13 @@ assert.strictEqual(koch0.length, 3);
 const koch1 = kochSnowflakePoints(60, 1);
 assert.strictEqual(koch1.length, 12);
 
+// 각 변의 돌출점(bump)은 도형 중심(0,0)이 아니라 바깥쪽으로 튀어나와야 한다.
+// (점 개수만 세면 돌출 방향이 반대로 뒤집혀 중심으로 붕괴하는 버그를 못 잡는다)
+// 한 변은 [시작점, 1/3점, 돌출점(bump), 2/3점] 순서로 4개 점을 낸다 — koch1[2]가 첫 변의 돌출점.
+const bumpPoint = koch1[2];
+const distFromCenter = Math.hypot(bumpPoint.x, bumpPoint.y);
+assert.ok(distFromCenter > 20, `돌출점이 중심에서 충분히 떨어져 있어야 함 (실제: ${distFromCenter})`);
+
 console.log('fractals.test.mjs: OK');
 ```
 
@@ -185,7 +192,7 @@ function kochSegment(a, b, depth) {
   const dy = (b.y - a.y) / 3;
   const p1 = { x: a.x + dx, y: a.y + dy };
   const p3 = { x: a.x + dx * 2, y: a.y + dy * 2 };
-  const angle = Math.atan2(dy, dx) - Math.PI / 3;
+  const angle = Math.atan2(dy, dx) + Math.PI / 3;
   const dist = Math.sqrt(dx * dx + dy * dy);
   const p2 = { x: p1.x + Math.cos(angle) * dist, y: p1.y + Math.sin(angle) * dist };
   return [
@@ -593,49 +600,15 @@ async function callGeminiWithRotation(requestFn) {
   throw lastError;
 }
 
-function buildEvaluationPrompt(weaponState, samples) {
-  const exampleLines = samples
-    .map((s) => `- ${JSON.stringify(s.parts)} → 데미지 ${s.damage} (${s.note})`)
-    .join('\n');
-  return [
-    '너는 수학 도형으로 만든 무기의 데미지를 1~10000 사이로 평가하는 심판이다.',
-    '아래는 이미 평가된 예시들이다:',
-    exampleLines,
-    '',
-    `이제 이 무기를 평가해라: ${JSON.stringify(weaponState.parts)}`,
-    '절대값이 아니라 적절한 범위(min, max)로 답해라. max - min은 1000을 넘지 않게 좁게 잡아라.',
-  ].join('\n');
-}
-
-async function requestDamageRange(apiKey, weaponState) {
-  const prompt = buildEvaluationPrompt(weaponState, SAMPLES);
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: { min: { type: 'INTEGER' }, max: { type: 'INTEGER' } },
-            required: ['min', 'max'],
-          },
-        },
-      }),
-    },
-  );
-  if (!res.ok) {
-    const err = new Error(`Gemini evaluate failed: ${res.status}`);
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  const text = data.candidates[0].content.parts[0].text;
-  return JSON.parse(text);
+// TODO(후속 태스크): 실제 Gemini fetch 호출 + 프롬프트 구성(few-shot 예시 포함) 구현.
+// 지금은 데모/영상 촬영이 급해서 MOCK_AI 경로만 완성하고 이 함수는 스텁으로 둔다.
+// evaluateWeapon()이 이 함수를 호출하는 건 MOCK_AI가 아닐 때뿐이고, 이 함수가 던지면
+// weaponEvaluate.js 라우트가 이미 fallbackDamage()로 안전하게 폴백하도록 되어 있어서(Task 8),
+// 지금 스텁 상태로 둬도 다른 경로가 깨지지 않는다. 나중에 구현할 때 prompt 문구는
+// SAMPLES(few-shot 예시)를 "- {parts} → 데미지 N (note)" 형태로 나열하고,
+// "절대값이 아니라 범위(min,max)로 답해라. max-min은 1000 이내로 좁게" 지시를 포함시킬 것.
+async function requestDamageRange() {
+  throw new Error('requestDamageRange not implemented yet — real Gemini call is a follow-up task');
 }
 
 // 완성된 무기를 AI에게 채점받는다. 같은(또는 거의 같은) 무기는 항상 같은 damage를 반환한다.
@@ -729,96 +702,25 @@ Expected: `not implemented yet — see Task 7` 에러로 FAIL
 
 - [ ] **Step 3: 구현**
 
-`backend/lib/aiClient.js`에서 `export async function interpretCommand() { throw ... }` placeholder를 아래로 교체 (파일 상단에 `CHAT_TOOLS` 상수와 헬퍼 함수들도 함께 추가):
+`backend/lib/aiClient.js`에서 `export async function interpretCommand() { throw ... }` placeholder를 아래로 교체. 실제 Gemini 연동(`requestToolCalls`)은 후속 태스크로 미루고 지금은 스텁 + MOCK_AI 경로만 완성한다 (데모/영상 촬영 우선):
 
 ```js
-const CHAT_TOOLS = [
-  {
-    name: 'addPart',
-    description: '캔버스에 새 도형 부품을 추가한다.',
-    parameters: {
-      type: 'OBJECT',
-      properties: {
-        shapeId: { type: 'STRING' },
-        x: { type: 'NUMBER' },
-        y: { type: 'NUMBER' },
-        rotation: { type: 'NUMBER' },
-        scale: { type: 'NUMBER' },
-      },
-      required: ['shapeId', 'x', 'y'],
-    },
-  },
-  {
-    name: 'movePart',
-    parameters: {
-      type: 'OBJECT',
-      properties: { partId: { type: 'STRING' }, x: { type: 'NUMBER' }, y: { type: 'NUMBER' } },
-      required: ['partId', 'x', 'y'],
-    },
-  },
-  {
-    name: 'rotatePart',
-    parameters: {
-      type: 'OBJECT',
-      properties: { partId: { type: 'STRING' }, rotation: { type: 'NUMBER' } },
-      required: ['partId', 'rotation'],
-    },
-  },
-  {
-    name: 'scalePart',
-    parameters: {
-      type: 'OBJECT',
-      properties: { partId: { type: 'STRING' }, scale: { type: 'NUMBER' } },
-      required: ['partId', 'scale'],
-    },
-  },
-  {
-    name: 'removePart',
-    parameters: {
-      type: 'OBJECT',
-      properties: { partId: { type: 'STRING' } },
-      required: ['partId'],
-    },
-  },
-];
-
-function buildChatSystemPrompt(availableShapeIds, canvasSize, weaponState) {
-  return [
-    '너는 참가자가 수학 도형으로 무기를 만드는 걸 돕는 어시스턴트다.',
-    `사용 가능한 도형 id: ${availableShapeIds.join(', ')}`,
-    `캔버스 크기: ${canvasSize.width}x${canvasSize.height} (원점은 좌상단)`,
-    `현재 무기 상태: ${JSON.stringify(weaponState.parts)}`,
-    '사용자 메시지를 해석해서 addPart/movePart/rotatePart/scalePart/removePart 함수를 호출해라.',
-    '부품은 최대 10개까지만 허용된다.',
-  ].join('\n');
-}
-
-async function requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize) {
-  const systemPrompt = buildChatSystemPrompt(availableShapeIds, canvasSize, weaponState);
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: 'user', parts: [{ text: message }] }],
-        tools: [{ functionDeclarations: CHAT_TOOLS }],
-      }),
-    },
-  );
-  if (!res.ok) {
-    const err = new Error(`Gemini chat failed: ${res.status}`);
-    err.status = res.status;
-    throw err;
-  }
-  const data = await res.json();
-  const parts = data.candidates[0].content.parts;
-  const toolCalls = parts
-    .filter((p) => p.functionCall)
-    .map((p) => ({ op: p.functionCall.name, ...p.functionCall.args }));
-  const replyPart = parts.find((p) => p.text);
-  return { toolCalls, reply: replyPart ? replyPart.text : '적용했어요.' };
+// TODO(후속 태스크): 실제 Gemini function-calling 연동 구현. 지금은 데모/영상 촬영이 급해서
+// MOCK_AI 경로(mockInterpretCommand)만 완성하고 실제 호출은 스텁으로 둔다.
+// weaponChat.js 라우트(Task 8)는 interpretCommand가 던지면 502로 응답하도록 이미 되어 있어서,
+// 스텁 상태로 둬도 다른 경로가 깨지지 않는다 (MOCK_AI=false로 실행하면 채팅이 매번 에러 표시만 됨).
+//
+// 나중에 구현할 때 필요한 tool 스키마(5개, Gemini function-calling 형식)와 시스템 프롬프트 요지:
+//   - addPart(shapeId, x, y, rotation?, scale?) — 새 부품 추가
+//   - movePart(partId, x, y) — 이동
+//   - rotatePart(partId, rotation) — 회전
+//   - scalePart(partId, scale) — 크기조절
+//   - removePart(partId) — 삭제
+//   시스템 프롬프트에는 사용 가능한 shapeId 목록, 캔버스 크기, 현재 weaponState.parts,
+//   "부품은 최대 10개까지" 제약을 포함시킬 것. 응답은 functionCall 파트들 + 텍스트 reply 파트를
+//   한 응답 안에서 함께 받는다(멀티스텝 루프 불필요).
+async function requestToolCalls() {
+  throw new Error('requestToolCalls not implemented yet — real Gemini call is a follow-up task');
 }
 
 function mockInterpretCommand(message) {
@@ -838,7 +740,7 @@ export async function interpretCommand({ weaponState, message, availableShapeIds
 }
 ```
 
-(이 코드는 파일 하단의 기존 `export async function interpretCommand() { throw ... }` 자리를 대체한다. `CHAT_TOOLS`/`buildChatSystemPrompt`/`requestToolCalls`/`mockInterpretCommand`는 `callGeminiWithRotation` 정의 아래, `evaluateWeapon` 위나 아래 아무 곳에 추가해도 무방하다.)
+(이 코드는 파일 하단의 기존 `export async function interpretCommand() { throw ... }` 자리를 대체한다. `requestToolCalls`/`mockInterpretCommand`는 `callGeminiWithRotation` 정의 아래, `evaluateWeapon` 위나 아래 아무 곳에 추가해도 무방하다.)
 
 - [ ] **Step 4: 테스트 실행해서 통과 확인**
 
