@@ -820,8 +820,21 @@ assert.strictEqual(rotated.parts[0].rotation, 45);
 const scaled = applyToolCalls(withOne, [{ op: 'scalePart', partId: 'p1', scale: 99 }]);
 assert.strictEqual(scaled.parts[0].scale, 3, 'scale은 3.0으로 clamp');
 
+const scaledLow = applyToolCalls(withOne, [{ op: 'scalePart', partId: 'p1', scale: 0.01 }]);
+assert.strictEqual(scaledLow.parts[0].scale, 0.2, 'scale은 0.2로 하한 clamp');
+
 const removed = applyToolCalls(withOne, [{ op: 'removePart', partId: 'p1' }]);
 assert.strictEqual(removed.parts.length, 0);
+
+// clamp()는 숫자가 아닌/누락된 값이 들어와도 NaN을 절대 반환하면 안 된다 (min으로 안전하게 대체)
+const afterMissingXY = applyToolCalls(empty, [{ op: 'addPart', shapeId: 'triangle' }]);
+assert.strictEqual(afterMissingXY.parts[0].x, 0);
+assert.strictEqual(afterMissingXY.parts[0].y, 0);
+
+const afterBadScale = applyToolCalls(empty, [
+  { op: 'addPart', shapeId: 'triangle', x: 10, y: 10, scale: 'large' },
+]);
+assert.strictEqual(afterBadScale.parts[0].scale, 0.2);
 
 console.log('weaponChat.test.mjs: OK');
 ```
@@ -842,8 +855,12 @@ import { ALL_SHAPES, isValidShapeId, generatePartId } from '../../shapes/registr
 export const CANVAS_SIZE = { width: 480, height: 480 };
 export const MAX_PARTS = 10;
 
+// AI(interpretCommand)가 필드를 누락하거나 숫자가 아닌 값을 줘도 NaN이 새어나가지 않게
+// min으로 안전하게 대체한다 — NaN은 [min,max] 범위 밖이라 Global Constraints를 깨뜨림.
 function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+  const num = Number(value);
+  if (!Number.isFinite(num)) return min;
+  return Math.min(max, Math.max(min, num));
 }
 
 export function applyToolCalls(weaponState, toolCalls) {
