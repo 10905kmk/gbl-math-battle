@@ -6,7 +6,9 @@ export const CANVAS_SIZE = { width: 480, height: 480 };
 export const MAX_PARTS = 10;
 
 function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+  const num = Number(value);
+  if (!Number.isFinite(num)) return min;
+  return Math.min(max, Math.max(min, num));
 }
 
 export function applyToolCalls(weaponState, toolCalls) {
