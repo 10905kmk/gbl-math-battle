@@ -17,6 +17,10 @@ const PORT = process.env.PORT || 3000;
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
+// shapes/는 레포 루트의 frontend/backend 형제 폴더(프론트/백엔드 공통 순수 로직) — 백엔드는
+// 그냥 파일시스템 import로 쓰지만, 브라우저 쪽 상대 import(예: CanvasEditor.js의
+// '../../../../shapes/registry.js')가 실제로 뜨려면 이 경로도 정적 서빙해야 한다.
+app.use('/shapes', express.static(path.join(__dirname, '../shapes')));
 
 app.use('/api/weapon', weaponRoutes);
 app.use('/api/result', resultRoutes);
