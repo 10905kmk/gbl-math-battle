@@ -334,13 +334,19 @@ import { normalize, cacheKey, seededPick, getCached, setCached, seedCache, cache
 
 // 살짝 다른(드래그 오차) 두 무기는 같은 키로 수렴해야 함
 const a = { parts: [{ id: 'p1', shapeId: 'triangle', x: 101, y: 99, rotation: 2, scale: 1.01 }] };
-const b = { parts: [{ id: 'p2', shapeId: 'triangle', x: 104, y: 96, rotation: 8, scale: 1.04 }] };
+const b = { parts: [{ id: 'p2', shapeId: 'triangle', x: 104, y: 96, rotation: 6, scale: 1.04 }] };
 
 // normalize 자체도 직접 검증 — 10px/15도 단위로 반올림되는지
 const normA = normalize(a);
 assert.strictEqual(normA[0].x, 100);
 assert.strictEqual(normA[0].y, 100);
 assert.strictEqual(normA[0].rotation, 0);
+
+// 음수 회전(반시계 드래그로 자연스럽게 발생)도 [0,360) 범위로 정규화되어야 함 (-30도 == 330도)
+const negRotation = { parts: [{ id: 'p1', shapeId: 'triangle', x: 0, y: 0, rotation: -30, scale: 1 }] };
+const posRotation = { parts: [{ id: 'p2', shapeId: 'triangle', x: 0, y: 0, rotation: 330, scale: 1 }] };
+assert.strictEqual(normalize(negRotation)[0].rotation, 330);
+assert.strictEqual(cacheKey(negRotation), cacheKey(posRotation), '-30도와 330도는 같은 캐시 키');
 
 assert.strictEqual(cacheKey(a), cacheKey(b), '거의 같은 무기는 같은 캐시 키');
 
@@ -386,7 +392,10 @@ export function normalize(weaponState) {
       shapeId: p.shapeId,
       x: Math.round(p.x / 10) * 10,
       y: Math.round(p.y / 10) * 10,
-      rotation: Math.round(p.rotation / 15) * 15 % 360,
+      // JS의 %는 음수 부호를 그대로 보존하므로(-30 % 360 === -30), +360 후 다시 %로 [0,360) 범위로 감는다.
+      // Konva 드래그로 반시계 방향 회전하면 rotation이 자연스럽게 음수가 되므로 이 처리가 없으면
+      // -30도와 330도(시각적으로 동일)가 다른 캐시 키로 갈라진다.
+      rotation: (((Math.round(p.rotation / 15) * 15) % 360) + 360) % 360,
       scale: Math.round(p.scale * 10) / 10,
     }))
     .sort((a, b) => a.shapeId.localeCompare(b.shapeId) || a.x - b.x || a.y - b.y);
@@ -1119,7 +1128,13 @@ import { registerSessionHandlers } from './session.js';
 
 const handlers = {};
 function makeSocket(id) {
-  return { id, on: (ev, fn) => { handlers[id] = handlers[id] || {}; handlers[id][ev] = fn; } };
+  // registerSessionHandlers는 등록 시점에 socket.emit('stage:change', ...)을 바로 호출한다
+  // (신규 접속 동기화 기능) — 목 소켓에도 emit이 있어야 한다.
+  return {
+    id,
+    on: (ev, fn) => { handlers[id] = handlers[id] || {}; handlers[id][ev] = fn; },
+    emit: () => {},
+  };
 }
 const emitted = [];
 const io = { emit: (ev, payload) => emitted.push([ev, payload]) };
@@ -1259,6 +1274,9 @@ import { ALL_SHAPES, getShapeGeometry, generatePartId } from '../../../../shapes
 const html = htm.bind(h);
 
 export const CANVAS_SIZE = { width: 480, height: 480 };
+// 서버(backend/routes/weaponChat.js)의 MAX_PARTS와 같은 값 — 부품 상한 10개(Global Constraints)를
+// 수동 편집(팔레트 클릭) 경로에도 동일하게 적용한다.
+const MAX_PARTS = 10;
 
 function drawShapeNode(part) {
   const geometry = getShapeGeometry(part.shapeId);
@@ -1274,6 +1292,14 @@ function drawShapeNode(part) {
     fill: '#8fd3ff',
     stroke: '#1a5f8a',
     strokeWidth: 2,
+    // 모든 좌표는 캔버스 범위(480x480) 내로 clamp (Global Constraints) — 서버 clamp(applyToolCalls)와
+    // 동일 규칙을 드래그 중에도 적용.
+    dragBoundFunc(pos) {
+      return {
+        x: Math.min(CANVAS_SIZE.width, Math.max(0, pos.x)),
+        y: Math.min(CANVAS_SIZE.height, Math.max(0, pos.y)),
+      };
+    },
     sceneFunc: (ctx, shape) => {
       ctx.beginPath();
       if (geometry.type === 'polygon') {
@@ -1327,6 +1353,7 @@ export function CanvasEditor({ parts, onChange, onStageReady }) {
   }, [parts]);
 
   function addShape(shapeId) {
+    if (parts.length >= MAX_PARTS) return;
     onChange([
       ...parts,
       {
@@ -1489,10 +1516,15 @@ git commit -m "feat: Konva 도입 + CanvasEditor(팔레트/드래그) 컴포넌�
         onChange(parts.map((p) => (p.id === part.id ? { ...p, x: node.x(), y: node.y() } : p)));
       });
       node.on('transformend', () => {
+        // scale 범위 0.2~3.0 (Global Constraints) — 서버 쪽 clamp(applyToolCalls)와 동일 범위를
+        // 수동 드래그 편집에도 적용. 노드 자체의 scale도 되돌려서 화면이 clamp된 값과 어긋나지 않게 한다.
+        const clampedScale = Math.min(3, Math.max(0.2, node.scaleX()));
+        node.scaleX(clampedScale);
+        node.scaleY(clampedScale);
         onChange(
           parts.map((p) =>
             p.id === part.id
-              ? { ...p, x: node.x(), y: node.y(), rotation: node.rotation(), scale: node.scaleX() }
+              ? { ...p, x: node.x(), y: node.y(), rotation: node.rotation(), scale: clampedScale }
               : p,
           ),
         );
