@@ -73,7 +73,36 @@ export async function evaluateWeapon(weaponState) {
   return { damage, cached: false };
 }
 
-// Task 7에서 구현 채움
-export async function interpretCommand() {
-  throw new Error('not implemented yet — see Task 7');
+// TODO(후속 태스크): 실제 Gemini function-calling 연동 구현. 지금은 데모/영상 촬영이 급해서
+// MOCK_AI 경로(mockInterpretCommand)만 완성하고 실제 호출은 스텁으로 둔다.
+// weaponChat.js 라우트(Task 8)는 interpretCommand가 던지면 502로 응답하도록 이미 되어 있어서,
+// 스텁 상태로 둬도 다른 경로가 깨지지 않는다 (MOCK_AI=false로 실행하면 채팅이 매번 에러 표시만 됨).
+//
+// 나중에 구현할 때 필요한 tool 스키마(5개, Gemini function-calling 형식)와 시스템 프롬프트 요지:
+//   - addPart(shapeId, x, y, rotation?, scale?) — 새 부품 추가
+//   - movePart(partId, x, y) — 이동
+//   - rotatePart(partId, rotation) — 회전
+//   - scalePart(partId, scale) — 크기조절
+//   - removePart(partId) — 삭제
+//   시스템 프롬프트에는 사용 가능한 shapeId 목록, 캔버스 크기, 현재 weaponState.parts,
+//   "부품은 최대 10개까지" 제약을 포함시킬 것. 응답은 functionCall 파트들 + 텍스트 reply 파트를
+//   한 응답 안에서 함께 받는다(멀티스텝 루프 불필요).
+async function requestToolCalls() {
+  throw new Error('requestToolCalls not implemented yet — real Gemini call is a follow-up task');
+}
+
+function mockInterpretCommand(message) {
+  return {
+    toolCalls: [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100, rotation: 0, scale: 1 }],
+    reply: `(MOCK) "${message}" 명령을 반영했어요.`,
+  };
+}
+
+export async function interpretCommand({ weaponState, message, availableShapeIds, canvasSize }) {
+  if (process.env.MOCK_AI === 'true') {
+    return mockInterpretCommand(message);
+  }
+  return callGeminiWithRotation((apiKey) =>
+    requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize),
+  );
 }
