@@ -766,9 +766,13 @@ git commit -m "feat: aiClient interpretCommand(tool calling) 구현"
 **Files:**
 - Create: `backend/routes/weaponChat.js`
 - Create: `backend/routes/weaponEvaluate.js`
-- Delete: `backend/routes/weapon.js` (구 2단계 텍스트 흐름 전용, 완전히 대체됨)
 - Modify: `backend/server.js`
 - Test: `backend/routes/weaponChat.test.mjs`, `backend/routes/weaponEvaluate.test.mjs`
+
+(`backend/routes/weapon.js`는 구 2단계 텍스트 흐름 전용 파일로 이미 Task 6에서 삭제됨 — Task 6이
+`aiClient.js`에서 `generateWeapon`을 제거하면서 이 파일이 참조하던 export가 없어져 서버가
+아예 기동을 못 하는 걸 리뷰에서 발견해서, 그 자리에서 같이 정리했다. 그래서 이 태스크는
+새 라우트만 만들고 연결하면 된다.)
 
 **Interfaces:**
 - Consumes: `interpretCommand`, `evaluateWeapon`, `DAMAGE_MIN`, `DAMAGE_MAX` (Task 6/7), `isValidShapeId`, `ALL_SHAPES`, `getShapeById` (Task 3), `statsFromShape` (기존 `shapes/stats.js`)
@@ -959,27 +963,15 @@ export default router;
 Run: `node backend/routes/weaponEvaluate.test.mjs`
 Expected: `weaponEvaluate.test.mjs: OK`
 
-- [ ] **Step 9: 구 라우트 제거 + server.js 갱신**
+- [ ] **Step 9: server.js에 신규 라우트 연결**
 
-```bash
-rm backend/routes/weapon.js
-```
-
-`backend/server.js`에서:
-```js
-import weaponRoutes from './routes/weapon.js';
-```
-를 아래로 교체:
+`backend/server.js`의 기존 라우트 import들 옆에 추가:
 ```js
 import weaponChatRoutes from './routes/weaponChat.js';
 import weaponEvaluateRoutes from './routes/weaponEvaluate.js';
 ```
 
-그리고:
-```js
-app.use('/api/weapon', weaponRoutes);
-```
-를 아래로 교체:
+그리고 기존 `app.use(...)` 라우트 마운트들 옆에 추가:
 ```js
 app.use('/api/weapon/chat', weaponChatRoutes);
 app.use('/api/weapon/evaluate', weaponEvaluateRoutes);
@@ -1003,8 +995,7 @@ Expected: 첫 curl은 `{"weaponState":{"parts":[{...triangle...}]},"reply":"(MOC
 
 ```bash
 git add backend/routes/weaponChat.js backend/routes/weaponEvaluate.js backend/routes/weaponChat.test.mjs backend/routes/weaponEvaluate.test.mjs backend/server.js
-git rm backend/routes/weapon.js
-git commit -m "feat: /api/weapon/chat, /api/weapon/evaluate 라우트 추가, 구 weapon.js 제거"
+git commit -m "feat: /api/weapon/chat, /api/weapon/evaluate 라우트 추가"
 ```
 
 ---
