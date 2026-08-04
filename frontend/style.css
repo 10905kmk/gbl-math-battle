@@ -1,10 +1,7 @@
-* {
-  box-sizing: border-box;
-}
+@import url("shared/base.css");
+@import url("shared/slide-view.css");
 
 body {
-  margin: 0;
-  font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
   background: #111;
   color: #eee;
 }

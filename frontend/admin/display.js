@@ -2,6 +2,8 @@ import { h, render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import htm from 'htm';
 import { io } from 'socket.io-client';
+import { useSlideSync } from '../shared/slides.js';
+import { SlideView } from '../shared/SlideView.js';
 
 const html = htm.bind(h);
 
@@ -16,33 +18,18 @@ const STAGE_MESSAGES = {
 };
 
 function DisplayApp() {
+  const [socket] = useState(() => io());
   const [stage, setStage] = useState('idle');
-  const [slides, setSlides] = useState([]);
-  const [slideIndex, setSlideIndex] = useState(0);
+  const { slides, slideIndex, slide } = useSlideSync(socket);
 
   useEffect(() => {
-    const socket = io();
     socket.on('stage:change', setStage);
-    socket.on('learn:slide', setSlideIndex);
-    return () => socket.disconnect();
-  }, []);
-
-  useEffect(() => {
-    fetch('../src/content/shapes-slides.json')
-      .then((res) => res.json())
-      .then(setSlides);
-  }, []);
+    return () => socket.off('stage:change', setStage);
+  }, [socket]);
 
   if (stage === 'learn') {
-    const slide = slides[slideIndex];
     if (!slide) return html`<div class="display-wait">슬라이드 준비 중...</div>`;
-    return html`
-      <div class="display-slide">
-        <h1>${slide.title}</h1>
-        <img src=${slide.image} alt=${slide.title} />
-        <p>${slide.description}</p>
-      </div>
-    `;
+    return html`<${SlideView} slide=${slide} index=${slideIndex} total=${slides.length} variant="display" />`;
   }
 
   return html`<div class="display-wait">${STAGE_MESSAGES[stage] ?? stage}</div>`;

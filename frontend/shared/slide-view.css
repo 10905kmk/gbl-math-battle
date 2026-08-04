@@ -1,0 +1,64 @@
+/*
+ * 슬라이드를 고정 16:9 캔버스로 취급한다. variant는 이 캔버스의 "폭"만 정하고,
+ * 내부 요소(cqw/cqh = 컨테이너 폭/높이의 1%)는 그 폭에 비례해서 같이 커지고 작아진다.
+ * 그래서 참가자/공용화면/발표자 미리보기가 실제 PPT처럼 크기만 다르고 배치는 항상 동일하다.
+ */
+.slide-view {
+  container-type: inline-size;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: rgba(128, 128, 128, 0.06);
+  border-radius: 4px;
+}
+
+.slide-view-progress {
+  font-size: 2.5cqw;
+  opacity: 0.7;
+  margin: 0;
+}
+
+.slide-view-title {
+  font-size: 6cqw;
+  margin: 2cqh 0;
+}
+
+.slide-view-image {
+  max-width: 45cqw;
+  max-height: 32cqh;
+  object-fit: contain;
+}
+
+.slide-view-description {
+  font-size: 3cqw;
+  max-width: 75cqw;
+  margin: 2cqh 0 0;
+}
+
+/* 참가자 화면 */
+.slide-view--participant {
+  width: 420px;
+}
+
+/* 공용 화면(전자칠판 등) */
+.slide-view--display {
+  width: 92vw;
+  max-width: 1400px;
+}
+
+/* 발표자 보기 - 현재 슬라이드 */
+.slide-view--current {
+  width: 240px;
+}
+
+/* 발표자 보기 - 다음 슬라이드 미리보기 */
+.slide-view--next {
+  width: 160px;
+  opacity: 0.6;
+}
