@@ -12,7 +12,7 @@ export const CANVAS_SIZE = { width: 480, height: 480 };
 // 수동 편집(팔레트 클릭) 경로에도 동일하게 적용한다.
 const MAX_PARTS = 10;
 
-function drawShapeNode(part) {
+function drawShapeNode(part, disabled) {
   const geometry = getShapeGeometry(part.shapeId);
   return new Konva.Shape({
     x: part.x,
@@ -20,7 +20,7 @@ function drawShapeNode(part) {
     rotation: part.rotation,
     scaleX: part.scale,
     scaleY: part.scale,
-    draggable: true,
+    draggable: !disabled,
     id: part.id,
     name: 'part',
     fill: '#8fd3ff',
@@ -53,7 +53,7 @@ function drawShapeNode(part) {
 }
 
 // 캔버스(좌) — 팔레트로 도형 추가, 드래그로 이동. 회전/크기조절 핸들은 Task 11에서 추가.
-export function CanvasEditor({ parts, onChange, onStageReady }) {
+export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
   const containerRef = useRef(null);
   const stageRef = useRef(null);
   const layerRef = useRef(null);
@@ -77,17 +77,17 @@ export function CanvasEditor({ parts, onChange, onStageReady }) {
     if (!layer) return;
     layer.find('.part').forEach((n) => n.destroy());
     parts.forEach((part) => {
-      const node = drawShapeNode(part);
+      const node = drawShapeNode(part, disabled);
       node.on('dragend', () => {
         onChange(parts.map((p) => (p.id === part.id ? { ...p, x: node.x(), y: node.y() } : p)));
       });
       layer.add(node);
     });
     layer.draw();
-  }, [parts]);
+  }, [parts, disabled]);
 
   function addShape(shapeId) {
-    if (parts.length >= MAX_PARTS) return;
+    if (disabled || parts.length >= MAX_PARTS) return;
     onChange([
       ...parts,
       {
@@ -104,7 +104,7 @@ export function CanvasEditor({ parts, onChange, onStageReady }) {
   return html`
     <div class="canvas-editor">
       <div class="shape-palette">
-        ${ALL_SHAPES.map((s) => html`<button onClick=${() => addShape(s.id)}>${s.name}</button>`)}
+        ${ALL_SHAPES.map((s) => html`<button onClick=${() => addShape(s.id)} disabled=${disabled}>${s.name}</button>`)}
       </div>
       <div class="canvas-container" ref=${containerRef}></div>
     </div>

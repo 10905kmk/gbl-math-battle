@@ -57,6 +57,7 @@ export function CreateScreen({ socket, state }) {
         onStageReady=${(stage) => {
           stageRef.current = stage;
         }}
+        disabled=${phase !== 'editing'}
       />
       <${ChatPanel}
         weaponState=${weaponState}
