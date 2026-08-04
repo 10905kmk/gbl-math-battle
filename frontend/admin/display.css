@@ -1,0 +1,39 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
+  background: #111;
+  color: #eee;
+}
+
+#display-app {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+}
+
+.display-slide h1 {
+  font-size: 4rem;
+  margin-bottom: 1.5rem;
+}
+
+.display-slide img {
+  max-width: 60vw;
+  max-height: 50vh;
+}
+
+.display-slide p {
+  font-size: 2rem;
+  max-width: 70vw;
+  margin: 1.5rem auto 0;
+}
+
+.display-wait {
+  font-size: 3rem;
+}
