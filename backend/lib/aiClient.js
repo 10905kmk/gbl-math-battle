@@ -5,7 +5,10 @@ import { getApiKeys } from './apiKeys.js';
 
 export const DAMAGE_MIN = 1;
 export const DAMAGE_MAX = 10000;
-const GEMINI_MODEL = 'gemini-2.0-flash';
+// 'gemini-2.0-flash'는 무료 티어 할당량이 0으로 막혀 있는 계정이 있어(429 RESOURCE_EXHAUSTED,
+// limit: 0) 'gemini-flash-latest'로 바꿈 — 실제 키로 라이브 검증 중 발견, 두 모델 다 같은
+// generateContent 엔드포인트/요청 형식을 쓰므로 다른 코드는 안 바뀐다.
+const GEMINI_MODEL = 'gemini-flash-latest';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 seedCache(SAMPLES);
