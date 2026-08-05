@@ -103,4 +103,38 @@ console.log('hitDamageFromWeaponDamage: OK');
   console.log('dead target takes no damage: OK');
 }
 
+// 승리: 마지막 생존자
+{
+  const p1 = makePlayer({ id: 'p1', x: 400, y: 300, facing: 'right', hitDamage: 100, input: { ...noInput, attack: true } });
+  const p2 = makePlayer({ id: 'p2', x: 450, y: 300, hp: 50 });
+  const room = makeRoom({ p1, p2 });
+  const { room: next, winners } = stepSimulation(room, 1000);
+  assert.strictEqual(next.players.p2.alive, false);
+  assert.deepStrictEqual(winners, ['p1']);
+  assert.strictEqual(next.status, 'ended');
+  console.log('win by last survivor: OK');
+}
+
+// 승리: 시간 초과 시 체력 최다자
+{
+  const p1 = makePlayer({ id: 'p1', hp: 80 });
+  const p2 = makePlayer({ id: 'p2', hp: 40 });
+  const room = makeRoom({ p1, p2 }, { endsAt: 1000 });
+  const { winners, room: next } = stepSimulation(room, 1000);
+  assert.deepStrictEqual(winners, ['p1']);
+  assert.strictEqual(next.status, 'ended');
+  console.log('win by timeout (highest hp): OK');
+}
+
+// 승리: 시간 초과 + 동점 -> 전원 승자
+{
+  const p1 = makePlayer({ id: 'p1', hp: 60 });
+  const p2 = makePlayer({ id: 'p2', hp: 60 });
+  const p3 = makePlayer({ id: 'p3', hp: 30 });
+  const room = makeRoom({ p1, p2, p3 }, { endsAt: 1000 });
+  const { winners } = stepSimulation(room, 1000);
+  assert.deepStrictEqual(winners.sort(), ['p1', 'p2']);
+  console.log('win by timeout tie (multiple winners): OK');
+}
+
 console.log('battleSimulation.test.mjs (movement): OK');

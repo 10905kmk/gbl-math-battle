@@ -102,5 +102,19 @@ export function stepSimulation(room, now) {
     players[id] = { ...attacker, lastAttackAt: now };
   }
 
-  return { room: { ...room, players }, winners: null };
+  const alivePlayers = Object.values(players).filter((p) => p.alive);
+  let winners = null;
+  let status = room.status;
+  if (alivePlayers.length <= 1) {
+    winners = alivePlayers.map((p) => p.id);
+    status = 'ended';
+  } else if (now >= room.endsAt) {
+    const maxHp = Math.max(...Object.values(players).map((p) => p.hp));
+    winners = Object.values(players)
+      .filter((p) => p.hp === maxHp)
+      .map((p) => p.id);
+    status = 'ended';
+  }
+
+  return { room: { ...room, players, status }, winners };
 }
