@@ -17,7 +17,7 @@ const CHARACTER_COLORS = {
   char7: '#1abc9c', char8: '#34495e',
 };
 
-// 실시간 대전 화면. docs/초안.md 7-③, 2026-08-05 대전 시스템 설계 문서 참고.
+// 실시간 대전 화면. docs/초안.md 7-③, 2026-08-06 배틀로얄 점수제 설계 문서 참고.
 export function BattleScreen({ socket, state }) {
   const containerRef = useRef(null);
   const layerRef = useRef(null);
@@ -58,9 +58,12 @@ export function BattleScreen({ socket, state }) {
             stroke: isSelf ? '#ffffff' : undefined,
             strokeWidth: isSelf ? 3 : 0,
           });
-          const hpBar = new Konva.Rect({
-            x: p.x - CHARACTER_RADIUS, y: p.y - CHARACTER_RADIUS - 8,
-            width: CHARACTER_RADIUS * 2, height: 4, fill: '#2ecc71',
+          // 탈락이 없는 점수제라 체력바 대신 현재 누적 점수를 숫자로 보여준다.
+          const scoreLabel = new Konva.Text({
+            x: p.x - CHARACTER_RADIUS, y: p.y - CHARACTER_RADIUS - 18,
+            width: CHARACTER_RADIUS * 2,
+            text: String(p.score ?? 0),
+            fontSize: 12, fontStyle: 'bold', fill: '#fff', align: 'center',
           });
           const label = new Konva.Text({
             x: p.x - CHARACTER_RADIUS, y: p.y - 7,
@@ -72,21 +75,23 @@ export function BattleScreen({ socket, state }) {
           // 안 바뀌므로(제작 단계에서 확정) 여기서 한 번만 그리고 이후엔 위치만 옮긴다.
           const weaponGroup = drawWeaponGroup(Konva, p.weaponParts, { targetSize: WEAPON_ICON_SIZE });
           layer.add(circle);
-          layer.add(hpBar);
+          layer.add(scoreLabel);
           layer.add(label);
           layer.add(weaponGroup);
-          entry = { circle, hpBar, label, weaponGroup };
+          entry = { circle, scoreLabel, label, weaponGroup };
           nodesRef.current[p.id] = entry;
         }
         entry.circle.x(p.x);
         entry.circle.y(p.y);
-        entry.circle.opacity(p.alive ? 1 : 0.2);
-        entry.hpBar.x(p.x - CHARACTER_RADIUS);
-        entry.hpBar.y(p.y - CHARACTER_RADIUS - 8);
-        entry.hpBar.width(CHARACTER_RADIUS * 2 * Math.max(0, p.hp / 100));
+        // 탈락이 없으므로 이 흐림 처리는 "죽음"이 아니라 "연결 끊김"만 의미한다.
+        entry.circle.opacity(p.connected ? 1 : 0.2);
+        entry.scoreLabel.x(p.x - CHARACTER_RADIUS);
+        entry.scoreLabel.y(p.y - CHARACTER_RADIUS - 18);
+        entry.scoreLabel.text(String(p.score ?? 0));
+        entry.scoreLabel.opacity(p.connected ? 1 : 0.2);
         entry.label.x(p.x - CHARACTER_RADIUS);
         entry.label.y(p.y - 7);
-        entry.label.opacity(p.alive ? 1 : 0.2);
+        entry.label.opacity(p.connected ? 1 : 0.2);
         // 공격 히트박스(backend/lib/battleSimulation.js의 attackHitboxRect)와 같은
         // facing -> 오프셋 매핑 — 캐릭터가 바라보는 쪽에 무기를 든 것처럼 보이게 한다.
         // weaponGroup은 drawWeaponGroup 안에서 이미 자기 중심 기준으로 offset돼 있으므로,
@@ -102,7 +107,7 @@ export function BattleScreen({ socket, state }) {
         // dragBoundFunc(CanvasEditor.js)/moveOne(battleSimulation.js)과 같은 패턴.
         entry.weaponGroup.x(Math.min(ARENA_SIZE.width, Math.max(0, p.x + weaponOffset.x)));
         entry.weaponGroup.y(Math.min(ARENA_SIZE.height, Math.max(0, p.y + weaponOffset.y)));
-        entry.weaponGroup.opacity(p.alive ? 1 : 0.2);
+        entry.weaponGroup.opacity(p.connected ? 1 : 0.2);
       });
 
       layer.draw();
