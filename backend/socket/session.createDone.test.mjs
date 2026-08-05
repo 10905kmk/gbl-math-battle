@@ -27,10 +27,16 @@ for (let i = 1; i <= 5; i += 1) {
   registerSessionHandlers(io, makeSocket(`s${i}`));
 }
 
+// 참가자 화면은 접속 시 participant:join을 보낸다 — admin:startSession 시점에 이 신호를
+// 보낸 소켓 수가 이번 세션의 목표 인원(cohort.expectedParticipants)으로 고정된다.
+for (let i = 1; i <= 5; i += 1) {
+  handlers[`s${i}`]['participant:join']();
+}
+
 // create:done은 실제로는 create 화면이 떠 있을 때만(=stage가 'create'일 때만) 올 수 있다 —
 // stage latch(아래 회귀 테스트)를 제대로 검증하려면 이 테스트도 실제 흐름처럼 먼저
 // learn -> create로 진행시켜야 한다.
-handlers.s1['admin:startSession'](); // -> learn
+handlers.s1['admin:startSession'](); // -> learn (여기서 expectedParticipants = 5로 고정)
 handlers.s1['admin:nextStage'](); // -> create
 
 // 4명만 완료 — 아직 battle로 안 넘어가야 함
@@ -84,8 +90,19 @@ console.log('session.createDone.test.mjs: OK');
 {
   handlers.s1['admin:reset']();
   emitted.length = 0; // 이전 시나리오의 이벤트는 이 검증과 무관하니 비움
+  // 계획 수정(구현 중 발견): joined Set은 admin:reset으로도 비워지지 않으므로(설계 의도대로 —
+  // 참가자 기기가 그대로 접속돼 있다고 가정), 이전 시나리오의 s1~s5가 실제로는 퇴장하지 않은
+  // 채 그대로 남아있으면 이 블록의 expectedParticipants가 5가 아니라 10(s1~s5+r1~r5)으로
+  // 부풀려진다. 이 테스트는 "완전히 새로운 5명 세션"을 검증하려는 것이므로, 이전 참가자들의
+  // 기기가 실제로 연결을 끊었다고 명시적으로 흉내낸다.
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`s${i}`]['disconnect']();
+  }
   for (let i = 1; i <= 5; i += 1) {
     registerSessionHandlers(io, makeSocket(`r${i}`));
+  }
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`r${i}`]['participant:join']();
   }
   handlers.r1['admin:startSession']();
   handlers.r1['admin:nextStage'](); // -> create
@@ -126,6 +143,39 @@ console.log('session.createDone.test.mjs: OK');
 // 마지막 시나리오가 battle 단계로 끝나서 20Hz 틱(setInterval)이 계속 돌고 있다 — 정리 안 하면
 // 이 프로세스가 안 끝나거나(setInterval이 이벤트 루프를 붙잡음), 90초 뒤 라운드가 타임아웃으로
 // 끝나는 시점에 가서야 문제가 드러난다. 테스트 스크립트답게 명시적으로 정지시킨다.
+// 회귀 테스트: 5명 고정이 아니라 "세션 시작 시점에 접속해 있던 인원"이 목표가 되어야 한다 —
+// 3명만 참가했다면 3명 완료로 battle 전환돼야 한다(예전처럼 5명을 기다리며 멈춰있으면 안 됨).
+{
+  handlers.r1['admin:reset']();
+  emitted.length = 0;
+  // 계획 수정(구현 중 발견): 위 refresh 시나리오와 동일한 이유로, r2~r5(및 마지막으로 살아있는
+  // r1의 refresh4 소켓)를 명시적으로 disconnect시켜 joined Set에서 빼지 않으면 이 3명짜리
+  // 세션의 expectedParticipants가 3이 아니라 훨씬 큰 값으로 부풀려진다.
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`r${i}`]['disconnect']();
+  }
+  for (let i = 1; i <= 3; i += 1) {
+    registerSessionHandlers(io, makeSocket(`t${i}`));
+    handlers[`t${i}`]['participant:join']();
+  }
+  handlers.t1['admin:startSession']();
+  handlers.t1['admin:nextStage'](); // -> create
+
+  handlers.t1['create:done']({ damage: 100 });
+  handlers.t2['create:done']({ damage: 100 });
+  assert.ok(
+    !emitted.some(([ev, stage]) => ev === 'stage:change' && stage === 'battle'),
+    '3명 세션에서 2명만 완료 시 아직 battle 전환 안 됨',
+  );
+
+  handlers.t3['create:done']({ damage: 100 });
+  assert.ok(
+    emitted.some(([ev, stage]) => ev === 'stage:change' && stage === 'battle'),
+    '3명 세션은 3명만 완료해도 battle로 전환되어야 함(5명 고정이 아님)',
+  );
+  console.log('session locks expected participant count to join-time headcount, not a fixed 5: OK');
+}
+
 stopBattleRoom();
 
 console.log('session.createDone.test.mjs: all scenarios OK');

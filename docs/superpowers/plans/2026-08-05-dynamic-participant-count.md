@@ -263,6 +263,8 @@ export function registerSessionHandlers(io, socket) {
 Run: `node backend/socket/session.createDone.test.mjs`
 Expected: `session.createDone.test.mjs: all scenarios OK`까지 전부 출력, 에러 없음(마지막에 `session locks expected participant count to join-time headcount, not a fixed 5: OK` 줄도 포함).
 
+> **계획 수정(구현 중 발견):** Step 1의 코드를 문서 그대로 옮긴 뒤 처음 돌렸을 때, "refresh churn" 블록에서 `stageChangesAfterRefreshes`가 `['learn', 'create']`로 멈추고(battle 전환 안 됨) `AssertionError`가 발생했다. 원인: `joined` Set은 모듈 스코프 상태라 테스트 파일 전체에서 공유되는데, `admin:reset()`은 `joined`를 비우지 않도록 설계돼 있다(설계 의도 — 실제로는 참가자 기기가 리셋 후에도 그대로 접속돼 있으므로). 그런데 이 테스트는 시나리오 블록마다 `s1~s5` → `r1~r5` → `t1~t3`로 완전히 다른 새 mock 소켓을 등록하면서 이전 블록의 소켓들에 대한 `disconnect`를 한 번도 호출하지 않았다 — 그 결과 이전 블록에서 `participant:join`한 소켓들이 `joined`에 계속 남아, 다음 블록의 `admin:startSession` 시점 `joined.size`(=`expectedParticipants`)가 의도한 값보다 훨씬 크게 잡혔다(예: refresh 블록에서 5가 아니라 s1~s5+r1~r5=10). 실제 부스 운영에서는 각 세션 사이에 이전 참가자의 기기가 실제로 연결을 끊는 것이 정상이므로, "refresh churn" 블록과 "3명 세션" 블록 시작 직전에 이전 블록 소켓들의 `disconnect` 핸들러를 명시적으로 호출하는 코드를 추가해 이 상황을 흉내내도록 테스트를 보강했다(구현은 `backend/socket/session.createDone.test.mjs`에 반영). 프로덕션 코드(`session.js`)나 설계 자체에는 변경이 없다 — 테스트의 시나리오 격리 누락을 보완한 것.
+
 - [ ] **Step 5: 다른 소켓 테스트가 여전히 통과하는지 확인**
 
 Run: `node backend/socket/battleIntegration.test.mjs`
