@@ -20,14 +20,20 @@ export function cacheKey(weaponState) {
   return JSON.stringify(normalize(weaponState));
 }
 
-// 같은 key는 항상 같은 정수를 [min, max] 범위 안에서 반환 (결정론적 해시 기반)
+// 같은 key는 항상 같은 정수를 [min, max] 범위 안에서 반환 (결정론적 해시 기반).
+// max < min이면 range가 0 이하가 되어 결과가 하한 밖으로 튈 수 있다 — 지금은 호출자(MOCK_AI
+// 경로)가 항상 정상적인 [DAMAGE_MIN, DAMAGE_MAX]를 넘기지만, 나중에 실제 Gemini 응답에서
+// min/max를 받는 경로가 붙으면 모델이 범위를 뒤집어 줄 수도 있으므로 여기서 한 번에 막는다
+// (Opus 리뷰 Important #14).
 export function seededPick(key, min, max) {
+  const lo = Math.min(min, max);
+  const hi = Math.max(min, max);
   let hash = 0;
   for (let i = 0; i < key.length; i += 1) {
     hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
   }
-  const range = max - min + 1;
-  return min + (hash % range);
+  const range = hi - lo + 1;
+  return lo + (hash % range);
 }
 
 export function getCached(key) {
