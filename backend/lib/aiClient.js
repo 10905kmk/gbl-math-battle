@@ -1,19 +1,13 @@
 // backend/lib/aiClient.js — Gemini 연동: 무기 채팅 해석 + 무기 채점
 import { cacheKey, seededPick, getCached, setCached, seedCache } from './weaponCache.js';
 import { SAMPLES } from './weaponEvaluationSamples.js';
+import { getApiKeys } from './apiKeys.js';
 
 export const DAMAGE_MIN = 1;
 export const DAMAGE_MAX = 10000;
 const GEMINI_MODEL = 'gemini-2.0-flash';
 
 seedCache(SAMPLES);
-
-function getKeyPool() {
-  return (process.env.GEMINI_API_KEYS || '')
-    .split(',')
-    .map((k) => k.trim())
-    .filter(Boolean);
-}
 
 let keyIndex = 0;
 function nextKey(pool) {
@@ -23,11 +17,12 @@ function nextKey(pool) {
 }
 
 // 키 풀을 순환하며 요청. 429(rate limit)면 다음 키로 재시도, 그 외 에러는 즉시 던짐.
-async function callGeminiWithRotation(requestFn) {
-  const pool = getKeyPool();
+// pool은 기본으로 apiKeys.json의 gemini 키 배열을 쓰지만, 파라미터로 받을 수 있게 해서
+// 테스트가 실제 키 파일 없이도 가짜 키 배열을 주입해 로테이션 로직만 따로 검증할 수 있다
+// (shapes/weaponRenderer.js의 drawWeaponGroup(Konva, ...)와 같은 이유의 의존성 주입).
+export async function callGeminiWithRotation(requestFn, pool = getApiKeys('gemini')) {
   if (pool.length === 0) {
-    const err = new Error('GEMINI_API_KEYS not configured');
-    throw err;
+    throw new Error('gemini API 키가 없습니다 — backend/config/apiKeys.json의 "gemini" 배열을 채워주세요');
   }
   let lastError;
   for (let attempt = 0; attempt < pool.length; attempt += 1) {
