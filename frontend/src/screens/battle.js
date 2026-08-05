@@ -2,6 +2,7 @@ import { h } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import htm from 'htm';
 import Konva from 'konva';
+import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
 
 const html = htm.bind(h);
 
@@ -63,10 +64,14 @@ export function BattleScreen({ socket, state }) {
             text: (p.characterId ?? '').replace('char', ''),
             fontSize: 14, fontStyle: 'bold', fill: '#fff', align: 'center',
           });
+          // 참가자가 제작 화면에서 만든 무기를 작게 그려서 캐릭터 옆에 붙인다 — 무기는 대전 중
+          // 안 바뀌므로(제작 단계에서 확정) 여기서 한 번만 그리고 이후엔 위치만 옮긴다.
+          const weaponGroup = drawWeaponGroup(Konva, p.weaponParts, { targetSize: CHARACTER_RADIUS });
           layer.add(circle);
           layer.add(hpBar);
           layer.add(label);
-          entry = { circle, hpBar, label };
+          layer.add(weaponGroup);
+          entry = { circle, hpBar, label, weaponGroup };
           nodesRef.current[p.id] = entry;
         }
         entry.circle.x(p.x);
@@ -78,6 +83,18 @@ export function BattleScreen({ socket, state }) {
         entry.label.x(p.x - CHARACTER_RADIUS);
         entry.label.y(p.y - 7);
         entry.label.opacity(p.alive ? 1 : 0.2);
+        // 공격 히트박스(backend/lib/battleSimulation.js의 attackHitboxRect)와 같은
+        // facing -> 오프셋 매핑 — 캐릭터가 바라보는 쪽에 무기를 든 것처럼 보이게 한다.
+        const WEAPON_OFFSET = CHARACTER_RADIUS + 4;
+        const weaponOffset = {
+          up: { x: 0, y: -WEAPON_OFFSET },
+          down: { x: 0, y: WEAPON_OFFSET },
+          left: { x: -WEAPON_OFFSET, y: 0 },
+          right: { x: WEAPON_OFFSET, y: 0 },
+        }[p.facing] ?? { x: WEAPON_OFFSET, y: 0 };
+        entry.weaponGroup.x(p.x + weaponOffset.x);
+        entry.weaponGroup.y(p.y + weaponOffset.y);
+        entry.weaponGroup.opacity(p.alive ? 1 : 0.2);
       });
 
       layer.draw();
