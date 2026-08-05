@@ -57,6 +57,22 @@ function moveOne(player, walls) {
   return { ...player, x, y, facing };
 }
 
+function attackHitboxRect(player) {
+  const offset = CHARACTER_RADIUS + ATTACK_HITBOX_SIZE / 2;
+  const center = {
+    up: { x: player.x, y: player.y - offset },
+    down: { x: player.x, y: player.y + offset },
+    left: { x: player.x - offset, y: player.y },
+    right: { x: player.x + offset, y: player.y },
+  }[player.facing];
+  return {
+    x: center.x - ATTACK_HITBOX_SIZE / 2,
+    y: center.y - ATTACK_HITBOX_SIZE / 2,
+    width: ATTACK_HITBOX_SIZE,
+    height: ATTACK_HITBOX_SIZE,
+  };
+}
+
 export function stepSimulation(room, now) {
   if (room.status !== 'active') return { room, winners: null };
 
@@ -64,6 +80,26 @@ export function stepSimulation(room, now) {
   for (const id of Object.keys(room.players)) {
     const p = room.players[id];
     players[id] = p.alive ? moveOne(p, room.walls) : { ...p };
+  }
+
+  // 공격 판정 — 참가자 순서(입장 순서)대로 한 명씩 처리, 쿨다운 통과 시 즉시 판정
+  for (const id of Object.keys(players)) {
+    const attacker = players[id];
+    if (!attacker.alive) continue;
+    if (!attacker.input.attack) continue;
+    if (now - attacker.lastAttackAt < ATTACK_COOLDOWN_MS) continue;
+
+    const hitbox = attackHitboxRect(attacker);
+    for (const targetId of Object.keys(players)) {
+      if (targetId === id) continue;
+      const target = players[targetId];
+      if (!target.alive) continue;
+      if (circleRectOverlap(target.x, target.y, CHARACTER_RADIUS, hitbox.x, hitbox.y, hitbox.width, hitbox.height)) {
+        const hp = Math.max(0, target.hp - attacker.hitDamage);
+        players[targetId] = { ...target, hp, alive: hp > 0 };
+      }
+    }
+    players[id] = { ...attacker, lastAttackAt: now };
   }
 
   return { room: { ...room, players }, winners: null };
