@@ -39,8 +39,8 @@ handlers.p1['admin:nextStage'](); // -> battle (startBattleRoom 트리거되어�
 const room = getBattleRoom();
 assert.ok(room, 'battle room이 생성되어 있어야 함');
 assert.strictEqual(Object.keys(room.players).length, 5);
-assert.strictEqual(room.players.p1.hitDamage, 5, 'damage=1000 -> round(1000/200)=5');
-assert.strictEqual(room.players.p5.hitDamage, 25, 'damage=5000 -> round(5000/200)=25');
+assert.strictEqual(room.players.p1.hitScore, 50, 'damage=1000 -> round(1000*0.05)=50');
+assert.strictEqual(room.players.p5.hitScore, 250, 'damage=5000 -> round(5000*0.05)=250');
 assert.strictEqual(room.status, 'active');
 console.log('battle room initialized from participants: OK');
 
@@ -72,10 +72,10 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   battleHandlers['battle:input'](undefined);
   assert.strictEqual(getBattleRoom().players.p1.input.right, false, 'undefined는 전부 false로 취급');
 
-  // 연결이 끊기면 해당 참가자는 죽은 것으로 처리되어야 함(무적 유령 방지)
+  // 연결이 끊기면 해당 참가자는 조작 불가 상태로 처리되어야 한다(더 이상 "죽는" 개념은 없음).
   battleHandlers['disconnect']();
-  assert.strictEqual(getBattleRoom().players.p1.alive, false, '연결 끊긴 참가자는 alive=false');
-  console.log('disconnect marks player as not alive: OK');
+  assert.strictEqual(getBattleRoom().players.p1.connected, false, '연결 끊긴 참가자는 connected=false');
+  console.log('disconnect marks player as not connected: OK');
 }
 
 // 라운드를 강제로 즉시 종료시켜서(제한시간을 과거로 이동) onEnd -> stage:change('result')까지
@@ -100,12 +100,13 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   const stageChanges = emitted.filter(([ev]) => ev === 'stage:change').map(([, s]) => s);
   assert.deepStrictEqual(stageChanges, ['learn', 'create', 'battle', 'result']);
 
-  // p1은 앞서 disconnect 처리돼서 alive=false였지만, 그래도 결과 통지 대상에는 포함되어야 한다
-  // (io.to(id).emit은 room.players 전체를 순회하지, 생존자만 순회하지 않으므로).
+  // p1은 앞서 disconnect 처리돼서 connected=false였지만, 아무도 서로 공격하지 않아 전원 점수가
+  // 0으로 동점이다 — 탈락 개념이 없으므로 연결이 끊긴 참가자도 자기 점수 그대로 판정에
+  // 포함되어 전원 공동 승리 처리된다(HP 기반 시절엔 반대로 "죽었으니 패배"였다).
   assert.ok(resultsSentTo.p1, 'p1(연결 끊김 처리된 참가자)에게도 battle:result가 전달되어야 함');
-  assert.strictEqual(resultsSentTo.p1[0][1].win, false, '죽은 p1은 패배 처리');
+  assert.strictEqual(resultsSentTo.p1[0][1].win, true, '연결이 끊겨도 점수는 유지되어 동점 공동 승리에 포함됨');
   assert.ok(resultsSentTo.p2 && resultsSentTo.p2[0][0] === 'battle:result', 'p2에게 battle:result가 전달되어야 함');
-  assert.strictEqual(resultsSentTo.p2[0][1].win, true, '생존자 4명은 동점으로 전원 승리 처리');
+  assert.strictEqual(resultsSentTo.p2[0][1].win, true, '아무도 공격하지 않아 전원 0점 동점으로 전원 승리 처리');
   console.log('battle end -> stage change to result: OK');
 
   // 실제로 저장이 시도됐다는 증거 — no-op 재확인이 아니라 mock 저장 경고 횟수를 직접 센다.

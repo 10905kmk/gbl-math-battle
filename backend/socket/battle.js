@@ -1,4 +1,4 @@
-import { stepSimulation, hitDamageFromWeaponDamage, BATTLE_DURATION_MS } from '../lib/battleSimulation.js';
+import { stepSimulation, hitScoreFromWeaponDamage, BATTLE_DURATION_MS } from '../lib/battleSimulation.js';
 import { DEFAULT_MAP, SPAWN_POINTS } from '../lib/battleMap.js';
 
 const CHARACTER_IDS = ['char1', 'char2', 'char3', 'char4', 'char5', 'char6', 'char7', 'char8'];
@@ -35,10 +35,10 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
       x: spawn.x,
       y: spawn.y,
       facing: 'down',
-      hp: 100,
-      hitDamage: hitDamageFromWeaponDamage(participant.weapon?.damage),
+      score: 0,
+      hitScore: hitScoreFromWeaponDamage(participant.weapon?.damage),
       weaponParts: participant.weapon?.parts ?? [],
-      alive: true,
+      connected: true,
       lastAttackAt: 0,
       input: { up: false, down: false, left: false, right: false, attack: false },
     };
@@ -57,13 +57,18 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
     io.emit('battle:state', battleRoom);
 
     if (winners !== null) {
-      // stopBattleRoom()이 battleRoom을 null로 비우기 전에, 결과를 보낼 대상 목록을 먼저 뽑아둔다.
+      // stopBattleRoom()이 battleRoom을 null로 비우기 전에, 결과를 보낼 대상 목록과 최종
+      // 점수 스냅샷을 먼저 뽑아둔다 — session.js가 결과 저장에 점수를 함께 쓴다.
       const endedRoom = battleRoom;
+      const scores = {};
+      for (const id of Object.keys(endedRoom.players)) {
+        scores[id] = endedRoom.players[id].score;
+      }
       stopBattleRoom();
       for (const id of Object.keys(endedRoom.players)) {
         io.to(id).emit('battle:result', { win: winners.includes(id) });
       }
-      if (onEnd) onEnd(winners);
+      if (onEnd) onEnd(winners, scores);
     }
   }, TICK_MS);
 }
@@ -82,11 +87,11 @@ export function registerBattleHandlers(io, socket) {
     };
   });
 
-  // 대전 중 연결이 끊긴 참가자는 죽은 것으로 처리 — 안 그러면 무적 상태인 채로 남아서
-  // 마지막 생존자 판정이 영원히 안 나고, 그 인원이 시간 초과 시 체력 최다자로 이겨버릴 수 있다.
+  // 대전 중 연결이 끊긴 참가자는 더 이상 조작할 수 없는 상태로 처리 — 이동/공격 대상에서
+  // 제외되지만(stepSimulation의 connected 체크), 점수는 그대로 유지되어 최종 판정에 포함된다.
   socket.on('disconnect', () => {
     if (battleRoom && battleRoom.players[socket.id]) {
-      battleRoom.players[socket.id] = { ...battleRoom.players[socket.id], alive: false };
+      battleRoom.players[socket.id] = { ...battleRoom.players[socket.id], connected: false };
     }
   });
 }
