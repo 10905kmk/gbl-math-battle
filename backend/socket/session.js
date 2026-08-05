@@ -34,8 +34,8 @@ function goToStage(io, nextStage) {
       // 이 콜백이 그때 가서 엉뚱하게 result로 되돌려버릴 수 있다 — 그 사이 stage가 이미
       // battle이 아니게 됐으면 무시한다. (아래 else 분기가 stopBattleRoom도 호출하므로
       // 정상 경로에서는 이 콜백 자체가 그 뒤로 불릴 일이 없다 — 이건 이중 방어.)
-      onEnd: (winners) => {
-        saveParticipantResults(participantsAtBattleStart, winners).catch((err) => {
+      onEnd: (winners, scores) => {
+        saveParticipantResults(participantsAtBattleStart, winners, scores).catch((err) => {
           console.error('[session] 결과 저장 중 예외:', err);
         });
         if (cohort.stage === 'battle') goToStage(io, 'result');

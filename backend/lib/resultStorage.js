@@ -12,14 +12,18 @@ const DEFAULT_FALLBACK_PATH = path.join(__dirname, '../data/results-fallback.jso
 // winners는 배열이 아닌 값(undefined 등)이 들어와도 여기서 막아야 한다 — 이 함수는 호출자가
 // await 없이 fire-and-forget으로 호출하므로(session.js), map() 콜백 안에서 던지는 예외는
 // Promise.allSettled가 절대 잡아주지 못하고 그대로 unhandled rejection이 되어 서버가 죽는다.
-export async function saveParticipantResults(participants, winners, saveFn = saveResult, fallbackPath = DEFAULT_FALLBACK_PATH) {
+// scores도 같은 이유로 방어한다 — { [participantId]: number } 형태가 아니면 각 참가자의
+// score를 null로 남긴다.
+export async function saveParticipantResults(participants, winners, scores, saveFn = saveResult, fallbackPath = DEFAULT_FALLBACK_PATH) {
   const winnerIds = Array.isArray(winners) ? winners : [];
+  const safeScores = scores && typeof scores === 'object' ? scores : {};
   const payloads = participants.map((p) => ({
     weapon_name: p.weapon?.name,
     weapon_image: p.weapon?.image,
     weapon_stats: p.weapon?.stats,
     weapon_damage: p.weapon?.damage,
     win: winnerIds.includes(p.id),
+    score: Number.isFinite(safeScores[p.id]) ? safeScores[p.id] : null,
   }));
 
   const outcomes = await Promise.allSettled(payloads.map((payload) => saveFn(payload)));

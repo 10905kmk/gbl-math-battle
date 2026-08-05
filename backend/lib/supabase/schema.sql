@@ -1,4 +1,8 @@
 -- Supabase SQL Editor에서 실행. 실제 프로젝트 생성/URL·키 발급은 사용자가 브라우저에서 직접 진행.
+--
+-- 이미 results 테이블이 있는 기존 Supabase 프로젝트라면(create table if not exists는 기존
+-- 테이블의 컬럼을 바꿔주지 않음) SQL Editor에서 아래를 먼저 실행할 것:
+--   alter table results add column if not exists score integer;
 create table if not exists results (
   id uuid primary key default gen_random_uuid(),
   weapon_name text,
@@ -6,6 +10,7 @@ create table if not exists results (
   weapon_stats jsonb,      -- { attack, defense }
   weapon_damage integer,
   win boolean,
+  score integer,           -- 대전 종료 시점 누적 점수 (2026-08-06 배틀로얄 점수제 설계 참고)
   created_at timestamptz not null default now()
 );
 
