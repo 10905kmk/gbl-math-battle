@@ -73,7 +73,13 @@ export function registerSessionHandlers(io, socket) {
     // 이 시점까지 접속해 있던 참가자 수를 이번 세션의 목표 인원으로 고정한다. 하드코딩된
     // 상수(예전엔 5) 대신, 실제 부스 회차마다 다를 수 있는 인원에 맞춘다.
     cohort.expectedParticipants = joined.size;
+    // 이 스냅샷은 관리자가 되돌릴 수 없는 단발성 결정이라(운영 중 눈으로 확인할 방법이 없으면
+    // 과소/과다 집계를 그 자리에서 알아챌 수 없다 — Opus 리뷰 Important I1) 서버 로그로
+    // 남기고, 이미 접속해 있던 참가자 화면들에도 즉시 정확한 total을 알려준다(Minor M1 —
+    // 안 그러면 첫 create:done이 올 때까지 옛 total이 그대로 보인다).
+    console.log(`[session] 세션 시작 — 목표 인원 ${cohort.expectedParticipants}명으로 고정`);
     goToStage(io, 'learn');
+    broadcastProgress(io);
   });
 
   socket.on('admin:nextSlide', () => {
@@ -121,7 +127,11 @@ export function registerSessionHandlers(io, socket) {
     // create:done은 무시한다 — 안 그러면 느린 참가자가 뒤늦게 "AI 평가받기"를 눌렀을 때 이미
     // battle/result까지 진행된 코호트를 도로 battle로 되돌려버릴 수 있다(Opus 리뷰 Critical #2a).
     if (cohort.stage !== 'create') return;
-    if (doneCount() >= cohort.expectedParticipants) {
+    // expectedParticipants가 0이면(관리자가 아무도 접속하지 않은 상태에서 세션 시작을 누른
+    // 경우) doneCount() >= 0은 첫 완료자만으로 항상 참이 되어 1명짜리 battle room이 열리고
+    // 곧바로 종료돼버린다(Opus 리뷰 Critical C1). 목표 인원이 실제로 1명 이상 고정된 경우에만
+    // 완료 인원과 비교한다.
+    if (cohort.expectedParticipants > 0 && doneCount() >= cohort.expectedParticipants) {
       goToStage(io, 'battle');
     }
   });
