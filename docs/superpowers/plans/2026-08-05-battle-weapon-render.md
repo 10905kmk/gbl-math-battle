@@ -198,6 +198,8 @@ export function drawWeaponGroup(parts, { targetSize = 20 } = {}) {
 }
 ```
 
+**계획 수정(구현 중 발견)**: 스펙/이 계획의 원안은 `drawWeaponGroup(parts, options)`가 파일 안에서 `import Konva from 'konva'`를 직접 하는 걸 전제로 했다. 실제로 테스트를 실행해보니 `shapes/weaponRenderer.js`를 Node에서 import하는 것 자체가(순수 함수인 `computeWeaponBounds`만 쓰더라도) `konva` 패키지를 못 찾아 즉시 실패했다 — 이 프로젝트에서 Konva는 브라우저 CDN import map으로만 존재하고 npm 패키지로 설치돼 있지 않기 때문. 그래서 `drawWeaponGroup(Konva, parts, options)`로 시그니처를 바꿔서, 호출 측(이미 자기 쪽에서 Konva를 import해둔 `battle.js`)이 자신의 Konva 참조를 넘겨주도록 했다. Task 3의 호출부도 이에 맞춰 `drawWeaponGroup(Konva, p.weaponParts, { targetSize: CHARACTER_RADIUS })`로 읽을 것.
+
 - [ ] **Step 4: 테스트 실행해서 통과 확인**
 
 Run: `node shapes/weaponRenderer.test.mjs`
