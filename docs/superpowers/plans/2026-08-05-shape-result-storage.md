@@ -346,3 +346,29 @@ git commit -m "docs: .env.example에 Supabase 설정 안내 추가"
 3. 발급받은 URL/서비스 키를 실제 `.env`(git 제외 파일, `.env.example` 아님)에 채우기
 
 를 완료해야 mock이 아닌 실제 영구 저장이 동작한다.
+
+---
+
+## 구현 후 최종 리뷰(Opus) 반영 사항
+
+4개 태스크 구현 완료 후 별도 세션에서 Opus 모델로 전체 브랜치 diff(`09bc773..HEAD`)를 리뷰. 실제 코드 실행(서버 기동, 세 테스트 스크립트, 자식 프로세스로 half-configured env 재현)까지 거쳐 Critical 1건 + Important 5건을 확인, 전부 수정하고 회귀 테스트를 추가함 (커밋 `a208878`).
+
+**Critical — 수정함**
+1. `SUPABASE_URL`만 설정되고 `SUPABASE_SERVICE_KEY`가 비어있으면 `createClient()`가 모듈 로드 시점에 "supabaseKey is required"로 즉시 throw해서 **서버 전체가 못 뜸** (결과 저장뿐 아니라). 부스 당일 `.env`에 URL만 붙여넣고 키를 깜빡하는 실수 하나로 전체 다운되는 시나리오라 가장 우선 수정. 두 값이 모두 있어야만 실제 클라이언트를 만들도록 가드 변경.
+
+**Important — 수정함**
+2. `session.js`의 fire-and-forget 호출(`saveParticipantResults(...)` — `await` 없음)이 예외에 무방비였음. 계획 문서 자체가 "`Promise.allSettled`를 쓰므로 reject하지 않는다"고 잘못 서술했는데, `allSettled`는 `.map()` 콜백 안에서 던지는 예외를 못 잡는다(그 예외는 `allSettled` 호출 이전에 발생). `winners`가 배열이 아니면(`undefined` 등) 크래시 재현됨 — `Array.isArray` 가드 추가 + `session.js`에 `.catch()` 추가.
+3. 대전 도중 참가자가 연결을 끊으면 `session.js`의 disconnect 핸들러가 `cohort.participants`를 필터링된 새 배열로 재할당하는데, 결과 저장은 라운드 종료 시점에 그 배열을 다시 읽고 있어서 **연결 끊긴 참가자의 결과가 저장 자체가 안 됨** — 이 기능의 존재 이유("결과가 부스 끝나도 남는다")를 정면으로 배신하는 버그. 대전 시작 시점에 참가자 목록을 스냅샷으로 떼어 클로저에 담아 해결.
+4. Supabase 테이블은 기본적으로 RLS가 꺼져 있어 anon 키로 select/insert/delete가 전부 가능한데, 다음 스펙(result-page)이 그 anon 키를 브라우저에 노출할 예정이라 스키마 작성 시점에 미리 RLS 활성화 + 공개 읽기 정책만 추가.
+5. `battleIntegration.test.mjs`에 계획서가 지시한 "저장 검증" assert가 이미 직전 줄에서 검증된 조건을 토씨 하나 안 바꾸고 재확인하는 **사실상 no-op**이었음 — 계획서 자체가 이 스텝을 "이례적"이라고 자인했는데도 실제로 값어치가 없었던 케이스. `console.warn` mock-저장 경고 횟수를 세는 방식으로 교체해 실제 증거로 만듦.
+6. 저장 실패가 콘솔 로그 한 줄로만 남아서, 부스 운영 중 아무도 터미널을 안 보고 있으면 네트워크 문제 등으로 하루치 결과가 통째로 유실된 걸 행사가 끝난 뒤에야 알게 되는 문제. 실패한 저장은 로컬 JSONL(`backend/data/results-fallback.jsonl`, git 제외)에 남기도록 추가.
+
+**Minor — 의도적으로 보류 (내 판단, 사용자 지시 아님)**
+- 저장된 row에 참가자/세션 식별자가 전혀 없어 다음 스펙(결과 확인 페이지)이 이 데이터로 조회를 구현하려면 스키마 마이그레이션이 필요함 — 다음 스펙에서 같이 다룰 것
+- mock 경고가 라운드마다(참가자 수만큼) 반복 출력됨 — 부팅 시 1회로 바꾸는 게 더 눈에 잘 띔
+- `weapon_damage integer` 컬럼이 비정수 값에 타입 에러로 row 전체를 드롭시킬 수 있음(AI 산출값이 float일 가능성) — `battleSimulation.js`의 `hitDamageFromWeaponDamage`처럼 좌표/스탯류는 항상 `Number.isFinite` 가드를 거치는 게 이 코드베이스의 기존 패턴이라, 다음에 손댈 때 같이 정리
+- `POST /api/result` 라우트가 mock 폴백 도입으로 인증/검증 없이 200을 반환하게 됐지만 현재 아무도 호출하지 않음 — result-page 스펙에서 실제로 연결하기 전에 재검토 필요
+
+**리뷰가 짚은 중요한 운영상 제약(문서화만, 코드 변경 없음)**
+- 이 저장 기능은 `feature/battle-system` 단독으로는 **끝까지 검증 불가능**하다 — 이 브랜치의 `create.js`는 아직 스캐폴드 상태라 `/api/weapon` 호출이 항상 실패하고 `{ name: '도형의 기본형', stats: {} }`만 저장됨(`image`/`damage`/`parts` 없음). 실제 무기 데이터 생성 로직은 `feature/weapon-crafting`에만 있음. 두 브랜치가 합쳐진 뒤 실제 라운드 1회를 돌려 `weapon_image`가 null이 아닌 row가 저장되는지 스모크 테스트 필요.
+- Konva `toDataURL()` 이미지가 참가자당 수백 KB일 수 있고 5명이 라운드마다 동시에 저장을 시도하는데, 이미지 축소나 insert 타임아웃이 전혀 없음 — fire-and-forget이라 참가자 경험엔 영향 없지만, 앞의 "저장 실패가 조용함" 문제와 겹치면 "그냥 느리게 실패"하는 것도 눈치채기 어려움. 실제 Supabase 연동 전에 `toDataURL({ pixelRatio: 0.5 })` 등으로 크기 줄이는 걸 고려.
