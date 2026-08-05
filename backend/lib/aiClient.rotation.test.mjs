@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { callGeminiWithRotation, requestDamageRange } from './aiClient.js';
+import { callGeminiWithRotation, requestDamageRange, requestToolCalls } from './aiClient.js';
 
 // callGeminiWithRotation — 429면 다음 키로 재시도, 그 외 에러는 즉시 던짐. 실제 fetch 없이
 // pool/requestFn을 직접 주입해서 로테이션 로직만 검증한다(DI 패턴 —
@@ -72,5 +72,41 @@ console.log('requestDamageRange attaches the HTTP status to the thrown error: OK
   global.fetch = origFetch;
 }
 console.log('requestDamageRange rejects a non-numeric min/max response: OK');
+
+// requestToolCalls — functionCall 파트를 {op, ...args}로, text 파트를 reply로 매핑.
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [
+            { functionCall: { name: 'addPart', args: { shapeId: 'triangle', x: 100, y: 100 } } },
+            { text: '삼각형을 추가했어요.' },
+          ],
+        },
+      }],
+    }),
+  });
+  const result = await requestToolCalls('fake-key', { parts: [] }, '삼각형 추가해줘', ['triangle'], { width: 480, height: 480 });
+  global.fetch = origFetch;
+  assert.deepStrictEqual(result.toolCalls, [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100 }]);
+  assert.strictEqual(result.reply, '삼각형을 추가했어요.');
+}
+console.log('requestToolCalls maps functionCall parts to {op, ...args} and text parts to reply: OK');
+
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ candidates: [{ content: { parts: [] } }] }),
+  });
+  const result = await requestToolCalls('fake-key', { parts: [] }, '아무 말', [], { width: 480, height: 480 });
+  global.fetch = origFetch;
+  assert.deepStrictEqual(result.toolCalls, []);
+  assert.strictEqual(result.reply, '(응답 텍스트가 없어요)', '텍스트 파트가 전혀 없으면 기본 안내 문구로 대체되어야 함');
+}
+console.log('requestToolCalls falls back to a placeholder reply when Gemini returns no text: OK');
 
 console.log('aiClient.rotation.test.mjs: OK');

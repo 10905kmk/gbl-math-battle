@@ -111,22 +111,111 @@ export async function evaluateWeapon(weaponState) {
   return { damage, cached: false };
 }
 
-// TODO(후속 태스크): 실제 Gemini function-calling 연동 구현. 지금은 데모/영상 촬영이 급해서
-// MOCK_AI 경로(mockInterpretCommand)만 완성하고 실제 호출은 스텁으로 둔다.
-// weaponChat.js 라우트(Task 8)는 interpretCommand가 던지면 502로 응답하도록 이미 되어 있어서,
-// 스텁 상태로 둬도 다른 경로가 깨지지 않는다 (MOCK_AI=false로 실행하면 채팅이 매번 에러 표시만 됨).
-//
-// 나중에 구현할 때 필요한 tool 스키마(5개, Gemini function-calling 형식)와 시스템 프롬프트 요지:
-//   - addPart(shapeId, x, y, rotation?, scale?) — 새 부품 추가
-//   - movePart(partId, x, y) — 이동
-//   - rotatePart(partId, rotation) — 회전
-//   - scalePart(partId, scale) — 크기조절
-//   - removePart(partId) — 삭제
-//   시스템 프롬프트에는 사용 가능한 shapeId 목록, 캔버스 크기, 현재 weaponState.parts,
-//   "부품은 최대 10개까지" 제약을 포함시킬 것. 응답은 functionCall 파트들 + 텍스트 reply 파트를
-//   한 응답 안에서 함께 받는다(멀티스텝 루프 불필요).
-async function requestToolCalls() {
-  throw new Error('requestToolCalls not implemented yet — real Gemini call is a follow-up task');
+const TOOL_DECLARATIONS = [
+  {
+    name: 'addPart',
+    description: '무기에 새 도형 부품을 추가한다.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        shapeId: { type: 'STRING' },
+        x: { type: 'NUMBER' },
+        y: { type: 'NUMBER' },
+        rotation: { type: 'NUMBER' },
+        scale: { type: 'NUMBER' },
+      },
+      required: ['shapeId', 'x', 'y'],
+    },
+  },
+  {
+    name: 'movePart',
+    description: '기존 부품을 새 위치로 옮긴다.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        partId: { type: 'STRING' },
+        x: { type: 'NUMBER' },
+        y: { type: 'NUMBER' },
+      },
+      required: ['partId', 'x', 'y'],
+    },
+  },
+  {
+    name: 'rotatePart',
+    description: '기존 부품을 회전시킨다.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        partId: { type: 'STRING' },
+        rotation: { type: 'NUMBER' },
+      },
+      required: ['partId', 'rotation'],
+    },
+  },
+  {
+    name: 'scalePart',
+    description: '기존 부품의 크기를 바꾼다.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        partId: { type: 'STRING' },
+        scale: { type: 'NUMBER' },
+      },
+      required: ['partId', 'scale'],
+    },
+  },
+  {
+    name: 'removePart',
+    description: '기존 부품을 제거한다.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        partId: { type: 'STRING' },
+      },
+      required: ['partId'],
+    },
+  },
+];
+
+function buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) {
+  return [
+    '너는 수학 도형 무기 제작을 도와주는 도우미다. 사용자의 자연어 명령을 아래 함수 호출로 변환하라.',
+    `사용 가능한 shapeId: ${availableShapeIds.join(', ')}`,
+    `캔버스 크기: ${canvasSize.width}x${canvasSize.height} (x/y는 이 범위 안)`,
+    `현재 부품 목록: ${JSON.stringify(weaponState.parts)}`,
+    '부품은 최대 10개까지만 추가할 수 있다.',
+    '함수 호출과 함께, 사용자에게 보여줄 짧은 한국어 응답 텍스트도 반드시 함께 답하라.',
+  ].join('\n');
+}
+
+// 사용자의 자연어 명령을 Gemini function calling으로 해석해 toolCalls로 변환한다.
+export async function requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize) {
+  const res = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) }] },
+      contents: [{ role: 'user', parts: [{ text: message }] }],
+      tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+    }),
+  });
+  if (!res.ok) {
+    const err = new Error(`Gemini chat request failed with ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  const toolCalls = [];
+  let reply = '';
+  for (const part of parts) {
+    if (part.functionCall) {
+      toolCalls.push({ op: part.functionCall.name, ...part.functionCall.args });
+    } else if (part.text) {
+      reply += part.text;
+    }
+  }
+  return { toolCalls, reply: reply || '(응답 텍스트가 없어요)' };
 }
 
 function mockInterpretCommand(message) {
