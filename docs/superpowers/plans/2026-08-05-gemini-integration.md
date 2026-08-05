@@ -931,3 +931,11 @@ git commit -m "feat: requestToolCalls 실제 Gemini function calling 연동 구�
 6. AI 채팅 패널에서 "삼각형 하나 추가해줘" 같은 명령을 보내서 `requestToolCalls`가 실제로 도형을 추가하는지 확인한다.
 7. 만약 응답 형식이 기대(`responseSchema`/function calling 스키마)와 다르게 오면, 실제 Gemini 응답 payload를 로그로 남겨서 `buildDamagePrompt`/`TOOL_DECLARATIONS`/파싱 로직을 조정한다 — 이건 실제 API 응답을 보기 전까진 100% 확신할 수 없는 부분이라, 필요하면 이 계획 문서에 "실제 연동 중 발견한 조정 사항" 섹션을 추가해 기록한다.
 8. 문제 없이 확인되면 `backend/.env`의 `MOCK_AI`를 다시 `true`로 되돌린다(부스 당일 기본값 — 실제 연동이 안정화되기 전까지는 데모/운영 중 네트워크 문제로 막히지 않도록).
+
+## 실제 연동 중 발견한 조정 사항
+
+사용자가 발급한 실제 Gemini 키 3개로 검증했다:
+
+- **`gemini-2.0-flash` 모델은 이 계정에서 429(RESOURCE_EXHAUSTED, `limit: 0`)로 항상 실패**했다 — 키 자체는 유효(인증 통과)하지만 이 프로젝트의 무료 티어 할당량이 해당 모델에 대해 0으로 설정돼 있었다. `gemini-2.5-flash`/`gemini-1.5-flash`는 404("no longer available"/"not found")였고, `gemini-flash-latest`는 200으로 정상 응답했다. `GEMINI_MODEL` 상수를 `gemini-flash-latest`로 변경(커밋 `702e2c3`) — 엔드포인트/요청 형식은 동일해서 다른 코드는 안 바뀜.
+- `requestDamageRange`/`requestToolCalls`를 직접 호출(`node -e`)해서 검증: 채점은 `{min:5500,max:6300}`처럼 정상 범위를 반환했고, 채팅은 `삼각형 하나 추가해줘` → `{op:'addPart', shapeId:'triangle', x:240, y:240}`으로 정확히 매핑됨. `/api/weapon/evaluate`/`/api/weapon/chat` 라우트로도 end-to-end 확인(damage:6080, fallback 아님 / weaponState에 실제로 삼각형 추가됨).
+- **관찰(수정 안 함)**: 채팅 응답에서 Gemini가 `functionCall`만 보내고 `text` 파트를 안 보낸 경우가 있었다 — 설계대로 `'(응답 텍스트가 없어요)'` 폴백이 동작했지만, 매번 이 문구만 보이면 UX가 어색할 수 있다. 지금 스코프에서는 수정하지 않고 기록만 남긴다 — 필요하면 나중에 시스템 프롬프트를 더 강하게 쓰거나, 응답 텍스트가 없을 때 클라이언트 쪽에서 자체 안내 문구를 생성하는 방향을 고려할 것.
