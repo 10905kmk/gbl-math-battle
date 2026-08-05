@@ -1737,3 +1737,35 @@ Run: `kill %1` (또는 `pgrep -f "node server.js"`로 찾아서 kill)
 - **스펙 커버리지**: 데이터 모델(Task 1-3), AI 채팅 tool calling(Task 6-7 후반, 8), AI 채점 일관성(Task 4-6), 제작 완료 흐름(Task 9, 13), 수동 편집(Task 10-11), 에러 처리/폴백(Task 8의 502, Task 8 fallbackDamage), MOCK_AI 테스트 인프라(Task 6) — 스펙의 모든 섹션에 대응하는 태스크가 있음
 - **result.js/thanks.js는 의도적으로 미수정** — Task 13에서 `state.weapon`을 기존 필드 형태(`name/image/stats.attack/stats.defense`)에 맞춰 채우기 때문. 스펙에는 명시 안 됐던 부분이라 계획 작성 중 발견해 반영함
 - **미결 사항**: few-shot 샘플의 실제 콘텐츠(Task 5의 3개 예시는 형식 검증용 placeholder에 가까움 — 팀이 실제 밸런스에 맞게 교체해야 함), 관리자 대시보드의 실시간 참가자 진행률 표시(기존부터 있던 별개 TODO, 이번 스코프 아님)
+
+---
+
+## 구현 후 최종 리뷰(Opus) 반영 사항
+
+15개 태스크 전부 구현 완료 후(Task 9/11/14/15는 별도 세션에서 재개해 마무리) Opus 모델로 전체 브랜치 diff(`52faf31..HEAD`, main에서 갈라진 지점부터 HEAD까지)를 리뷰. 서버 기동, curl로 실제 크래시 유발 페이로드 전송, Playwright로 캔버스 조작(리사이즈/회전/드래그), 여러 참가자 탭으로 진행도 브로드캐스트까지 실제 실행해서 Critical 2건 + Important 12건을 확인, 전부 수정하고 회귀 테스트를 추가함 (커밋 `209a6f7`).
+
+**Critical — 수정함**
+1. `weaponEvaluate.js`가 빈 요청 본문·`parts:null` 등을 받으면 `evaluateWeapon`이 던지고, catch 블록의 `fallbackDamage`도 같은 필드에 검증 없이 접근해 또 던져서 **서버 프로세스 자체가 죽었다**(Express 4는 async 핸들러의 처리되지 않은 예외를 못 잡음). 실제로 `curl`로 재현 후, 두 라우트 진입점에 공통 `validateWeaponState` 검증(`backend/lib/weaponStateValidation.js`)을 추가하고 `fallbackDamage`도 자체 방어하도록 수정.
+2. `session.js`의 `create:done`이 (a) 이미 `create` 단계를 벗어난 뒤 뒤늦게 도착해도 무조건 `battle`로 전환을 시도해서 이미 `result`까지 간 코호트를 되돌려버릴 수 있었고, (b) `socket.id`로만 참가자를 식별해서 한 명이 새로고침을 반복하면 유령 참가자가 쌓여 실제로는 4명인데 5명 완료로 잘못 세어졌다 — 둘 다 실제로 재현됨. stage latch(`cohort.stage !== 'create'`면 무시) + `disconnect` 핸들러로 옛 참가자 정리를 추가.
+
+**Important — 수정함**
+3. AI 평가 중(`disabled`)에도 Transformer 선택이 안 풀려서, `stage.toDataURL()`로 뜨는 참가자 무기 미리보기 이미지에 파란 선택 핸들이 그대로 찍혀 나갔다 — `disabled`로 바뀌면 선택도 같이 해제하도록 수정.
+4. `fallbackDamage`가 `total*100` 방식이라 부품 5개부터 전부 최댓값(10000)으로 포화돼 부품을 아무리 늘려도 점수가 똑같았다 — sqrt 스케일로 교체, 실제로 1/5/10개 부품에서 점수가 계속 벌어지는지 테스트로 확인. 존재하지 않는 shapeId·비정상 scale도 안전하게 처리.
+5. 두 라우트(`/api/weapon/evaluate`, `/api/weapon/chat`)가 클라이언트가 보낸 `weaponState`를 검증 없이 그대로 신뢰해서, 500개 부품도 그대로 받아 캐시에 들어갔다 — `validateWeaponState`로 개수 상한(`MAX_PARTS`)·shapeId·숫자 필드를 진입점에서 막음.
+6. `weaponChat.js`의 tool call `rotation` 필드는 `x`/`y`/`scale`과 달리 NaN 방어가 없었다 — `safeRotation` 헬퍼로 통일.
+7. 두 라우트의 `catch` 블록이 에러를 로깅 없이 그대로 삼켜서, 부스 당일 "채팅이 에러만 뜬다"는 증상이 나와도 원인을 추적할 수 없었다 — `console.error` 추가.
+8. `CanvasEditor`의 `transformend`가 scale은 clamp하면서 리사이즈 중 Konva가 이미 옮겨놓은 x/y는 그대로 둬서, 최대/최소 크기에 걸릴 때마다 도형이 옆으로 슬쩍 밀리는 것처럼 보였다 — scale이 clamp된 경우 위치도 조작 시작 전 값으로 되돌리도록 수정. 또한 옆(가운데) 앵커로 늘렸다가 놓으면 데이터 모델의 단일 `scale`에 맞춰 등비로 스냅되며 튀어 보이던 문제는 `enabledAnchors`를 모서리 4개로 제한해서 해결.
+9. 좁은 화면(768px/390px)에서 레이아웃이 넘쳐 "AI 평가받기" 버튼과 채팅 패널이 화면 밖으로 밀려났다 — 원인은 Konva가 캔버스 엘리먼트뿐 아니라 그걸 감싸는 `.konvajs-content` 래퍼 div에도 480px 고정 인라인 스타일을 박아넣는 것이었고, flexbox의 `min-width:auto` 기본 동작까지 겹쳐서 컨테이너 3단계 모두에 손을 대야 했다(반응형 CSS + `min-width:0` + `!important`). 실측으로 390px 화면에서 `scrollWidth`가 뷰포트 안으로 들어오는 것까지 확인. 부스 당일 실제 기기가 정해지면(현재 미정) 그 기준으로 재확인 필요.
+10. AI 평가 실패 시 `damage=1`로 조용히 대체하고 바로 대기 화면으로 넘어가서, 네트워크 문제 한 번으로 참가자가 최저 점수에 영구히 고정되고 재시도도 못 했다 — 편집 화면에 남겨서 에러 메시지와 함께 재시도 가능하게 수정.
+11. 대기 화면의 "N/5" 카운터가 하드코딩된 `(0/5)`로 절대 안 바뀌었다 — 서버가 `create:progress`를 브로드캐스트하도록 추가하고, 2개 탭으로 실제 진행도가 1/5 → 2/5로 올라가는 것까지 확인.
+12. `seededPick`이 `max < min`으로 뒤집혀 들어오면 결과가 `[min,max]` 범위 밖으로 튈 수 있었다(지금은 호출자가 항상 정상 범위를 넘겨서 잠재적 버그) — 실제 Gemini 연동이 붙을 때를 대비해 소스에서 `min(a,b)`/`max(a,b)`로 정렬.
+
+**의도적으로 보류(Minor, 내 판단, 사용자 지시 아님)**
+- `CANVAS_SIZE`/`MAX_PARTS`가 프론트(`CanvasEditor.js`)와 백엔드(`weaponChat.js`)에 중복 정의됨 — `shapes/`로 옮겨 공유하는 게 맞지만 이번 리뷰 사이클 범위 밖
+- `backend/lib/aiClient.js`의 `GEMINI_MODEL` 상수가 선언만 되고 안 쓰임 — 실제 Gemini 연동 붙을 때 같이 정리
+- `docs/초안.md`가 이 브랜치가 완전히 대체한 옛 "도형 선택 → 자연어 설명" 2단계 흐름을 여전히 문서화하고 있음 — 별도로 갱신 필요
+- 모든 도형이 정확히 `(240,240)`에 스폰돼 겹쳐서 처음 도형만 클릭 가능 — 스폰 위치에 약간의 오프셋/지터 필요
+- `stage.toDataURL()`이 투명 배경 PNG를 만듦(캔버스 배경은 CSS일 뿐 Konva 배경 도형이 아님) — 밝은 배경의 결과 페이지에서 미리보기가 거의 안 보일 수 있음
+
+**리뷰가 짚었지만 코드 변경 없이 문서화만 한 것**
+- 실제 Gemini 연동(`requestDamageRange`/`requestToolCalls`)이 스텁이라 이 브랜치의 AI 채점/채팅은 `MOCK_AI=true`에서만 동작한다 — 의도된 축소 범위(`계획 축소` 커밋)이지만, 부스 당일 이 값이 반드시 켜져 있어야 한다는 점을 `.env.example`에 명시함.
