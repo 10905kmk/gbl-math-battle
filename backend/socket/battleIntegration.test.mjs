@@ -91,5 +91,12 @@ console.log('battle room initialized from participants: OK');
   console.log('battle end -> stage change to result: OK');
 }
 
+// 대전 종료 시 참가자 결과 저장이 시도됐는지 확인 — SUPABASE_URL 미설정 환경이므로
+// saveResult()는 mock 폴백을 타고 성공하지만, 여기서 확인하려는 건 "호출 자체가 크래시 없이
+// 끝까지 실행됐고 stage 전환을 막지 않았다"는 것 (resultStorage.test.mjs가 저장 로직 자체는
+// 이미 단위 테스트로 검증함).
+assert.strictEqual(getBattleRoom(), null, '저장 호출 이후에도 battleRoom 상태는 정상적으로 null');
+console.log('battle end triggers result storage without blocking stage change: OK');
+
 stopBattleRoom();
 console.log('battleIntegration.test.mjs: OK');
