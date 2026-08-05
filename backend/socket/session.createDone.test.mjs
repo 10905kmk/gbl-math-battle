@@ -27,10 +27,16 @@ for (let i = 1; i <= 5; i += 1) {
   registerSessionHandlers(io, makeSocket(`s${i}`));
 }
 
+// 참가자 화면은 접속 시 participant:join을 보낸다 — admin:startSession 시점에 이 신호를
+// 보낸 소켓 수가 이번 세션의 목표 인원(cohort.expectedParticipants)으로 고정된다.
+for (let i = 1; i <= 5; i += 1) {
+  handlers[`s${i}`]['participant:join']();
+}
+
 // create:done은 실제로는 create 화면이 떠 있을 때만(=stage가 'create'일 때만) 올 수 있다 —
 // stage latch(아래 회귀 테스트)를 제대로 검증하려면 이 테스트도 실제 흐름처럼 먼저
 // learn -> create로 진행시켜야 한다.
-handlers.s1['admin:startSession'](); // -> learn
+handlers.s1['admin:startSession'](); // -> learn (여기서 expectedParticipants = 5로 고정)
 handlers.s1['admin:nextStage'](); // -> create
 
 // 4명만 완료 — 아직 battle로 안 넘어가야 함
@@ -51,8 +57,11 @@ console.log('session.createDone.test.mjs: OK');
   const progressEvents = emitted.filter(([ev]) => ev === 'create:progress').map(([, p]) => p);
   assert.deepStrictEqual(
     progressEvents.map((p) => p.done),
-    [1, 2, 3, 4, 5],
-    'create:done이 올 때마다 done count가 하나씩 늘며 브로드캐스트되어야 함',
+    // 맨 앞의 0은 admin:startSession이 expectedParticipants를 고정하는 즉시 브로드캐스트하는
+    // 초기값이다(Opus 리뷰 Important I1 — 이게 없으면 이미 접속해 있던 참가자 화면은 첫
+    // create:done이 올 때까지 total이 옛 값에 머문다) — 그 뒤로 create:done마다 하나씩 늘어난다.
+    [0, 1, 2, 3, 4, 5],
+    'admin:startSession 직후 done:0 브로드캐스트 + create:done마다 done count가 하나씩 늘며 브로드캐스트되어야 함',
   );
   assert.ok(progressEvents.every((p) => p.total === 5));
   console.log('create:progress broadcasts accurate done count: OK');
@@ -84,8 +93,19 @@ console.log('session.createDone.test.mjs: OK');
 {
   handlers.s1['admin:reset']();
   emitted.length = 0; // 이전 시나리오의 이벤트는 이 검증과 무관하니 비움
+  // 계획 수정(구현 중 발견): joined Set은 admin:reset으로도 비워지지 않으므로(설계 의도대로 —
+  // 참가자 기기가 그대로 접속돼 있다고 가정), 이전 시나리오의 s1~s5가 실제로는 퇴장하지 않은
+  // 채 그대로 남아있으면 이 블록의 expectedParticipants가 5가 아니라 10(s1~s5+r1~r5)으로
+  // 부풀려진다. 이 테스트는 "완전히 새로운 5명 세션"을 검증하려는 것이므로, 이전 참가자들의
+  // 기기가 실제로 연결을 끊었다고 명시적으로 흉내낸다.
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`s${i}`]['disconnect']();
+  }
   for (let i = 1; i <= 5; i += 1) {
     registerSessionHandlers(io, makeSocket(`r${i}`));
+  }
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`r${i}`]['participant:join']();
   }
   handlers.r1['admin:startSession']();
   handlers.r1['admin:nextStage'](); // -> create
@@ -126,6 +146,100 @@ console.log('session.createDone.test.mjs: OK');
 // 마지막 시나리오가 battle 단계로 끝나서 20Hz 틱(setInterval)이 계속 돌고 있다 — 정리 안 하면
 // 이 프로세스가 안 끝나거나(setInterval이 이벤트 루프를 붙잡음), 90초 뒤 라운드가 타임아웃으로
 // 끝나는 시점에 가서야 문제가 드러난다. 테스트 스크립트답게 명시적으로 정지시킨다.
+// 회귀 테스트: 5명 고정이 아니라 "세션 시작 시점에 접속해 있던 인원"이 목표가 되어야 한다 —
+// 3명만 참가했다면 3명 완료로 battle 전환돼야 한다(예전처럼 5명을 기다리며 멈춰있으면 안 됨).
+{
+  handlers.r1['admin:reset']();
+  emitted.length = 0;
+  // 계획 수정(구현 중 발견): 위 refresh 시나리오와 동일한 이유로, r2~r5(및 마지막으로 살아있는
+  // r1의 refresh4 소켓)를 명시적으로 disconnect시켜 joined Set에서 빼지 않으면 이 3명짜리
+  // 세션의 expectedParticipants가 3이 아니라 훨씬 큰 값으로 부풀려진다.
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`r${i}`]['disconnect']();
+  }
+  for (let i = 1; i <= 3; i += 1) {
+    registerSessionHandlers(io, makeSocket(`t${i}`));
+    handlers[`t${i}`]['participant:join']();
+  }
+  handlers.t1['admin:startSession']();
+  handlers.t1['admin:nextStage'](); // -> create
+
+  handlers.t1['create:done']({ damage: 100 });
+  handlers.t2['create:done']({ damage: 100 });
+  assert.ok(
+    !emitted.some(([ev, stage]) => ev === 'stage:change' && stage === 'battle'),
+    '3명 세션에서 2명만 완료 시 아직 battle 전환 안 됨',
+  );
+
+  handlers.t3['create:done']({ damage: 100 });
+  assert.ok(
+    emitted.some(([ev, stage]) => ev === 'stage:change' && stage === 'battle'),
+    '3명 세션은 3명만 완료해도 battle로 전환되어야 함(5명 고정이 아님)',
+  );
+  console.log('session locks expected participant count to join-time headcount, not a fixed 5: OK');
+}
+
+// 회귀 테스트: expectedParticipants가 0으로 고정된 세션(admin:startSession 시점에 아무도 접속
+// 안 했던 경우 — 예: 관리자가 먼저 세션 시작을 누르고 그 뒤에 참가자들에게 태블릿을 나눠주는
+// 순서)에서, 뒤늦게 접속한 참가자의 첫 create:done만으로 battle 전환되면 안 된다
+// (Opus 리뷰 Critical C1 — doneCount() 1 >= expectedParticipants 0 이 참으로 평가되어 1명짜리
+// battle room이 열리고 alivePlayers<=1 승리 조건으로 그대로 종료돼버리는 버그가 실제로 재현됨).
+{
+  handlers.t3['admin:reset']();
+  emitted.length = 0;
+  for (let i = 1; i <= 3; i += 1) {
+    handlers[`t${i}`]['disconnect']();
+  }
+  // 관리자 화면 소켓은 participant:join을 보내지 않는다 — 아무도 접속하지 않은 상태에서
+  // 세션 시작을 누른 상황을 재현.
+  registerSessionHandlers(io, makeSocket('z0'));
+  handlers.z0['admin:startSession'](); // -> learn, expectedParticipants = 0
+  handlers.z0['admin:nextStage'](); // -> create
+
+  registerSessionHandlers(io, makeSocket('z1'));
+  handlers.z1['participant:join']();
+  registerSessionHandlers(io, makeSocket('z2'));
+  handlers.z2['participant:join']();
+  registerSessionHandlers(io, makeSocket('z3'));
+  handlers.z3['participant:join']();
+
+  handlers.z1['create:done']({ damage: 100 });
+  assert.ok(
+    !emitted.some(([ev, stage]) => ev === 'stage:change' && stage === 'battle'),
+    'expectedParticipants가 0으로 고정된 상태에서는 첫 완료자만으로 battle 전환되면 안 됨',
+  );
+  console.log('zero expectedParticipants does not trigger battle on the first create:done: OK');
+}
+
+// 회귀 테스트: admin:startSession이 expectedParticipants를 고정하는 즉시 그 값을
+// create:progress로 브로드캐스트해야 한다 — 안 그러면 이미 접속해 있던 참가자 화면은 첫
+// create:done이 도착할 때까지 total이 옛 값(0 또는 지난 세션 값)에 머물러 "0/0" 같은 잘못된
+// 진행률을 잠깐 보여준다 (Opus 리뷰 Important I1 / Minor M1).
+{
+  handlers.z0['admin:reset']();
+  emitted.length = 0;
+  for (let i = 1; i <= 3; i += 1) {
+    handlers[`z${i}`]['disconnect']();
+  }
+  registerSessionHandlers(io, makeSocket('w1'));
+  handlers.w1['participant:join']();
+  registerSessionHandlers(io, makeSocket('w2'));
+  handlers.w2['participant:join']();
+  registerSessionHandlers(io, makeSocket('w3'));
+  handlers.w3['participant:join']();
+
+  handlers.w1['admin:startSession'](); // -> learn, expectedParticipants = 3으로 고정
+
+  const latestProgress = emitted.filter(([ev]) => ev === 'create:progress').at(-1)?.[1];
+  assert.ok(latestProgress, 'admin:startSession 직후 create:progress가 브로드캐스트되어야 함');
+  assert.strictEqual(
+    latestProgress.total,
+    3,
+    'create:progress의 total이 방금 고정된 expectedParticipants와 즉시 일치해야 함',
+  );
+  console.log('admin:startSession immediately broadcasts the newly locked expectedParticipants: OK');
+}
+
 stopBattleRoom();
 
 console.log('session.createDone.test.mjs: all scenarios OK');
