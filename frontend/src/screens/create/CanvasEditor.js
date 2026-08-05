@@ -52,11 +52,12 @@ function drawShapeNode(part, disabled) {
   });
 }
 
-// 캔버스(좌) — 팔레트로 도형 추가, 드래그로 이동. 회전/크기조절 핸들은 Task 11에서 추가.
+// 캔버스(좌) — 팔레트로 도형 추가, 드래그로 이동 + 회전/크기조절 핸들(Transformer) + 선택 삭제.
 export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
   const containerRef = useRef(null);
   const stageRef = useRef(null);
   const layerRef = useRef(null);
+  const trRef = useRef(null);
 
   useEffect(() => {
     const stage = new Konva.Stage({
@@ -65,24 +66,52 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
       height: CANVAS_SIZE.height,
     });
     const layer = new Konva.Layer();
+    const tr = new Konva.Transformer();
+    layer.add(tr);
     stage.add(layer);
+    stage.on('click tap', (e) => {
+      if (e.target === stage) tr.nodes([]);
+    });
     stageRef.current = stage;
     layerRef.current = layer;
+    trRef.current = tr;
     if (onStageReady) onStageReady(stage);
     return () => stage.destroy();
   }, []);
 
   useEffect(() => {
     const layer = layerRef.current;
+    const tr = trRef.current;
     if (!layer) return;
     layer.find('.part').forEach((n) => n.destroy());
     parts.forEach((part) => {
       const node = drawShapeNode(part, disabled);
+      // 평가 중(disabled)에는 선택/변형도 같이 막아야 한다 — Transformer 핸들은 노드의
+      // draggable 속성과 무관하게 동작하므로, 애초에 tr.nodes()에 올리지 않아야 회전/크기
+      // 조절도 확실히 막힌다(그냥 draggable만 꺼서는 리사이즈 핸들이 여전히 먹힘).
+      node.on('click tap', () => {
+        if (!disabled) tr.nodes([node]);
+      });
       node.on('dragend', () => {
         onChange(parts.map((p) => (p.id === part.id ? { ...p, x: node.x(), y: node.y() } : p)));
       });
+      node.on('transformend', () => {
+        // scale 범위 0.2~3.0 (Global Constraints) — 서버 쪽 clamp(applyToolCalls)와 동일 범위를
+        // 수동 드래그 편집에도 적용. 노드 자체의 scale도 되돌려서 화면이 clamp된 값과 어긋나지 않게 한다.
+        const clampedScale = Math.min(3, Math.max(0.2, node.scaleX()));
+        node.scaleX(clampedScale);
+        node.scaleY(clampedScale);
+        onChange(
+          parts.map((p) =>
+            p.id === part.id
+              ? { ...p, x: node.x(), y: node.y(), rotation: node.rotation(), scale: clampedScale }
+              : p,
+          ),
+        );
+      });
       layer.add(node);
     });
+    tr.moveToTop();
     layer.draw();
   }, [parts, disabled]);
 
@@ -101,10 +130,21 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
     ]);
   }
 
+  function deleteSelected() {
+    if (disabled) return;
+    const tr = trRef.current;
+    const selected = tr.nodes();
+    if (selected.length === 0) return;
+    const ids = selected.map((n) => n.id());
+    tr.nodes([]);
+    onChange(parts.filter((p) => !ids.includes(p.id)));
+  }
+
   return html`
     <div class="canvas-editor">
       <div class="shape-palette">
         ${ALL_SHAPES.map((s) => html`<button onClick=${() => addShape(s.id)} disabled=${disabled}>${s.name}</button>`)}
+        <button onClick=${deleteSelected} disabled=${disabled}>선택 삭제</button>
       </div>
       <div class="canvas-container" ref=${containerRef}></div>
     </div>
