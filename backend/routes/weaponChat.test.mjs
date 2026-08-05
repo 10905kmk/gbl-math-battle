@@ -48,4 +48,14 @@ assert.strictEqual(afterMissingXY.parts[0].y, 0);
 const afterBadScale = applyToolCalls(empty, [{ op: 'addPart', shapeId: 'triangle', x: 10, y: 10, scale: 'large' }]);
 assert.strictEqual(afterBadScale.parts[0].scale, 0.2);
 
+// 회귀 테스트: Opus 리뷰 Important #7 — rotation은 x/y/scale과 달리 clamp(min,max) 대상이
+// 아니라서 검증 없이 그대로 저장되고 있었다. 문자열/undefined rotation이 들어와도 NaN이
+// 캐시 키나 Konva rotation 속성에 들어가면 안 된다.
+const afterBadRotationAdd = applyToolCalls(empty, [{ op: 'addPart', shapeId: 'triangle', x: 0, y: 0, rotation: 'sideways' }]);
+assert.strictEqual(afterBadRotationAdd.parts[0].rotation, 0, 'addPart에서 rotation이 숫자가 아니면 0으로 대체');
+
+const afterBadRotationRotate = applyToolCalls(withOne, [{ op: 'rotatePart', partId: 'p1', rotation: undefined }]);
+assert.strictEqual(afterBadRotationRotate.parts[0].rotation, 0, 'rotatePart에서 rotation이 숫자가 아니면 기존 값 유지(withOne의 초기 rotation=0)');
+console.log('applyToolCalls guards non-numeric rotation: OK');
+
 console.log('weaponChat.test.mjs: OK');

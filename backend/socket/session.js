@@ -15,11 +15,20 @@ function goToStage(io, nextStage) {
   io.emit('stage:change', cohort.stage);
 }
 
+function doneCount() {
+  return cohort.participants.filter((p) => p.done).length;
+}
+
+function broadcastProgress(io) {
+  io.emit('create:progress', { done: doneCount(), total: EXPECTED_PARTICIPANTS });
+}
+
 export function registerSessionHandlers(io, socket) {
   // 새로 연결된 소켓(새로고침한 참가자, 나중에 여는 공용화면 등)에게 현재 상태를 바로 알려준다.
   // 이게 없으면 stage:change/learn:slide는 "그 이후 변경분"만 받기 때문에 계속 idle로 보임.
   socket.emit('stage:change', cohort.stage);
   socket.emit('learn:slide', cohort.slideIndex);
+  socket.emit('create:progress', { done: doneCount(), total: EXPECTED_PARTICIPANTS });
 
   socket.on('admin:startSession', () => {
     goToStage(io, 'learn');
@@ -52,6 +61,7 @@ export function registerSessionHandlers(io, socket) {
     cohort.slideIndex = 0;
     cohort.participants = [];
     io.emit('stage:change', cohort.stage);
+    broadcastProgress(io);
   });
 
   socket.on('create:done', (weapon) => {
@@ -62,9 +72,25 @@ export function registerSessionHandlers(io, socket) {
     } else {
       cohort.participants.push({ id: socket.id, done: true, weapon });
     }
-    const doneCount = cohort.participants.filter((p) => p.done).length;
-    if (doneCount >= EXPECTED_PARTICIPANTS) {
+    broadcastProgress(io);
+    // 관리자가 이미 create 단계를 벗어난 뒤에(강제로 다음 단계로 넘긴 경우 등) 뒤늦게 도착한
+    // create:done은 무시한다 — 안 그러면 느린 참가자가 뒤늦게 "AI 평가받기"를 눌렀을 때 이미
+    // battle/result까지 진행된 코호트를 도로 battle로 되돌려버릴 수 있다(Opus 리뷰 Critical #2a).
+    if (cohort.stage !== 'create') return;
+    if (doneCount() >= EXPECTED_PARTICIPANTS) {
       goToStage(io, 'battle');
+    }
+  });
+
+  // 참가자가 새로고침 등으로 끊기면 새 소켓으로 다시 잡을 때 새 id로 등록되므로, 끊긴 옛
+  // id를 지워두지 않으면 명단에 유령 참가자가 계속 쌓인다 — 한 명이 실수로 여러 번
+  // 새로고침하면 실제로는 4명인데 서버는 5명 완료로 잘못 세어서 battle로 조기 전환될 수
+  // 있다(Opus 리뷰 Critical #2b, 실제로 재현됨).
+  socket.on('disconnect', () => {
+    const before = cohort.participants.length;
+    cohort.participants = cohort.participants.filter((p) => p.id !== socket.id);
+    if (cohort.participants.length !== before) {
+      broadcastProgress(io);
     }
   });
 }

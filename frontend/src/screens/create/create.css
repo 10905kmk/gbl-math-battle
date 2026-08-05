@@ -1,6 +1,7 @@
 /* frontend/src/screens/create/create.css */
 .create-shell {
   display: flex;
+  flex-wrap: wrap;
   gap: 1.5rem;
   align-items: flex-start;
   width: 100%;
@@ -21,16 +22,34 @@
 
 .canvas-container {
   width: 480px;
-  height: 480px;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
   background: #1a1a1a;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
+}
+
+/* Konva가 캔버스 엘리먼트뿐 아니라 그걸 감싸는 .konvajs-content 래퍼 div에도
+   style="width:480px;height:480px;position:relative"를 직접 박아넣는다 — <canvas>는
+   position:absolute라 실제 containing block이 .canvas-container가 아니라 바로 이
+   .konvajs-content(가장 가까운 position:relative 조상)이므로, canvas 쪽에만 max-width를
+   걸면 480px짜리 .konvajs-content를 기준으로 100%를 계산해서 아무 효과가 없다(390px
+   화면에서 실측: .canvas-container는 327px로 잘 줄었는데 canvas는 여전히 480px). 두
+   엘리먼트 모두 인라인 스타일이라 !important 없이는 못 이긴다. 내부 좌표계(480x480)는
+   그대로 두고 표시 크기만 CSS로 줄인다 — Konva는 포인터 좌표를 캔버스의 실제 렌더 크기
+   대비 비율로 계산하므로 클릭/드래그 정확도는 유지된다. 부스 당일 기기가 정해지면 이 값
+   기준으로 재확인할 것. */
+.canvas-container .konvajs-content,
+.canvas-container canvas {
+  max-width: 100% !important;
+  height: auto !important;
 }
 
 .chat-panel {
   display: flex;
   flex-direction: column;
   width: 320px;
+  max-width: 100%;
   height: 480px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
@@ -57,8 +76,52 @@
   flex: 1;
 }
 
+.evaluate-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.evaluate-error {
+  color: #ff8080;
+  margin: 0;
+}
+
 .evaluate-btn {
-  margin-top: 1rem;
   font-size: 1.1rem;
   padding: 0.6rem 1.2rem;
+}
+
+/* 좁은 화면에서는 캔버스/채팅/평가버튼을 세로로 쌓아 전부 도달 가능하게 한다. */
+@media (max-width: 900px) {
+  .create-shell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* flex item은 기본적으로 min-width:auto라 자식(.canvas-container의 width:480px)의
+     내용 크기보다 좁게 줄어들지 않는다 — max-width:100%를 걸어놔도 그 100%가 계산되는
+     기준 컨테이너가 먼저 480px로 못박혀버려서 결국 같이 안 줄어든다. .canvas-editor도
+     그 자체가 flex 컨테이너(column)라 .canvas-container까지 내려가는 경로의 모든
+     단계에 min-width:0을 걸어야 한다 — 한 단계만 걸면 그 다음 단계에서 또 막힌다
+     (실측: .canvas-editor에만 걸었을 때도 390px 화면에서 scrollWidth 506px로 여전히 넘침). */
+  .canvas-editor,
+  .canvas-container,
+  .chat-panel,
+  .evaluate-panel {
+    min-width: 0;
+  }
+
+  .canvas-editor {
+    width: 100%;
+  }
+
+  .canvas-container {
+    width: 100%;
+  }
+
+  .chat-panel {
+    width: 100%;
+  }
 }

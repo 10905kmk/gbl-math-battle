@@ -94,7 +94,12 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
       height: CANVAS_SIZE.height,
     });
     const layer = new Konva.Layer();
-    const tr = new Konva.Transformer();
+    // 옆(가운데) 앵커는 기본적으로 keepRatio 대상이 아니라서 세로/가로만 늘어나는 스트레치가
+    // 가능한데, 데이터 모델엔 scale이 하나뿐이라 transformend에서 scaleY를 scaleX로 강제로
+    // 맞춰버린다 — 그래서 옆으로 늘렸다가 손을 떼는 순간 도형이 (scaleX 기준으로) 갑자기
+    // 등비로 확 튀어 보인다(Opus 리뷰 Important #10, 실측: 옆으로 +100px 드래그 후 놓으면
+    // sx=sy=2.804로 스냅됨). 모서리 4개만 남겨서 처음부터 등비로만 조절되게 한다.
+    const tr = new Konva.Transformer({ enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'] });
     layer.add(tr);
     stage.add(layer);
     stage.on('click tap', (e) => {
@@ -114,6 +119,13 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
     const layer = layerRef.current;
     const tr = trRef.current;
     if (!layer) return;
+    // 평가 중(disabled)에는 새로 선택하는 것뿐 아니라 "이미 선택돼 있던 것"도 풀어야 한다 —
+    // 안 그러면 evaluate()가 disabled로 넘어간 직후에도 Transformer가 이전 선택을 물고
+    // 있다가 stage.toDataURL()에 파란 선택 핸들이 그대로 찍혀 나간다(Opus 리뷰 Important #3,
+    // 실측: 핸들 있을 때 48254자 vs 없을 때 35890자로 실제로 다른 이미지였음).
+    if (disabled) {
+      selectedIdRef.current = null;
+    }
     layer.find('.part').forEach((n) => n.destroy());
     let selectedNode = null;
     parts.forEach((part) => {
@@ -132,13 +144,26 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
       node.on('transformend', () => {
         // scale 범위 0.2~3.0 (Global Constraints) — 서버 쪽 clamp(applyToolCalls)와 동일 범위를
         // 수동 드래그 편집에도 적용. 노드 자체의 scale도 되돌려서 화면이 clamp된 값과 어긋나지 않게 한다.
-        const clampedScale = Math.min(3, Math.max(0.2, node.scaleX()));
+        const rawScale = node.scaleX();
+        const wasClamped = rawScale < 0.2 || rawScale > 3;
+        const clampedScale = Math.min(3, Math.max(0.2, rawScale));
         node.scaleX(clampedScale);
         node.scaleY(clampedScale);
+        // 모서리를 드래그해서 리사이즈하면 Konva가 반대쪽 모서리를 고정점으로 삼아 x/y도
+        // 같이 옮기는데, 그 값은 "clamp 전" scale 기준으로 계산된 것이다. scale만 사후에
+        // clamp하고 그 x/y를 그대로 쓰면 실제 그려지는 도형과 안 맞아서, 최대/최소 크기에
+        // 걸릴 때마다 도형이 옆으로 슬쩍 밀리는 것처럼 보인다(Opus 리뷰 Important #9, 최댓값
+        // 근처에서 반복 리사이즈하면 y가 계속 밀리는 것으로 실측됨). scale이 clamp된
+        // 경우엔 이번 조작 시작 전 위치(part.x/part.y)로 되돌리고, 정상 범위 안에서 끝난
+        // 경우에도 캔버스 범위(dragBoundFunc와 동일 규칙)로 한 번 더 clamp한다.
+        const nextX = wasClamped ? part.x : Math.min(CANVAS_SIZE.width, Math.max(0, node.x()));
+        const nextY = wasClamped ? part.y : Math.min(CANVAS_SIZE.height, Math.max(0, node.y()));
+        node.x(nextX);
+        node.y(nextY);
         onChange(
           parts.map((p) =>
             p.id === part.id
-              ? { ...p, x: node.x(), y: node.y(), rotation: node.rotation(), scale: clampedScale }
+              ? { ...p, x: nextX, y: nextY, rotation: node.rotation(), scale: clampedScale }
               : p,
           ),
         );

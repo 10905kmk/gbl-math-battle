@@ -53,4 +53,11 @@ const m2 = { parts: [
 ] };
 assert.strictEqual(cacheKey(m1), cacheKey(m2), '부품 추가 순서와 무관하게 같은 캐시 키가 나와야 함');
 
+// 회귀 테스트: max < min으로 뒤집혀 들어와도(나중에 실제 AI 응답이 범위를 뒤집어 줄 수 있음)
+// 결과가 [min,max]를 벗어나면 안 된다 (Opus 리뷰 Important #14).
+const flipped = seededPick(cacheKey(a), 200, 100);
+assert.ok(flipped >= 100 && flipped <= 200, 'min/max가 뒤집혀도 결과는 정상 범위 안에 있어야 함');
+assert.strictEqual(flipped, seededPick(cacheKey(a), 100, 200), '뒤집힌 인자와 정상 인자가 같은 결과를 내야 함');
+console.log('seededPick tolerates flipped min/max: OK');
+
 console.log('weaponCache.test.mjs: OK');
