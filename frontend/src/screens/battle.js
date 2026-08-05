@@ -80,9 +80,68 @@ export function BattleScreen({ socket, state }) {
     return () => socket.off('battle:result', onResult);
   }, [socket, state]);
 
+  const inputRef = useRef({ up: false, down: false, left: false, right: false, attack: false });
+
+  function sendInput(patch) {
+    inputRef.current = { ...inputRef.current, ...patch };
+    socket.emit('battle:input', inputRef.current);
+  }
+
+  useEffect(() => {
+    function keyToDirection(key) {
+      if (key === 'ArrowUp') return 'up';
+      if (key === 'ArrowDown') return 'down';
+      if (key === 'ArrowLeft') return 'left';
+      if (key === 'ArrowRight') return 'right';
+      if (key === ' ') return 'attack';
+      return null;
+    }
+    function onKeyDown(e) {
+      const dir = keyToDirection(e.key);
+      if (dir) sendInput({ [dir]: true });
+    }
+    function onKeyUp(e) {
+      const dir = keyToDirection(e.key);
+      if (dir) sendInput({ [dir]: false });
+    }
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
   return html`
     <div class="battle-shell">
       <div class="battle-arena" ref=${containerRef}></div>
+      <div class="battle-controls">
+        <div class="dpad">
+          <button
+            onPointerDown=${() => sendInput({ up: true })}
+            onPointerUp=${() => sendInput({ up: false })}
+          >↑</button>
+          <div class="dpad-row">
+            <button
+              onPointerDown=${() => sendInput({ left: true })}
+              onPointerUp=${() => sendInput({ left: false })}
+            >←</button>
+            <button
+              onPointerDown=${() => sendInput({ down: true })}
+              onPointerUp=${() => sendInput({ down: false })}
+            >↓</button>
+            <button
+              onPointerDown=${() => sendInput({ right: true })}
+              onPointerUp=${() => sendInput({ right: false })}
+            >→</button>
+          </div>
+        </div>
+        <button
+          class="attack-button"
+          onPointerDown=${() => sendInput({ attack: true })}
+          onPointerUp=${() => sendInput({ attack: false })}
+        >공격</button>
+      </div>
     </div>
   `;
 }
