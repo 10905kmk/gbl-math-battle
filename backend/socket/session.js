@@ -1,3 +1,5 @@
+import { startBattleRoom, stopBattleRoom } from './battle.js';
+
 // 세션(코호트) 상태 — 5명이 공유하는 stage, slideIndex, 참가자 진행도
 const cohort = {
   stage: 'idle',
@@ -12,6 +14,11 @@ function goToStage(io, nextStage) {
   cohort.stage = nextStage;
   cohort.slideIndex = 0;
   io.emit('stage:change', cohort.stage);
+  if (nextStage === 'battle') {
+    startBattleRoom(io, cohort.participants, {
+      onEnd: () => goToStage(io, 'result'),
+    });
+  }
 }
 
 export function registerSessionHandlers(io, socket) {
@@ -47,13 +54,19 @@ export function registerSessionHandlers(io, socket) {
   });
 
   socket.on('admin:reset', () => {
+    stopBattleRoom();
     cohort.stage = 'idle';
     cohort.slideIndex = 0;
     cohort.participants = [];
     io.emit('stage:change', cohort.stage);
   });
 
-  socket.on('create:done', () => {
-    // TODO: participant별 완료 처리, 전원 완료 시 stage='battle' broadcast (docs/초안.md 7-② 참고)
+  socket.on('create:done', (weapon) => {
+    const existing = cohort.participants.find((p) => p.id === socket.id);
+    if (existing) {
+      existing.weapon = weapon;
+    } else {
+      cohort.participants.push({ id: socket.id, weapon });
+    }
   });
 }
