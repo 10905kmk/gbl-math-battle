@@ -14,9 +14,26 @@ const MAX_PARTS = 10;
 
 function drawShapeNode(part, disabled) {
   const geometry = getShapeGeometry(part.shapeId);
+  const allPoints = geometry.type === 'polygon' ? geometry.points : geometry.triangles.flat();
+  const minX = Math.min(...allPoints.map((p) => p.x));
+  const minY = Math.min(...allPoints.map((p) => p.y));
+  const maxX = Math.max(...allPoints.map((p) => p.x));
+  const maxY = Math.max(...allPoints.map((p) => p.y));
+  const width = maxX - minX;
+  const height = maxY - minY;
+
   return new Konva.Shape({
     x: part.x,
     y: part.y,
+    // Konva.Transformer(및 hit 판정)는 width/height로 정의된 로컬 [0,width]x[0,height] 사각형을
+    // node의 bounding box로 취급한다 — sceneFunc가 실제로 뭘 그리는지는 안 본다. shapes.js/
+    // fractals.js의 좌표는 "원점 중심"이라 이 관례와 안 맞으므로, 그리기 좌표를 (minX,minY)만큼
+    // 옮겨서 [0,width]x[0,height] 안에 들어오게 하고, offsetX/Y로 중심을 node의 x,y에 맞춘다.
+    // 이렇게 안 하면 width/height가 기본값 0이라 Transformer 핸들이 전부 중심 한 점에 뭉친다.
+    width,
+    height,
+    offsetX: width / 2,
+    offsetY: height / 2,
     rotation: part.rotation,
     scaleX: part.scale,
     scaleY: part.scale,
@@ -37,13 +54,17 @@ function drawShapeNode(part, disabled) {
     sceneFunc: (ctx, shape) => {
       ctx.beginPath();
       if (geometry.type === 'polygon') {
-        geometry.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+        geometry.points.forEach((p, i) => {
+          const px = p.x - minX;
+          const py = p.y - minY;
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        });
         ctx.closePath();
       } else if (geometry.type === 'triangles') {
         geometry.triangles.forEach(([a, b, c]) => {
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.lineTo(c.x, c.y);
+          ctx.moveTo(a.x - minX, a.y - minY);
+          ctx.lineTo(b.x - minX, b.y - minY);
+          ctx.lineTo(c.x - minX, c.y - minY);
           ctx.closePath();
         });
       }
@@ -58,6 +79,13 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
   const stageRef = useRef(null);
   const layerRef = useRef(null);
   const trRef = useRef(null);
+  // parts가 바뀔 때마다(드래그/변형/추가/삭제) 모든 '.part' 노드를 destroy 후 새로 만든다(아래
+  // effect) — 이때 Transformer가 이전 렌더의(이제 destroy된) 노드 객체를 여전히 tr.nodes()에
+  // 들고 있으면, 그 다음 마우스 이동에서 Konva 내부가 죽은 노드에 접근해 크래시한다(직접 재현:
+  // 리사이즈 한 번 하고 나서 바로 회전 핸들을 드래그하면 "Cannot read properties of null
+  // (reading 'getAbsoluteTransform')"). 그래서 "무엇이 선택돼 있었는지"는 id로만 기억해두고,
+  // 매 렌더마다 그 id에 해당하는 새 노드를 찾아 Transformer를 다시 붙여준다.
+  const selectedIdRef = useRef(null);
 
   useEffect(() => {
     const stage = new Konva.Stage({
@@ -70,7 +98,10 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
     layer.add(tr);
     stage.add(layer);
     stage.on('click tap', (e) => {
-      if (e.target === stage) tr.nodes([]);
+      if (e.target === stage) {
+        selectedIdRef.current = null;
+        tr.nodes([]);
+      }
     });
     stageRef.current = stage;
     layerRef.current = layer;
@@ -84,13 +115,16 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
     const tr = trRef.current;
     if (!layer) return;
     layer.find('.part').forEach((n) => n.destroy());
+    let selectedNode = null;
     parts.forEach((part) => {
       const node = drawShapeNode(part, disabled);
       // 평가 중(disabled)에는 선택/변형도 같이 막아야 한다 — Transformer 핸들은 노드의
       // draggable 속성과 무관하게 동작하므로, 애초에 tr.nodes()에 올리지 않아야 회전/크기
       // 조절도 확실히 막힌다(그냥 draggable만 꺼서는 리사이즈 핸들이 여전히 먹힘).
       node.on('click tap', () => {
-        if (!disabled) tr.nodes([node]);
+        if (disabled) return;
+        selectedIdRef.current = part.id;
+        tr.nodes([node]);
       });
       node.on('dragend', () => {
         onChange(parts.map((p) => (p.id === part.id ? { ...p, x: node.x(), y: node.y() } : p)));
@@ -110,7 +144,11 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
         );
       });
       layer.add(node);
+      if (part.id === selectedIdRef.current) selectedNode = node;
     });
+    // 선택돼 있던 부품이 이번 렌더에도 있으면 새로 만든 노드로 Transformer를 재부착하고,
+    // 삭제됐다면(selectedNode가 안 잡히면) 선택을 비운다.
+    tr.nodes(selectedNode ? [selectedNode] : []);
     tr.moveToTop();
     layer.draw();
   }, [parts, disabled]);
@@ -136,6 +174,7 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
     const selected = tr.nodes();
     if (selected.length === 0) return;
     const ids = selected.map((n) => n.id());
+    selectedIdRef.current = null;
     tr.nodes([]);
     onChange(parts.filter((p) => !ids.includes(p.id)));
   }
