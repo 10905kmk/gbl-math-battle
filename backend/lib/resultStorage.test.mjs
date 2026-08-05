@@ -1,4 +1,6 @@
 import assert from 'node:assert';
+import { readFile, rm } from 'node:fs/promises';
+import path from 'node:path';
 import { saveParticipantResults } from './resultStorage.js';
 
 function makeParticipant(id, overrides) {
@@ -46,5 +48,42 @@ console.log('saveParticipantResults tolerates partial failure: OK');
   assert.deepStrictEqual(outcomes, []);
   console.log('saveParticipantResults with no participants: OK');
 }
+
+// 회귀 테스트: winners가 배열이 아니어도(undefined 등) map() 콜백 안에서 던지면 안 된다.
+// session.js가 이 함수를 await 없이 fire-and-forget으로 호출하므로, 여기서 던지면
+// Promise.allSettled로도 못 잡는 unhandled rejection이 되어 서버가 죽는다(Opus 리뷰 Important #2).
+{
+  const calls = [];
+  const fakeSaveFn = async (payload) => { calls.push(payload); return { id: 'saved' }; };
+  const outcomes = await saveParticipantResults([makeParticipant('p1')], undefined, fakeSaveFn);
+  assert.strictEqual(calls[0].win, false, 'winners가 배열이 아니면 아무도 승자가 아닌 것으로 취급');
+  assert.strictEqual(outcomes[0].status, 'fulfilled');
+}
+console.log('saveParticipantResults tolerates non-array winners: OK');
+
+// 회귀 테스트: 저장 실패한 참가자는 로컬 fallback 파일(JSONL)에 남아야 한다 — 콘솔 로그만으로는
+// 부스 운영 중 아무도 안 보고 있으면 그날 저장이 통째로 유실된 걸 나중에야 알게 됨(Important #6).
+{
+  const fallbackPath = path.join(process.cwd(), '.test-scratch', 'results-fallback.test.jsonl');
+  await rm(fallbackPath, { force: true });
+
+  const fakeSaveFn = async (payload) => {
+    if (payload.weapon_name === '무기-p1') throw new Error('insert failed');
+    return { id: 'saved' };
+  };
+  const participants = [makeParticipant('p1'), makeParticipant('p2')];
+  await saveParticipantResults(participants, ['p2'], fakeSaveFn, fallbackPath);
+
+  const content = await readFile(fallbackPath, 'utf8');
+  const lines = content.trim().split('\n').map((line) => JSON.parse(line));
+  assert.strictEqual(lines.length, 1, '실패한 p1 하나만 fallback 파일에 기록되어야 함');
+  assert.strictEqual(lines[0].weapon_name, '무기-p1');
+  assert.strictEqual(lines[0].win, false);
+  assert.ok(lines[0].failed_at, 'failed_at 타임스탬프가 있어야 함');
+
+  await rm(fallbackPath, { force: true });
+  await rm(path.dirname(fallbackPath), { recursive: true, force: true });
+}
+console.log('saveParticipantResults writes failed saves to fallback file: OK');
 
 console.log('resultStorage.test.mjs: OK');

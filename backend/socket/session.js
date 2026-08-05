@@ -16,13 +16,20 @@ function goToStage(io, nextStage) {
   cohort.slideIndex = 0;
   io.emit('stage:change', cohort.stage);
   if (nextStage === 'battle') {
-    startBattleRoom(io, cohort.participants, {
+    // 대전 시작 시점의 참가자 목록을 스냅샷으로 떼어둔다 — cohort.participants는 대전 도중
+    // 참가자가 연결을 끊으면 disconnect 핸들러가 그 참가자를 걸러낸 "새 배열"로 재할당해버려서,
+    // 라운드가 끝난 뒤 결과 저장 시점엔 이미 그 참가자가 사라지고 없다(연결이 끊겼어도 대전
+    // 결과 자체는 저장돼야 하므로, 대전 중 필터링과 결과 저장은 서로 다른 참가자 목록을 봐야 함).
+    const participantsAtBattleStart = [...cohort.participants];
+    startBattleRoom(io, participantsAtBattleStart, {
       // 관리자가 대전 도중 다른 단계로 수동 이동한 뒤에 뒤늦게 라운드가 끝나면(타이머 만료 등)
       // 이 콜백이 그때 가서 엉뚱하게 result로 되돌려버릴 수 있다 — 그 사이 stage가 이미
       // battle이 아니게 됐으면 무시한다. (아래 else 분기가 stopBattleRoom도 호출하므로
       // 정상 경로에서는 이 콜백 자체가 그 뒤로 불릴 일이 없다 — 이건 이중 방어.)
       onEnd: (winners) => {
-        saveParticipantResults(cohort.participants, winners);
+        saveParticipantResults(participantsAtBattleStart, winners).catch((err) => {
+          console.error('[session] 결과 저장 중 예외:', err);
+        });
         if (cohort.stage === 'battle') goToStage(io, 'result');
       },
     });

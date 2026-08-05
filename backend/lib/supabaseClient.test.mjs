@@ -1,5 +1,21 @@
 import assert from 'node:assert';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { saveResult } from './supabaseClient.js';
+
+// 회귀 테스트: SUPABASE_URL만 설정되고 SUPABASE_SERVICE_KEY는 비어있는 "반쪽 설정" 상태에서
+// 모듈을 로드해도 서버 전체가 죽지 않아야 한다(Opus 리뷰 Critical #1 — createClient()가
+// 키 없이 호출되면 "supabaseKey is required"로 모듈 로드 시점에 즉시 throw했었음).
+{
+  const thisFile = fileURLToPath(import.meta.url);
+  const moduleFile = thisFile.replace('supabaseClient.test.mjs', 'supabaseClient.js');
+  execFileSync(
+    process.execPath,
+    ['-e', `import(${JSON.stringify('file://' + moduleFile)}).then(() => console.log('loaded ok'))`],
+    { env: { ...process.env, SUPABASE_URL: 'https://example.supabase.co', SUPABASE_SERVICE_KEY: '' }, stdio: 'pipe' },
+  );
+  console.log('supabaseClient survives half-configured env (URL only, no key): OK');
+}
 
 assert.strictEqual(
   process.env.SUPABASE_URL,
