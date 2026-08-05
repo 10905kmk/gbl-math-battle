@@ -5,9 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
 
-import weaponRoutes from './routes/weapon.js';
 import resultRoutes from './routes/result.js';
 import adminRoutes from './routes/admin.js';
+import weaponChatRoutes from './routes/weaponChat.js';
+import weaponEvaluateRoutes from './routes/weaponEvaluate.js';
 import { registerSessionHandlers } from './socket/session.js';
 import { registerBattleHandlers } from './socket/battle.js';
 
@@ -22,9 +23,10 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 // '../../../../shapes/registry.js')가 실제로 뜨려면 이 경로도 정적 서빙해야 한다.
 app.use('/shapes', express.static(path.join(__dirname, '../shapes')));
 
-app.use('/api/weapon', weaponRoutes);
 app.use('/api/result', resultRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/weapon/chat', weaponChatRoutes);
+app.use('/api/weapon/evaluate', weaponEvaluateRoutes);
 
 const server = http.createServer(app);
 const io = new Server(server);
