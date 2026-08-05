@@ -37,6 +37,7 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
       facing: 'down',
       hp: 100,
       hitDamage: hitDamageFromWeaponDamage(participant.weapon?.damage),
+      weaponParts: participant.weapon?.parts ?? [],
       alive: true,
       lastAttackAt: 0,
       input: { up: false, down: false, left: false, right: false, attack: false },

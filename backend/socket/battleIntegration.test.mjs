@@ -28,7 +28,8 @@ for (let i = 1; i <= 5; i += 1) {
 }
 
 for (let i = 1; i <= 5; i += 1) {
-  handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
+  const parts = i === 1 ? [{ id: 'x1', shapeId: 'triangle', x: 100, y: 100, rotation: 0, scale: 1 }] : [];
+  handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts });
 }
 
 handlers.p1['admin:startSession'](); // -> learn
@@ -42,6 +43,14 @@ assert.strictEqual(room.players.p1.hitDamage, 5, 'damage=1000 -> round(1000/200)
 assert.strictEqual(room.players.p5.hitDamage, 25, 'damage=5000 -> round(5000/200)=25');
 assert.strictEqual(room.status, 'active');
 console.log('battle room initialized from participants: OK');
+
+assert.deepStrictEqual(
+  room.players.p1.weaponParts,
+  [{ id: 'x1', shapeId: 'triangle', x: 100, y: 100, rotation: 0, scale: 1 }],
+  'p1의 weapon.parts가 battleRoom.players.p1.weaponParts로 그대로 전달되어야 함',
+);
+assert.deepStrictEqual(room.players.p2.weaponParts, [], '무기 부품이 없으면 빈 배열이어야 함');
+console.log('battle room carries weaponParts from participant weapon: OK');
 
 // battle:input 핸들러가 등록돼 있는지 확인 (registerBattleHandlers는 registerSessionHandlers와
 // 별개로 server.js가 호출하지만, 여기선 핸들러 자체를 직접 불러서 크래시 여부만 검증)
