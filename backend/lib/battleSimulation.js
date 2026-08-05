@@ -7,8 +7,12 @@ export const ATTACK_HITBOX_SIZE = 30;
 export const ATTACK_COOLDOWN_MS = 500;
 export const BATTLE_DURATION_MS = 90000;
 
+// weaponDamage는 소켓으로 들어오는 클라이언트 제공 값이라 숫자가 아닐 수도 있다 — 검증 없이
+// 나누면 NaN이 되어(즉시 최소 데미지도 아니고 즉사급 비교 실패로 이어짐) 사고가 난다.
 export function hitDamageFromWeaponDamage(weaponDamage) {
-  return Math.min(HIT_DAMAGE_MAX, Math.max(HIT_DAMAGE_MIN, Math.round(weaponDamage / 200)));
+  const value = Number(weaponDamage);
+  if (!Number.isFinite(value)) return HIT_DAMAGE_MIN;
+  return Math.min(HIT_DAMAGE_MAX, Math.max(HIT_DAMAGE_MIN, Math.round(value / 200)));
 }
 
 function clamp(v, min, max) {
@@ -109,8 +113,10 @@ export function stepSimulation(room, now) {
     winners = alivePlayers.map((p) => p.id);
     status = 'ended';
   } else if (now >= room.endsAt) {
-    const maxHp = Math.max(...Object.values(players).map((p) => p.hp));
-    winners = Object.values(players)
+    // 죽은 참가자(연결 끊김 등으로 alive=false)는 체력이 남아있어도 최다 체력 후보에서 제외.
+    // 이 시점엔 alivePlayers.length가 항상 2 이상이라(위 분기에서 이미 걸러짐) 빈 배열 걱정은 없음.
+    const maxHp = Math.max(...alivePlayers.map((p) => p.hp));
+    winners = alivePlayers
       .filter((p) => p.hp === maxHp)
       .map((p) => p.id);
     status = 'ended';

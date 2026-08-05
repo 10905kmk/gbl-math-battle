@@ -13,7 +13,6 @@ const CHARACTER_COLORS = {
 };
 
 // 실시간 대전 화면. docs/초안.md 7-③, 2026-08-05 대전 시스템 설계 문서 참고.
-// 입력 처리(방향패드/키보드)는 Task 8에서 추가 — 이 태스크는 상태 수신 + 렌더링까지만.
 export function BattleScreen({ socket, state }) {
   const containerRef = useRef(null);
   const layerRef = useRef(null);
@@ -45,17 +44,29 @@ export function BattleScreen({ socket, state }) {
       Object.values(room.players).forEach((p) => {
         let entry = nodesRef.current[p.id];
         if (!entry) {
+          const isSelf = p.id === socket.id;
           const circle = new Konva.Circle({
             x: p.x, y: p.y, radius: CHARACTER_RADIUS,
             fill: CHARACTER_COLORS[p.characterId] ?? '#999',
+            // 본인 캐릭터는 흰 테두리로 구분 — 다섯 명이 같은 화면에 있으면 어느 게 내 것인지
+            // 색만으로는 구별하기 어려워서(설계 리뷰에서 지적됨).
+            stroke: isSelf ? '#ffffff' : undefined,
+            strokeWidth: isSelf ? 3 : 0,
           });
           const hpBar = new Konva.Rect({
             x: p.x - CHARACTER_RADIUS, y: p.y - CHARACTER_RADIUS - 8,
             width: CHARACTER_RADIUS * 2, height: 4, fill: '#2ecc71',
           });
+          const label = new Konva.Text({
+            x: p.x - CHARACTER_RADIUS, y: p.y - 7,
+            width: CHARACTER_RADIUS * 2,
+            text: (p.characterId ?? '').replace('char', ''),
+            fontSize: 14, fontStyle: 'bold', fill: '#fff', align: 'center',
+          });
           layer.add(circle);
           layer.add(hpBar);
-          entry = { circle, hpBar };
+          layer.add(label);
+          entry = { circle, hpBar, label };
           nodesRef.current[p.id] = entry;
         }
         entry.circle.x(p.x);
@@ -64,6 +75,9 @@ export function BattleScreen({ socket, state }) {
         entry.hpBar.x(p.x - CHARACTER_RADIUS);
         entry.hpBar.y(p.y - CHARACTER_RADIUS - 8);
         entry.hpBar.width(CHARACTER_RADIUS * 2 * Math.max(0, p.hp / 100));
+        entry.label.x(p.x - CHARACTER_RADIUS);
+        entry.label.y(p.y - 7);
+        entry.label.opacity(p.alive ? 1 : 0.2);
       });
 
       layer.draw();
@@ -83,7 +97,12 @@ export function BattleScreen({ socket, state }) {
   const inputRef = useRef({ up: false, down: false, left: false, right: false, attack: false });
 
   function sendInput(patch) {
-    inputRef.current = { ...inputRef.current, ...patch };
+    const next = { ...inputRef.current, ...patch };
+    // 값이 실제로 바뀔 때만 전송 — 특히 키보드 반복입력(OS auto-repeat)이 초당 수십 번
+    // 동일한 keydown을 발생시켜도 여기서 걸러지므로 서버로 불필요한 이벤트가 안 나간다.
+    const changed = Object.keys(patch).some((key) => inputRef.current[key] !== next[key]);
+    if (!changed) return;
+    inputRef.current = next;
     socket.emit('battle:input', inputRef.current);
   }
 
@@ -98,11 +117,16 @@ export function BattleScreen({ socket, state }) {
     }
     function onKeyDown(e) {
       const dir = keyToDirection(e.key);
-      if (dir) sendInput({ [dir]: true });
+      if (!dir) return;
+      e.preventDefault(); // 방향키/스페이스바로 페이지가 스크롤되는 것 방지
+      if (e.repeat) return; // OS 키 반복은 무시 (sendInput의 변경감지와 이중 방어)
+      sendInput({ [dir]: true });
     }
     function onKeyUp(e) {
       const dir = keyToDirection(e.key);
-      if (dir) sendInput({ [dir]: false });
+      if (!dir) return;
+      e.preventDefault();
+      sendInput({ [dir]: false });
     }
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -112,34 +136,54 @@ export function BattleScreen({ socket, state }) {
     };
   }, []);
 
+  // 방향패드/공격 버튼 공용 핸들러 — 터치로 누르고 있다가 손가락이 버튼 밖으로 미끄러지면
+  // pointerup이 아니라 pointerleave/pointercancel이 발생해서, 그 경우도 놓치지 않고 떼야
+  // "버튼에서 손을 뗐는데 캐릭터가 계속 움직이는" 상태가 안 생긴다.
+  function releaseOn(key) {
+    return () => sendInput({ [key]: false });
+  }
+  function pressOn(key) {
+    return () => sendInput({ [key]: true });
+  }
+
   return html`
     <div class="battle-shell">
       <div class="battle-arena" ref=${containerRef}></div>
       <div class="battle-controls">
         <div class="dpad">
           <button
-            onPointerDown=${() => sendInput({ up: true })}
-            onPointerUp=${() => sendInput({ up: false })}
+            onPointerDown=${pressOn('up')}
+            onPointerUp=${releaseOn('up')}
+            onPointerLeave=${releaseOn('up')}
+            onPointerCancel=${releaseOn('up')}
           >↑</button>
           <div class="dpad-row">
             <button
-              onPointerDown=${() => sendInput({ left: true })}
-              onPointerUp=${() => sendInput({ left: false })}
+              onPointerDown=${pressOn('left')}
+              onPointerUp=${releaseOn('left')}
+              onPointerLeave=${releaseOn('left')}
+              onPointerCancel=${releaseOn('left')}
             >←</button>
             <button
-              onPointerDown=${() => sendInput({ down: true })}
-              onPointerUp=${() => sendInput({ down: false })}
+              onPointerDown=${pressOn('down')}
+              onPointerUp=${releaseOn('down')}
+              onPointerLeave=${releaseOn('down')}
+              onPointerCancel=${releaseOn('down')}
             >↓</button>
             <button
-              onPointerDown=${() => sendInput({ right: true })}
-              onPointerUp=${() => sendInput({ right: false })}
+              onPointerDown=${pressOn('right')}
+              onPointerUp=${releaseOn('right')}
+              onPointerLeave=${releaseOn('right')}
+              onPointerCancel=${releaseOn('right')}
             >→</button>
           </div>
         </div>
         <button
           class="attack-button"
-          onPointerDown=${() => sendInput({ attack: true })}
-          onPointerUp=${() => sendInput({ attack: false })}
+          onPointerDown=${pressOn('attack')}
+          onPointerUp=${releaseOn('attack')}
+          onPointerLeave=${releaseOn('attack')}
+          onPointerCancel=${releaseOn('attack')}
         >공격</button>
       </div>
     </div>

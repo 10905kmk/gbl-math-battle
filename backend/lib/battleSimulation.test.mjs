@@ -24,6 +24,13 @@ assert.strictEqual(hitDamageFromWeaponDamage(10000), 50);
 assert.strictEqual(hitDamageFromWeaponDamage(5000), 25);
 console.log('hitDamageFromWeaponDamage: OK');
 
+// hitDamageFromWeaponDamage 방어: 숫자가 아닌 값이 와도 NaN이 아니라 최소값으로 안전하게 처리
+assert.strictEqual(hitDamageFromWeaponDamage('abc'), 5, '숫자로 못 바꾸는 문자열');
+assert.strictEqual(hitDamageFromWeaponDamage(undefined), 5, 'undefined');
+assert.strictEqual(hitDamageFromWeaponDamage(null), 5, 'null');
+assert.strictEqual(hitDamageFromWeaponDamage(NaN), 5, 'NaN 직접 입력');
+console.log('hitDamageFromWeaponDamage guards non-numeric input: OK');
+
 // 이동: up 입력 시 y가 MOVE_SPEED만큼 감소
 {
   const room = makeRoom({ p1: makePlayer({ input: { ...noInput, up: true } }) });
@@ -124,6 +131,17 @@ console.log('hitDamageFromWeaponDamage: OK');
   assert.deepStrictEqual(winners, ['p1']);
   assert.strictEqual(next.status, 'ended');
   console.log('win by timeout (highest hp): OK');
+}
+
+// 승리: 시간 초과 시 죽은 참가자(연결 끊김 등)는 체력이 남아있어도 최다 체력 후보에서 제외
+{
+  const p1 = makePlayer({ id: 'p1', hp: 20 });
+  const p2 = makePlayer({ id: 'p2', hp: 90, alive: false }); // 죽었지만 hp는 안 지워짐(연결 끊김 케이스)
+  const p3 = makePlayer({ id: 'p3', hp: 15 });
+  const room = makeRoom({ p1, p2, p3 }, { endsAt: 1000 });
+  const { winners } = stepSimulation(room, 1000);
+  assert.deepStrictEqual(winners, ['p1'], '죽은 p2(hp 90)가 아니라 생존자 중 최다 체력인 p1이 승자');
+  console.log('win by timeout excludes dead players from tie-break: OK');
 }
 
 // 승리: 시간 초과 + 동점 -> 전원 승자

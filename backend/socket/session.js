@@ -16,8 +16,19 @@ function goToStage(io, nextStage) {
   io.emit('stage:change', cohort.stage);
   if (nextStage === 'battle') {
     startBattleRoom(io, cohort.participants, {
-      onEnd: () => goToStage(io, 'result'),
+      // 관리자가 대전 도중 다른 단계로 수동 이동한 뒤에 뒤늦게 라운드가 끝나면(타이머 만료 등)
+      // 이 콜백이 그때 가서 엉뚱하게 result로 되돌려버릴 수 있다 — 그 사이 stage가 이미
+      // battle이 아니게 됐으면 무시한다. (아래 else 분기가 stopBattleRoom도 호출하므로
+      // 정상 경로에서는 이 콜백 자체가 그 뒤로 불릴 일이 없다 — 이건 이중 방어.)
+      onEnd: () => {
+        if (cohort.stage === 'battle') goToStage(io, 'result');
+      },
     });
+  } else {
+    // battle이 아닌 다른 단계로 넘어가면(관리자가 수동으로 건너뛴 경우 포함) 진행 중이던
+    // 대전은 더 이상 의미가 없으니 같이 정지 — 안 그러면 admin:reset 없이도 뒷단계까지
+    // battle:state가 계속 broadcast되고, 나중에 끝났을 때 엉뚱한 단계에서 result로 끌려간다.
+    stopBattleRoom();
   }
 }
 
@@ -68,5 +79,11 @@ export function registerSessionHandlers(io, socket) {
     } else {
       cohort.participants.push({ id: socket.id, weapon });
     }
+  });
+
+  // 참가자가 새로고침 등으로 끊기면 새 소켓으로 다시 잡을 때 새 id로 등록되므로,
+  // 끊긴 옛 id를 지워두지 않으면 명단에 유령 참가자가 계속 쌓인다.
+  socket.on('disconnect', () => {
+    cohort.participants = cohort.participants.filter((p) => p.id !== socket.id);
   });
 }
