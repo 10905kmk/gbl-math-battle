@@ -6,6 +6,7 @@ import { getApiKeys } from './apiKeys.js';
 export const DAMAGE_MIN = 1;
 export const DAMAGE_MAX = 10000;
 const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 seedCache(SAMPLES);
 
@@ -37,15 +38,57 @@ export async function callGeminiWithRotation(requestFn, pool = getApiKeys('gemin
   throw lastError;
 }
 
-// TODO(후속 태스크): 실제 Gemini fetch 호출 + 프롬프트 구성(few-shot 예시 포함) 구현.
-// 지금은 데모/영상 촬영이 급해서 MOCK_AI 경로만 완성하고 이 함수는 스텁으로 둔다.
-// evaluateWeapon()이 이 함수를 호출하는 건 MOCK_AI가 아닐 때뿐이고, 이 함수가 던지면
-// weaponEvaluate.js 라우트가 이미 fallbackDamage()로 안전하게 폴백하도록 되어 있어서(Task 8),
-// 지금 스텁 상태로 둬도 다른 경로가 깨지지 않는다. 나중에 구현할 때 prompt 문구는
-// SAMPLES(few-shot 예시)를 "- {parts} → 데미지 N (note)" 형태로 나열하고,
-// "절대값이 아니라 범위(min,max)로 답해라. max-min은 1000 이내로 좁게" 지시를 포함시킬 것.
-async function requestDamageRange() {
-  throw new Error('requestDamageRange not implemented yet — real Gemini call is a follow-up task');
+function summarizeParts(parts) {
+  return parts
+    .map((p) => `${p.shapeId}(x:${p.x},y:${p.y},rotation:${p.rotation},scale:${p.scale})`)
+    .join(', ');
+}
+
+function buildDamagePrompt(weaponState) {
+  const examples = SAMPLES.map((s) => `- ${summarizeParts(s.parts)} → 데미지 ${s.damage} (${s.note})`).join('\n');
+  return [
+    '너는 수학 도형으로 만든 무기의 전투력을 채점하는 심판이다.',
+    `데미지는 ${DAMAGE_MIN}~${DAMAGE_MAX} 범위의 정수다. 아래는 참고용 예시다:`,
+    examples,
+    '',
+    `채점할 무기: ${summarizeParts(weaponState.parts)}`,
+    '',
+    '절대값이 아니라 (min, max) 범위로 답하라. max - min은 1000 이내로 좁게 잡아라.',
+  ].join('\n');
+}
+
+// 완성된 무기 하나를 Gemini에게 채점받아 데미지 범위(min,max)를 받아온다.
+export async function requestDamageRange(apiKey, weaponState) {
+  const res = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: buildDamagePrompt(weaponState) }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            min: { type: 'INTEGER' },
+            max: { type: 'INTEGER' },
+          },
+          required: ['min', 'max'],
+        },
+      },
+    }),
+  });
+  if (!res.ok) {
+    const err = new Error(`Gemini damage request failed with ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  const parsed = JSON.parse(text);
+  if (!Number.isFinite(parsed.min) || !Number.isFinite(parsed.max)) {
+    throw new Error('Gemini damage response missing numeric min/max');
+  }
+  return { min: parsed.min, max: parsed.max };
 }
 
 // 완성된 무기를 AI에게 채점받는다. 같은(또는 거의 같은) 무기는 항상 같은 damage를 반환한다.
