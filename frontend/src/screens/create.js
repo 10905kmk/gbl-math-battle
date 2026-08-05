@@ -11,7 +11,7 @@ export function CreateScreen({ socket, state }) {
   const [weaponState, setWeaponState] = useState({ parts: [] });
   const [phase, setPhase] = useState('editing'); // editing | evaluating | waiting
   const [error, setError] = useState(null);
-  const [progress, setProgress] = useState({ done: 0, total: 5 });
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const stageRef = useRef(null);
 
   useEffect(() => {
