@@ -14,6 +14,7 @@ const WEAPON_ICON_SIZE = 28;
 const CHARACTER_COLORS = {
   char1: '#e74c3c', char2: '#3498db', char3: '#2ecc71',
   char4: '#f1c40f', char5: '#9b59b6', char6: '#e67e22',
+  char7: '#1abc9c', char8: '#34495e',
 };
 
 // 실시간 대전 화면. docs/초안.md 7-③, 2026-08-05 대전 시스템 설계 문서 참고.
