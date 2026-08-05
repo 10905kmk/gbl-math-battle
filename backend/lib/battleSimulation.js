@@ -1,18 +1,18 @@
 export const ARENA_SIZE = { width: 800, height: 600 };
 export const CHARACTER_RADIUS = 20;
 export const MOVE_SPEED = 4;
-export const HIT_DAMAGE_MIN = 5;
-export const HIT_DAMAGE_MAX = 50;
+export const HIT_SCORE_COEFFICIENT = 0.05;
 export const ATTACK_HITBOX_SIZE = 30;
 export const ATTACK_COOLDOWN_MS = 500;
 export const BATTLE_DURATION_MS = 90000;
 
-// weaponDamage는 소켓으로 들어오는 클라이언트 제공 값이라 숫자가 아닐 수도 있다 — 검증 없이
-// 나누면 NaN이 되어(즉시 최소 데미지도 아니고 즉사급 비교 실패로 이어짐) 사고가 난다.
-export function hitDamageFromWeaponDamage(weaponDamage) {
+// weaponDamage는 소켓으로 들어오는 클라이언트 제공 값이라 숫자가 아니거나 0 이하일 수도 있다 —
+// 검증 없이 곱하면 NaN/음수 점수 변동으로 이어져 사고가 난다. 숫자가 아니거나 0 이하면
+// 최소치(1)로 취급한다.
+export function hitScoreFromWeaponDamage(weaponDamage) {
   const value = Number(weaponDamage);
-  if (!Number.isFinite(value)) return HIT_DAMAGE_MIN;
-  return Math.min(HIT_DAMAGE_MAX, Math.max(HIT_DAMAGE_MIN, Math.round(value / 200)));
+  const safeValue = Number.isFinite(value) && value > 0 ? value : 1;
+  return Math.round(safeValue * HIT_SCORE_COEFFICIENT);
 }
 
 function clamp(v, min, max) {
@@ -83,42 +83,38 @@ export function stepSimulation(room, now) {
   const players = {};
   for (const id of Object.keys(room.players)) {
     const p = room.players[id];
-    players[id] = p.alive ? moveOne(p, room.walls) : { ...p };
+    players[id] = p.connected ? moveOne(p, room.walls) : { ...p };
   }
 
-  // 공격 판정 — 참가자 순서(입장 순서)대로 한 명씩 처리, 쿨다운 통과 시 즉시 판정
+  // 공격 판정 — 참가자 순서(입장 순서)대로 한 명씩 처리, 쿨다운 통과 시 즉시 판정.
+  // 맞히면 공격자 점수는 오르고, 맞은 쪽 점수는 내려가되 0 밑으로는 안 내려간다(탈락 없음).
   for (const id of Object.keys(players)) {
     const attacker = players[id];
-    if (!attacker.alive) continue;
+    if (!attacker.connected) continue;
     if (!attacker.input.attack) continue;
     if (now - attacker.lastAttackAt < ATTACK_COOLDOWN_MS) continue;
 
     const hitbox = attackHitboxRect(attacker);
+    const delta = attacker.hitScore;
     for (const targetId of Object.keys(players)) {
       if (targetId === id) continue;
       const target = players[targetId];
-      if (!target.alive) continue;
+      if (!target.connected) continue;
       if (circleRectOverlap(target.x, target.y, CHARACTER_RADIUS, hitbox.x, hitbox.y, hitbox.width, hitbox.height)) {
-        const hp = Math.max(0, target.hp - attacker.hitDamage);
-        players[targetId] = { ...target, hp, alive: hp > 0 };
+        players[targetId] = { ...target, score: Math.max(0, target.score - delta) };
+        players[id] = { ...players[id], score: players[id].score + delta };
       }
     }
-    players[id] = { ...attacker, lastAttackAt: now };
+    players[id] = { ...players[id], lastAttackAt: now };
   }
 
-  const alivePlayers = Object.values(players).filter((p) => p.alive);
+  // 탈락이 없으므로 승패는 오직 제한시간 종료 시점에만 갈린다 — 그 전까지는 winners가 항상 null.
   let winners = null;
   let status = room.status;
-  if (alivePlayers.length <= 1) {
-    winners = alivePlayers.map((p) => p.id);
-    status = 'ended';
-  } else if (now >= room.endsAt) {
-    // 죽은 참가자(연결 끊김 등으로 alive=false)는 체력이 남아있어도 최다 체력 후보에서 제외.
-    // 이 시점엔 alivePlayers.length가 항상 2 이상이라(위 분기에서 이미 걸러짐) 빈 배열 걱정은 없음.
-    const maxHp = Math.max(...alivePlayers.map((p) => p.hp));
-    winners = alivePlayers
-      .filter((p) => p.hp === maxHp)
-      .map((p) => p.id);
+  if (now >= room.endsAt) {
+    const allPlayers = Object.values(players);
+    const maxScore = Math.max(...allPlayers.map((p) => p.score));
+    winners = allPlayers.filter((p) => p.score === maxScore).map((p) => p.id);
     status = 'ended';
   }
 
