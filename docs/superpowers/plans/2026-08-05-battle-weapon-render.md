@@ -419,3 +419,27 @@ Run: `pkill -f "node server.js"`
 - **스펙 커버리지**: `shapes/weaponRenderer.js`(Task 1), `battle.js`의 `weaponParts` 전달(Task 2), 프론트 표시+facing 오프셋(Task 3), 실제 확인(Task 4) — 스펙의 모든 섹션에 대응하는 태스크가 있음
 - **의도적으로 범위 밖으로 둔 것**(스펙에 이미 명시): `create.js`/`result.js`에서 `weaponRenderer.js` 사용, 무기 회전, 부품 애니메이션 — 이번 플랜에 태스크 없음(의도된 것)
 - **타입 일관성**: `computeWeaponBounds`/`drawWeaponGroup`의 시그니처가 스펙과 Task 1~3에서 동일(`parts`, `{ targetSize }`)
+
+---
+
+## 구현 후 최종 리뷰(Opus) 반영 사항
+
+4개 태스크 구현 완료 후 별도 세션에서 Opus 모델로 전체 diff(`2c4fbbb..HEAD`)를 리뷰. 실제 서버 기동, 테스트 스크립트 실행, Playwright로 실제 대전 화면에 프랙탈/여러 부품 무기를 띄워 픽셀 단위로 실측까지 거쳐 Critical 0건 + Important 4건을 확인, 전부 수정하고 회귀 테스트를 추가함 (커밋 `7a0e2bf`).
+
+**Important — 수정함**
+1. 무기 아이콘이 좌상단 기준으로 배치돼서, 캐릭터가 위/왼쪽을 볼 때는 무기가 캐릭터 원 안쪽으로 파고들었다(실측: 중심 기준 17.3px 거리, 캐릭터 반경은 20px이라 겹침). `drawWeaponGroup`이 그룹 자체에 `offsetX/offsetY`를 걸어 등록점을 무기 아이콘의 중심으로 옮기도록 수정 — `battle.js`의 배치 코드는 그대로 두고 렌더러 안에서 해결.
+2. `computeWeaponBounds`/`drawWeaponGroup`이 각 도형 "자신의" bounding box 중심을 안 빼고 원점 기준으로 좌표를 합치고 있었다 — `CanvasEditor.js`의 `drawShapeNode`는 `part.x/y`를 "도형 bbox 중심이 놓이는 위치"로 쓰는데, 여기선 그냥 로컬 원점으로 취급했다. 정사각형/코흐눈꽃(로컬 좌표가 원점 대칭)은 우연히 맞았지만 삼각형/시에르핀스키(수직 비대칭, bbox 중심이 (0,-8.66))는 8.66px×scale만큼 어긋났다. 도형별 bbox 중심을 구해서 그리기 전에 빼도록 수정 — 실측으로 재현(64.64 vs 정상 60)한 뒤 회귀 테스트로 고정.
+3. 부품 배열에 `null` 원소가 섞이면(session.js의 `create:done`이 클라이언트가 보낸 weapon을 검증 없이 저장하므로 이론상 가능) `computeWeaponBounds`가 즉시 throw해서, `battle:state`를 받는 **모든** 참가자의 화면이 그 틱에서 멈췄다(`Object.values(...).forEach`가 중간에 끊김). 부품 단위로 null/비객체를 건너뛰도록 방어.
+4. `drawWeaponGroup`이 시그니처 변경(계획 수정 사항 참고)으로 실은 테스트 가능해졌는데 테스트가 하나도 없었다 — 스텁 Konva 네임스페이스로 그룹 offset/노드 위치/scaleX 계산을 검증하는 테스트 추가.
+
+**부수적으로 같이 처리함**
+- 무기 아이콘 크기를 20px→28px로 키움 — 프랙탈이 20px에선 실측 43픽셀만 칠해질 정도로 안 보였음(스펙의 "미결 사항"에 이미 있던 질문, 이번에 실측해서 해결)
+- `strokeScaleEnabled: false` 추가 — 축소된 노드에서 테두리(strokeWidth)가 같이 줄어들어 사실상 안 보이던 문제
+- `Konva` 인자를 안 넘기면 "undefined.Group()" 같은 알 수 없는 에러 대신 명확한 에러로 실패하도록 가드 추가
+- 무기 중심 정렬(#1)의 부작용으로 벽 근처에서 아이콘이 더 많이 잘리는 것을 확인(실측: 위쪽 벽에서 클리핑이 4px→14px로 늘어남) — `WEAPON_OFFSET`을 줄이고 아레나 범위로 위치를 clamp해서 완화
+
+**의도적으로 보류(Minor, 내 판단, 사용자 지시 아님)**
+- `drawWeaponGroup`의 도형별 그리기 로직(`sceneFunc`)이 `CanvasEditor.js`의 `drawShapeNode`와 의도적으로 중복돼 있다 — 리뷰는 "이번에 발견된 origin 불일치(#2)가 바로 그 drift의 실제 사례"라며 `shapes/registry.js`에 `getPartLocalBounds(shapeId)` 같은 공용 함수를 추출해 "part.x/y가 뭘 뜻하는지"만이라도 공유하라고 권고함 — 일리 있지만 `CanvasEditor.js`(이미 별도로 리뷰·수정 완료된 파일)를 다시 건드리는 일이라 이번 사이클 범위 밖으로 미룸
+- `weaponParts`를 매 틱(20Hz) 그대로 재전송하는 비용 — 리뷰가 실측(부품 10개 기준 최대 ~114KB/s per client)해서 "무시할 정도는 아니지만 이 규모(부스 LAN, 참가자 5명)에서는 괜찮다"고 결론, 참가자가 대전 중 새로고침해도 무기가 복구된다는 부수 이점도 있어 그대로 둠
+- 캐릭터 z-order(레이어에 캐릭터/무기가 등록 순서대로 쌓여서, 나중에 등록된 참가자의 원이 먼저 등록된 참가자의 무기 위에 그려질 수 있음) — 근접 전투 중에만 보이는 데다 지금도 자기 무기는 항상 자기 원 위에 정상적으로 그려짐, 보류
+- `getClientRect()`가 무기 그룹에 대해 의미 없는 값(~0.33×0.33)을 반환함 — 이 코드 경로 어디서도 안 쓰이므로(히트 판정/캐싱 없음) 실질적 버그는 아니지만, 나중에 누가 이 불변조건을 가정하고 코드를 추가할 수 있으니 주석으로만 남겨둠, 이번엔 수정 안 함
