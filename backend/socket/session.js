@@ -7,6 +7,7 @@ const cohort = {
 
 // 관리자가 수동으로 단계를 앞뒤로 넘길 때의 순서. idle은 startSession/reset으로만 드나든다.
 const STAGE_ORDER = ['learn', 'create', 'battle', 'result', 'thanks'];
+const EXPECTED_PARTICIPANTS = 5;
 
 function goToStage(io, nextStage) {
   cohort.stage = nextStage;
@@ -53,7 +54,17 @@ export function registerSessionHandlers(io, socket) {
     io.emit('stage:change', cohort.stage);
   });
 
-  socket.on('create:done', () => {
-    // TODO: participant별 완료 처리, 전원 완료 시 stage='battle' broadcast (docs/초안.md 7-② 참고)
+  socket.on('create:done', (weapon) => {
+    const existing = cohort.participants.find((p) => p.id === socket.id);
+    if (existing) {
+      existing.done = true;
+      existing.weapon = weapon;
+    } else {
+      cohort.participants.push({ id: socket.id, done: true, weapon });
+    }
+    const doneCount = cohort.participants.filter((p) => p.done).length;
+    if (doneCount >= EXPECTED_PARTICIPANTS) {
+      goToStage(io, 'battle');
+    }
   });
 }
