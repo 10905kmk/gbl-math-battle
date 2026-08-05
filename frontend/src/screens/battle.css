@@ -1,0 +1,48 @@
+.battle-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.battle-arena {
+  width: 800px;
+  height: 600px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.battle-controls {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.dpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dpad-row {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.dpad button,
+.attack-button {
+  width: 3rem;
+  height: 3rem;
+  font-size: 1.2rem;
+  touch-action: none;
+}
+
+.attack-button {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 50%;
+  background: #c0392b;
+  color: #fff;
+}
