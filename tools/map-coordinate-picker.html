@@ -53,6 +53,11 @@
       mode = next;
       wallModeLabel.classList.toggle('active', mode === 'wall');
       spawnModeLabel.classList.toggle('active', mode === 'spawn');
+      // 모드를 바꾸는 순간 드래그 중이었다면 남은 노란 미리보기가 화면에 그대로 남으므로,
+      // 드래그 상태를 같이 버리고 다시 그린다.
+      dragStart = null;
+      dragCurrent = null;
+      redraw();
     }
     wallModeLabel.addEventListener('click', () => setMode('wall'));
     spawnModeLabel.addEventListener('click', () => setMode('spawn'));
@@ -60,14 +65,24 @@
     fileInput.addEventListener('change', () => {
       const file = fileInput.files[0];
       if (!file) return;
+      const url = URL.createObjectURL(file);
       const img = new Image();
       img.onload = () => {
         image = img;
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
+        // 새 이미지를 불러오면 이전 맵의 좌표가 그대로 남아있으면 안 된다(다른 맵인데
+        // 이전 좌표가 섞여 들어가는 사고 방지).
+        walls = [];
+        spawnPoints = [];
+        URL.revokeObjectURL(url);
         redraw();
       };
-      img.src = URL.createObjectURL(file);
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        alert('이미지를 불러오지 못했습니다. 다른 파일을 선택해주세요.');
+      };
+      img.src = url;
     });
 
     function redraw() {
@@ -121,13 +136,17 @@
         redraw();
       }
     });
-    canvas.addEventListener('mousemove', (e) => {
+    // mousemove/mouseup은 canvas가 아니라 window에 건다 — 벽 좌표는 이미지 가장자리에서
+    // 자주 잡게 되는데, 그 상태로 드래그 중 마우스가 canvas 밖으로 살짝 나가면 canvas는
+    // 더 이상 mousemove/mouseup을 받지 못해 드래그가 허공에 붕 뜬 채로 남고(다음 클릭에
+    // 조용히 사라짐) 벽이 하나도 안 잡힌다.
+    window.addEventListener('mousemove', (e) => {
       if (mode === 'wall' && dragStart) {
         dragCurrent = canvasPoint(e);
         redraw();
       }
     });
-    canvas.addEventListener('mouseup', (e) => {
+    window.addEventListener('mouseup', (e) => {
       if (mode === 'wall' && dragStart) {
         const end = canvasPoint(e);
         const x = Math.min(dragStart.x, end.x);
@@ -154,7 +173,13 @@
       redraw();
     });
     copyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(output.textContent);
+      navigator.clipboard.writeText(output.textContent).then(
+        () => {
+          copyBtn.textContent = '복사됨!';
+          setTimeout(() => { copyBtn.textContent = '복사'; }, 1000);
+        },
+        () => { alert('복사에 실패했습니다 — 출력 텍스트를 직접 드래그해서 복사해주세요.'); },
+      );
     });
 
     function formatArray(name, items) {
@@ -166,8 +191,12 @@
       const sizeLine = image
         ? `  arenaSize: { width: ${canvas.width}, height: ${canvas.height} },`
         : '  arenaSize: { width: 800, height: 600 },';
+      // shapes/battleMap.js의 DEFAULT_MAP은 imagePath도 필수 필드다 — 이 줄이 빠지면
+      // 이 출력을 그대로 붙여넣었을 때 배경 이미지가 조용히(에러 없이) 안 뜬다. frontend/assets/maps/에
+      // 두는 관례에 맞춘 기본값이니 실제 파일명이 다르면 직접 고쳐서 쓴다.
+      const imagePathLine = `  imagePath: '/assets/maps/battle-map.png',`;
       output.textContent =
-        '{\n' + sizeLine + '\n' +
+        '{\n' + sizeLine + '\n' + imagePathLine + '\n' +
         formatArray('walls', walls) + '\n' +
         formatArray('spawnPoints', spawnPoints) + '\n' +
         '}';

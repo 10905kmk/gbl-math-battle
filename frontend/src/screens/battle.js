@@ -45,8 +45,12 @@ export function BattleScreen({ socket, state }) {
 
     // 배경 이미지 — 아직 파일이 없거나 로드에 실패해도(onerror) 아무 것도 하지 않고
     // .battle-arena의 어두운 배경색이 그대로 보이게 조용히 폴백한다(게임이 깨지면 안 됨).
+    // cancelled 플래그: 로드가 끝나기 전에 화면이 언마운트되면(빠른 stage 전환 등) 이미
+    // destroy된 stage/layer에 노드를 추가하지 않도록 막는다.
+    let cancelled = false;
     const bgImage = new Image();
     bgImage.onload = () => {
+      if (cancelled) return;
       const bg = new Konva.Image({
         image: bgImage,
         x: 0,
@@ -61,7 +65,10 @@ export function BattleScreen({ socket, state }) {
     bgImage.onerror = () => {};
     bgImage.src = DEFAULT_MAP.imagePath;
 
-    return () => stage.destroy();
+    return () => {
+      cancelled = true;
+      stage.destroy();
+    };
   }, []);
 
   useEffect(() => {
@@ -270,7 +277,7 @@ export function BattleScreen({ socket, state }) {
   }
 
   return html`
-    <div class="battle-shell">
+    <div class="battle-shell" style=${{ '--arena-width': `${DEFAULT_MAP.arenaSize.width}px` }}>
       <div class="battle-arena" ref=${containerRef}></div>
       <div class="battle-controls">
         <${VirtualJoystick} onChange=${onMoveStick} />

@@ -6,8 +6,13 @@
 }
 
 .battle-arena {
-  width: 800px;
-  height: 600px;
+  /* Konva가 컨테이너 안에 만드는 .konvajs-content div가 이미 정확한 픽셀 크기(인라인
+     스타일)를 갖고 있으므로, 여기서 800x600을 또 하드코딩하지 않고 그 크기에 맞춰
+     줄어들게(fit-content) 둔다 — 맵 이미지가 바뀌어 아레나 크기(DEFAULT_MAP.arenaSize)가
+     800x600이 아니게 돼도 어긋나지 않는다(Opus 리뷰 Important #1, 실측 확인됨: 예전처럼
+     고정값이면 더 큰 맵에서 캔버스가 이 박스 밖으로 넘침). */
+  width: fit-content;
+  height: fit-content;
   background: #1a1a1a;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
@@ -17,11 +22,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* .battle-shell은 800px 고정폭 아레나 기준으로 크기가 잡히기 때문에 width:100%는 그대로
-     800px로 풀려버린다(부스 태블릿/폰 뷰포트보다 넓음) — 좁은 화면에서는 뷰포트 폭을
-     기준으로 줄여서, 이동 스틱이 화면 밖(음수 좌표)으로 밀려나 손이 안 닿는 걸 막는다
-     (Opus 리뷰 Important I1, 실측 확인됨). */
-  width: min(800px, 100vw - 3rem);
+  /* --arena-width는 battle.js가 DEFAULT_MAP.arenaSize.width로 인라인 설정한다(위 .battle-arena
+     주석과 같은 이유로 하드코딩 대신 실제 아레나 크기를 따라감). 좁은 화면(부스 태블릿/폰)에서는
+     뷰포트 폭 기준으로 줄여서, 이동 스틱이 화면 밖으로 밀려나 손이 안 닿는 걸 막는다. */
+  width: min(var(--arena-width), 100vw - 3rem);
 }
 
 .joystick-base {
