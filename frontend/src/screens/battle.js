@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import htm from 'htm';
 import Konva from 'konva';
 import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
+import { VirtualJoystick } from './VirtualJoystick.js';
 
 const html = htm.bind(h);
 
@@ -16,12 +17,20 @@ const CHARACTER_COLORS = {
   char4: '#f1c40f', char5: '#9b59b6', char6: '#e67e22',
   char7: '#1abc9c', char8: '#34495e',
 };
+// battle:input을 보낼지 말지 판단하는 임계값 — 연속값(moveX/moveY/aimX/aimY)은 불리언처럼
+// 정확히 같은지 비교할 수 없어서, 이 값보다 작게 변하면 "그대로"로 본다(마우스 좌표가 1px만
+// 흔들려도 매 프레임 emit되는 걸 방지).
+const INPUT_EPSILON = 0.02;
 
-// 실시간 대전 화면. docs/초안.md 7-③, 2026-08-06 배틀로얄 점수제 설계 문서 참고.
+// 실시간 대전 화면. docs/초안.md 7-③, 2026-08-06 배틀로얄 점수제/조작방식 재설계 문서 참고.
 export function BattleScreen({ socket, state }) {
   const containerRef = useRef(null);
   const layerRef = useRef(null);
+  const stageRef = useRef(null);
   const nodesRef = useRef({});
+  // PC 마우스 조준을 계산하려면 "내 캐릭터가 화면에서 어디 있는지"가 필요한데, battle:state로만
+  // 갱신되는 서버 진실이라 여기 별도로 캐시해둔다(마우스 이벤트는 그 사이 계속 발생하므로).
+  const selfPosRef = useRef({ x: ARENA_SIZE.width / 2, y: ARENA_SIZE.height / 2 });
 
   useEffect(() => {
     const stage = new Konva.Stage({
@@ -32,6 +41,7 @@ export function BattleScreen({ socket, state }) {
     const layer = new Konva.Layer();
     stage.add(layer);
     layerRef.current = layer;
+    stageRef.current = stage;
     return () => stage.destroy();
   }, []);
 
@@ -47,6 +57,9 @@ export function BattleScreen({ socket, state }) {
       }
 
       Object.values(room.players).forEach((p) => {
+        if (p.id === socket.id) {
+          selfPosRef.current = { x: p.x, y: p.y };
+        }
         let entry = nodesRef.current[p.id];
         if (!entry) {
           const isSelf = p.id === socket.id;
@@ -74,7 +87,7 @@ export function BattleScreen({ socket, state }) {
             fontSize: 14, fontStyle: 'bold', fill: '#fff', align: 'center',
           });
           // 참가자가 제작 화면에서 만든 무기를 작게 그려서 캐릭터 옆에 붙인다 — 무기는 대전 중
-          // 안 바뀌므로(제작 단계에서 확정) 여기서 한 번만 그리고 이후엔 위치만 옮긴다.
+          // 안 바뀌므로(제작 단계에서 확정) 여기서 한 번만 그리고 이후엔 위치/회전만 옮긴다.
           const weaponGroup = drawWeaponGroup(Konva, p.weaponParts, { targetSize: WEAPON_ICON_SIZE });
           layer.add(circle);
           layer.add(scoreLabel);
@@ -97,21 +110,17 @@ export function BattleScreen({ socket, state }) {
         entry.label.x(p.x - CHARACTER_RADIUS);
         entry.label.y(p.y - 7);
         entry.label.opacity(isConnected ? 1 : 0.2);
-        // 공격 히트박스(backend/lib/battleSimulation.js의 attackHitboxRect)와 같은
-        // facing -> 오프셋 매핑 — 캐릭터가 바라보는 쪽에 무기를 든 것처럼 보이게 한다.
-        // weaponGroup은 drawWeaponGroup 안에서 이미 자기 중심 기준으로 offset돼 있으므로,
-        // 여기 오프셋은 "무기 아이콘의 중심"이 캐릭터 중심에서 얼마나 떨어지는지를 뜻한다.
-        const WEAPON_OFFSET = CHARACTER_RADIUS;
-        const weaponOffset = {
-          up: { x: 0, y: -WEAPON_OFFSET },
-          down: { x: 0, y: WEAPON_OFFSET },
-          left: { x: -WEAPON_OFFSET, y: 0 },
-          right: { x: WEAPON_OFFSET, y: 0 },
-        }[p.facing] ?? { x: WEAPON_OFFSET, y: 0 };
-        // 벽 근처에서 무기 아이콘이 화면 밖으로 잘리지 않게 아레나 범위 안으로 clamp —
+
+        // 무기 아이콘 위치/방향 — 조준 벡터(aimX/aimY)를 기준으로 캐릭터 중심에서 연속적으로
+        // 오프셋되고, 그 각도만큼 회전한다(예전 4방향 스냅 대신 브롤스타즈처럼 자유 조준).
+        // 벽 근처에서 아이콘이 화면 밖으로 잘리지 않게 아레나 범위 안으로 clamp —
         // dragBoundFunc(CanvasEditor.js)/moveOne(battleSimulation.js)과 같은 패턴.
-        entry.weaponGroup.x(Math.min(ARENA_SIZE.width, Math.max(0, p.x + weaponOffset.x)));
-        entry.weaponGroup.y(Math.min(ARENA_SIZE.height, Math.max(0, p.y + weaponOffset.y)));
+        const aimX = p.aimX ?? 0;
+        const aimY = p.aimY ?? 1;
+        const WEAPON_OFFSET = CHARACTER_RADIUS;
+        entry.weaponGroup.x(Math.min(ARENA_SIZE.width, Math.max(0, p.x + aimX * WEAPON_OFFSET)));
+        entry.weaponGroup.y(Math.min(ARENA_SIZE.height, Math.max(0, p.y + aimY * WEAPON_OFFSET)));
+        entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
         entry.weaponGroup.opacity(isConnected ? 1 : 0.2);
       });
 
@@ -129,39 +138,58 @@ export function BattleScreen({ socket, state }) {
     return () => socket.off('battle:result', onResult);
   }, [socket, state]);
 
-  const inputRef = useRef({ up: false, down: false, left: false, right: false, attack: false });
+  const inputRef = useRef({ moveX: 0, moveY: 0, aimX: 0, aimY: 0 });
+  const keysRef = useRef({ up: false, down: false, left: false, right: false });
 
   function sendInput(patch) {
     const next = { ...inputRef.current, ...patch };
-    // 값이 실제로 바뀔 때만 전송 — 특히 키보드 반복입력(OS auto-repeat)이 초당 수십 번
-    // 동일한 keydown을 발생시켜도 여기서 걸러지므로 서버로 불필요한 이벤트가 안 나간다.
-    const changed = Object.keys(patch).some((key) => inputRef.current[key] !== next[key]);
+    // 값이 임계값(INPUT_EPSILON) 이상 실제로 바뀔 때만 전송 — 마우스 이동처럼 아주 잦은
+    // 이벤트가 매번 소켓으로 나가지 않게 한다(불리언 시절의 "값이 바뀔 때만 전송"과 같은
+    // 원칙을 연속값에 맞게 확장).
+    const changed = Object.keys(patch).some(
+      (key) => Math.abs(inputRef.current[key] - next[key]) > INPUT_EPSILON,
+    );
     if (!changed) return;
     inputRef.current = next;
     socket.emit('battle:input', inputRef.current);
   }
 
+  // 키보드 이동 — WASD/화살표 둘 다 지원. 눌린 키 조합을 방향벡터로 합친 뒤 정규화해서
+  // 보낸다(대각선 입력이 √2배 빨라지지 않게). 조준은 마우스가 담당하므로 여기서는 안 건드림.
+  function updateMoveFromKeys() {
+    const { up, down, left, right } = keysRef.current;
+    let x = (right ? 1 : 0) - (left ? 1 : 0);
+    let y = (down ? 1 : 0) - (up ? 1 : 0);
+    const len = Math.hypot(x, y);
+    if (len > 0) {
+      x /= len;
+      y /= len;
+    }
+    sendInput({ moveX: x, moveY: y });
+  }
+
   useEffect(() => {
     function keyToDirection(key) {
-      if (key === 'ArrowUp') return 'up';
-      if (key === 'ArrowDown') return 'down';
-      if (key === 'ArrowLeft') return 'left';
-      if (key === 'ArrowRight') return 'right';
-      if (key === ' ') return 'attack';
+      if (key === 'ArrowUp' || key === 'w' || key === 'W') return 'up';
+      if (key === 'ArrowDown' || key === 's' || key === 'S') return 'down';
+      if (key === 'ArrowLeft' || key === 'a' || key === 'A') return 'left';
+      if (key === 'ArrowRight' || key === 'd' || key === 'D') return 'right';
       return null;
     }
     function onKeyDown(e) {
       const dir = keyToDirection(e.key);
       if (!dir) return;
-      e.preventDefault(); // 방향키/스페이스바로 페이지가 스크롤되는 것 방지
-      if (e.repeat) return; // OS 키 반복은 무시 (sendInput의 변경감지와 이중 방어)
-      sendInput({ [dir]: true });
+      e.preventDefault(); // 방향키/WASD로 페이지가 스크롤/타이핑되는 것 방지
+      if (e.repeat) return; // OS 키 반복은 무시
+      keysRef.current = { ...keysRef.current, [dir]: true };
+      updateMoveFromKeys();
     }
     function onKeyUp(e) {
       const dir = keyToDirection(e.key);
       if (!dir) return;
       e.preventDefault();
-      sendInput({ [dir]: false });
+      keysRef.current = { ...keysRef.current, [dir]: false };
+      updateMoveFromKeys();
     }
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -171,55 +199,53 @@ export function BattleScreen({ socket, state }) {
     };
   }, []);
 
-  // 방향패드/공격 버튼 공용 핸들러 — 터치로 누르고 있다가 손가락이 버튼 밖으로 미끄러지면
-  // pointerup이 아니라 pointerleave/pointercancel이 발생해서, 그 경우도 놓치지 않고 떼야
-  // "버튼에서 손을 뗐는데 캐릭터가 계속 움직이는" 상태가 안 생긴다.
-  function releaseOn(key) {
-    return () => sendInput({ [key]: false });
+  // PC 조준 — 아레나 위 마우스 위치와 내 캐릭터 위치(selfPosRef, battle:state로 갱신됨)의
+  // 차이를 방향벡터로 보낸다. mousedown(누르는 순간)은 그 시점의 조준 방향으로 공격을 1회
+  // 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다 다시 클릭해야 함).
+  useEffect(() => {
+    function onMouseMove() {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const pointer = stage.getPointerPosition();
+      if (!pointer) return;
+      const { x: sx, y: sy } = selfPosRef.current;
+      const dx = pointer.x - sx;
+      const dy = pointer.y - sy;
+      const len = Math.hypot(dx, dy);
+      if (len < 1) return; // 캐릭터 위치와 거의 겹치면(1px 미만) 조준을 갱신하지 않음
+      sendInput({ aimX: dx / len, aimY: dy / len });
+    }
+    function onMouseDown() {
+      socket.emit('battle:attack');
+    }
+    const el = containerRef.current;
+    el?.addEventListener('mousemove', onMouseMove);
+    el?.addEventListener('mousedown', onMouseDown);
+    return () => {
+      el?.removeEventListener('mousemove', onMouseMove);
+      el?.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [socket]);
+
+  function onMoveStick({ x, y }) {
+    sendInput({ moveX: x, moveY: y });
   }
-  function pressOn(key) {
-    return () => sendInput({ [key]: true });
+  function onAimStick({ x, y }) {
+    // 스틱이 중앙 근처(길이 거의 0)면 조준을 보내지 않는다 — 서버의 데드존과 같은 이유로,
+    // 손을 떼는 순간 조준이 (0,0)으로 무너져 공격 위치가 캐릭터 자기 자신으로 붕괴하는 것 방지.
+    if (Math.hypot(x, y) < 0.05) return;
+    sendInput({ aimX: x, aimY: y });
+  }
+  function onAimRelease() {
+    socket.emit('battle:attack');
   }
 
   return html`
     <div class="battle-shell">
       <div class="battle-arena" ref=${containerRef}></div>
       <div class="battle-controls">
-        <div class="dpad">
-          <button
-            onPointerDown=${pressOn('up')}
-            onPointerUp=${releaseOn('up')}
-            onPointerLeave=${releaseOn('up')}
-            onPointerCancel=${releaseOn('up')}
-          >↑</button>
-          <div class="dpad-row">
-            <button
-              onPointerDown=${pressOn('left')}
-              onPointerUp=${releaseOn('left')}
-              onPointerLeave=${releaseOn('left')}
-              onPointerCancel=${releaseOn('left')}
-            >←</button>
-            <button
-              onPointerDown=${pressOn('down')}
-              onPointerUp=${releaseOn('down')}
-              onPointerLeave=${releaseOn('down')}
-              onPointerCancel=${releaseOn('down')}
-            >↓</button>
-            <button
-              onPointerDown=${pressOn('right')}
-              onPointerUp=${releaseOn('right')}
-              onPointerLeave=${releaseOn('right')}
-              onPointerCancel=${releaseOn('right')}
-            >→</button>
-          </div>
-        </div>
-        <button
-          class="attack-button"
-          onPointerDown=${pressOn('attack')}
-          onPointerUp=${releaseOn('attack')}
-          onPointerLeave=${releaseOn('attack')}
-          onPointerCancel=${releaseOn('attack')}
-        >공격</button>
+        <${VirtualJoystick} onChange=${onMoveStick} />
+        <${VirtualJoystick} onChange=${onAimStick} onRelease=${onAimRelease} className="aim" />
       </div>
     </div>
   `;
