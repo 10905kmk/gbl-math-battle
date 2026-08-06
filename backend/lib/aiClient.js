@@ -209,7 +209,12 @@ function buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) 
     `캔버스 크기: ${canvasSize.width}x${canvasSize.height} (x/y는 이 범위 안)`,
     `현재 부품 목록: ${JSON.stringify(weaponState.parts)}`,
     '부품은 최대 10개까지만 추가할 수 있다.',
-    '함수 호출과 함께, 사용자에게 보여줄 짧은 한국어 응답 텍스트도 반드시 함께 답하라.',
+    '',
+    '응답은 항상 다음 두 가지를 "함께" 포함해야 한다 — 함수 호출만 하고 아래 2번을 생략하는 것은',
+    '틀린 응답이다:',
+    '1. 필요한 함수 호출(들)',
+    '2. 무엇을 했는지 알려주는 한 문장짜리 한국어 텍스트 (예: "오른쪽에 삼각형을 추가했어요.",',
+    '   "죄송해요, 그건 지금 못 해요.") — 함수 호출이 없는 경우에도 이 텍스트는 반드시 있어야 한다.',
   ].join('\n');
 }
 
