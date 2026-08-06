@@ -1626,4 +1626,28 @@ git commit -m "feat: 대전 화면에 투사체 렌더링과 공격 미리보기
 
 - **스펙 커버리지**: AI 근접/원거리 판정+캐싱(Task 3) / 결정론적 폴백(Task 1, 4) / 근접 데미지 보너스(Task 6, 7) / 서버 투사체 시스템(Task 6) / 공유 모듈(Task 1) / 프론트 투사체 렌더링+미리보기(Task 8) / 데이터 흐름 전체(Task 5→7→8) / 스코프 제외 항목(계획에 관통, 무기별 속도차, 근접 히트박스 가변화, 시각 이펙트, 캐시 마이그레이션 관련 태스크 없음 — Global Constraints에 명시) — 스펙의 모든 섹션이 태스크로 커버됨.
 - **타입/이름 일관성**: `attackRange`/`attackRangeDistance`(AI 응답·weapon 객체·소켓 페이로드 전체에서 동일한 이름), `isRanged`/`rangeDistance`(서버 플레이어 상태), `meleeHitboxRect`/`classifyWeaponRangeFallback`/`PROJECTILE_SPEED`/`PROJECTILE_RADIUS`/`RANGE_DISTANCE_MIN`/`RANGE_DISTANCE_MAX`(공유 모듈, Task 1~8 전체에서 동일하게 사용) — 교차 확인 완료.
-- **라이브 검증**: Task 8의 Step 7이 이 계획의 유일한 라이브 검증 지점이다. 계획 완료 후 사용자가 요청하면 Opus 최종 리뷰를 별도로 진행한다.
+- **라이브 검증**: 이 계획을 실행한 에이전트가 Task 8 Step 7의 Playwright 라이브 검증 도중 반복 타임아웃으로 멈췄다(전투 화면까지 도달은 했으나 검증 루프에서 진행이 안 됨). 이후 이 프로젝트의 방침이 "Playwright로 직접 확인하지 않고 문법검증+회귀테스트 후 사용자가 직접 브라우저에서 확인"으로 바뀌어서, 남은 라이브 검증은 재시도하지 않고 아래 "구현 후 최종 리뷰"로 대체했다.
+
+## 구현 후 최종 리뷰
+
+에이전트가 Task 1~8의 코드 커밋은 전부 완료했고(Playwright 라이브 검증 단계에서만 멈춤), 그 상태에서 별도로 다음을 확인했다:
+
+- **전체 회귀 테스트**: `shapes/`, `backend/lib/`, `backend/routes/`, `backend/socket/`의 모든 `.test.mjs` 실행 — `FAILED:` 없이 전부 통과.
+- **문법 검증**: `frontend/src/screens/battle.js`, `frontend/src/screens/create.js` — `node --check` 통과.
+- **잔여 참조 검색**: `requestDamageRange`, `attackHitboxRect`(이름 변경/제거된 함수들) 전체 저장소 검색 — 남은 참조 없음.
+- **투사체 경계 로직 직접 검토**: `traveled >= maxRange`가 이동 직후 매 틱 확인되어 사거리 초과/도달이 한 틱 어긋나지 않음, 벽 충돌은 `PROJECTILE_RADIUS`(캐릭터 반경이 아님) 기준, `targetId === next.ownerId` 스킵으로 자기 자신 피격 불가 — 전부 설계대로.
+- **`attackRequested` 소비 불변식**: 원거리 분기도 근접과 동일하게 `wantsAttack`/쿨다운 체크를 통과한 뒤에만 실행되고, 판정 직전에 이미 `attackRequested: false`로 리셋돼 있어 대기열 없이 그 틱에서만 소비됨 — 확인됨.
+- **방어적 재검증 이중화**: `aiClient.js`의 `requestWeaponEvaluation`이 AI 응답의 `attackRange`/`attackRangeDistance`를 1차로 안전한 기본값으로 대체하고, `backend/socket/battle.js`의 `startBattleRoom`이 그 값을 다시 한번 `RANGE_DISTANCE_MIN`~`MAX`로 clamp — 두 지점 모두 확인됨(한쪽만 있는 게 아님).
+- **캐시 값 형태 변경**: `evaluateWeapon`이 `{...cached, cached: true}`로 캐시된 객체를 올바르게 펼쳐서 반환 — 예전처럼 숫자 하나로 취급하는 곳 없음.
+- **프론트 미리보기 노드 수명주기**: `previewNodeRef`가 컴포넌트 인스턴스별 `useRef`라 리마운트 시 이전 Konva stage/layer가 먼저 `destroy()`되고 새 인스턴스가 빈 ref로 시작 — 노드 중복 생성 경로 없음(기존 `nodesRef` 패턴과 동일).
+
+**보류(추가 확인 안 함)**: 실제 브라우저에서 투사체가 눈으로 보기에 자연스럽게 날아가는지, 근접 데미지 보너스가 실제 대전에서 체감되는지 등 — 위 방침 변경에 따라 사용자가 직접 확인.
+
+## 라이브 검증 체크리스트 (사용자 직접 확인용)
+
+로컬 서버(`MOCK_AI=true`)를 띄우고 참가자 두 명을 만든다 — 한 명은 부품 두 개를 멀리 떨어뜨려 배치(길쭉한 무기, 결정론적 폴백으로 원거리 분류), 다른 한 명은 부품 하나만 배치(근접 분류)해서 대전까지 진행한다.
+
+1. 조준 중 근접 캐릭터는 반투명 사각형이, 원거리 캐릭터는 조준 방향으로 뻗는 얇은 선이 계속 따라다니는지.
+2. 원거리 캐릭터가 공격하면 작은 원(투사체)이 조준 방향으로 날아가다가 사거리를 다 쓰거나 벽에 부딪히면 사라지는지, 상대와 겹치면 사라지면서 점수가 반영되는지.
+3. 같은 데미지 값이라도 근접이 원거리보다 한 대당 점수가 더 크게 오르는지.
+4. 브라우저 콘솔에 에러가 없는지.
