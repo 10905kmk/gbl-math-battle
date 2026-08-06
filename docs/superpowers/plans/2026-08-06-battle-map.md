@@ -721,6 +721,16 @@ git commit -m "feat: 맵 벽/스폰 좌표를 이미지 보면서 뽑는 좌표 
 
 ---
 
+## 구현 후 최종 리뷰(Opus) 반영 사항
+
+Opus 모델로 전체 브랜치 diff를 최종 리뷰한 결과, 다음 이슈가 발견되어 모두 수정했다(커밋: `fix: opus 리뷰에서 발견된 Important 이슈 수정`):
+
+- **Important #1**: 이번 리팩터링의 목적이 "800x600 중복 하드코딩 제거"였는데, 실제로는 세 번째 위치(`frontend/src/screens/battle.css`의 `.battle-arena`/`.battle-controls`)가 여전히 800/600을 하드코딩하고 있었다 — 지금 플레이스홀더에서는 값이 우연히 일치해 안 드러나지만, 실제 맵 이미지가 800x600이 아니게 되는 순간(이 기능이 가능하게 만든 바로 그 시나리오) Konva 캔버스가 `.battle-arena` 박스 밖으로 넘친다(1200x900 맵으로 실측 확인됨). `.battle-arena`를 `fit-content`로, `.battle-controls`의 폭 상한을 `DEFAULT_MAP.arenaSize.width`를 반영하는 CSS 변수(`--arena-width`, `battle.js`가 인라인으로 설정)로 수정.
+- **Important #2**: 좌표 피커에서 벽을 드래그하는 도중 마우스가 canvas 밖으로 나가면(이미지 가장자리 근처에서 흔히 발생) `mousemove`/`mouseup`이 canvas에만 걸려 있어 드래그가 허공에 뜬 채 남고 벽이 하나도 안 잡히는 문제 — 두 리스너를 `window`로 옮겨 수정.
+- **Important #3**: 좌표 피커의 안내문("아래 출력을 그대로 `shapes/battleMap.js`에 붙여넣으면 됩니다")과 달리 출력에 `imagePath` 필드가 빠져 있어서, 안내대로 그대로 붙여넣으면 배경 이미지가 로드되지 않는데 그 실패가 설계상 조용히(에러 없이 어두운 배경으로) 폴백돼 원인을 알아채기 어려웠다 — 출력에 `imagePath: '/assets/maps/battle-map.png'` 줄 추가.
+- **Minor(반영)**: 모드 전환 시 마무리 안 된 드래그 미리보기가 화면에 남던 문제(드래그 상태 초기화 후 재렌더), 새 이미지를 불러와도 이전 맵의 벽/스폰 좌표가 그대로 남아 다른 맵에 섞여 들어갈 수 있던 문제(이미지 로드 시 좌표 초기화), 이미지 로드 실패(`onerror`) 시 아무 반응이 없던 문제(안내 alert 추가), 복사 버튼이 성공/실패와 무관하게 조용했던 문제(피드백 텍스트/실패 alert 추가), 배경 이미지 로드가 끝나기 전에 화면이 언마운트되면 이미 destroy된 Konva 레이어에 노드를 추가하려던 문제(cancelled 플래그로 방어).
+- **보류(수정 안 함)**: `formatArray`의 JSON→JS 리터럴 변환 정규식이 이론상 문자열 값도 건드릴 수 있다는 지적(Minor) — 좌표 값은 항상 `Math.round`를 거친 숫자뿐이라 실제로는 도달 불가능한 경로. `shapes/battleMap.test.mjs`에 벽이 아레나 경계 안에 있는지까지 검증을 추가하자는 제안(Minor) — 지금은 플레이스홀더 좌표라 의미가 없고, 실제 맵 좌표가 들어올 때 `battle.headroom.test.mjs`가 이미 스폰-벽 겹침/경계 검증을 하고 있어 우선순위 낮음으로 보류. `battle:state`가 이제 프론트에서 안 쓰는 `walls`/`arenaSize`를 매 틱 계속 보내는 것(Minor) — 참가자 수(3~8명) 기준 부하가 무시할 수준이라 보류. `.playwright-mcp/`가 `.gitignore`에 없다는 지적 — 이번 기능과 무관한 기존 상태라 스코프 밖으로 보류.
+
 ## Self-Review 메모 (계획 작성자 기록)
 
 - **스펙 커버리지**: 맵 설정 단일화(Task 1) / 물리 엔진 `room.arenaSize`(Task 2) / 배경 이미지 렌더링 + 벽 비가시화(Task 3) / 좌표 피커 도구(Task 4) / 스코프 제외 항목(계획에 실제 맵 아트 제작, 사각형 이외 벽 모양, 전투 상수 스케일링, 다중 맵 관련 태스크 없음 — Global Constraints에 명시) / 테스트 범위(각 태스크의 Step이 스펙의 "테스트 범위" 섹션과 1:1 대응) — 스펙의 모든 섹션이 태스크로 커버됨.
