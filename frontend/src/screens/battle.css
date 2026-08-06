@@ -22,9 +22,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* --arena-width는 battle.js가 DEFAULT_MAP.arenaSize.width로 인라인 설정한다(위 .battle-arena
-     주석과 같은 이유로 하드코딩 대신 실제 아레나 크기를 따라감). 좁은 화면(부스 태블릿/폰)에서는
-     뷰포트 폭 기준으로 줄여서, 이동 스틱이 화면 밖으로 밀려나 손이 안 닿는 걸 막는다. */
+  /* --arena-width는 battle.js가 VIEWPORT_SIZE.width(화면에 보이는 고정 뷰포트 너비, 맵 전체
+     크기와는 별개)로 인라인 설정한다. 좁은 화면(부스 태블릿/폰)에서는 뷰포트 폭보다 더
+     줄여서, 이동 스틱이 화면 밖으로 밀려나 손이 안 닿는 걸 막는다. */
   width: min(var(--arena-width), 100vw - 3rem);
 }
 

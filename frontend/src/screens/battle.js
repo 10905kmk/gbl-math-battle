@@ -310,7 +310,7 @@ export function BattleScreen({ socket, state }) {
   }
 
   return html`
-    <div class="battle-shell" style=${{ '--arena-width': `${DEFAULT_MAP.arenaSize.width}px` }}>
+    <div class="battle-shell" style=${{ '--arena-width': `${VIEWPORT_SIZE.width}px` }}>
       <div class="battle-arena" ref=${containerRef}></div>
       <div class="battle-controls">
         <${VirtualJoystick} onChange=${onMoveStick} />
