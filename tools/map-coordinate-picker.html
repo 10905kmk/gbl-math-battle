@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>맵 좌표 피커</title>
+<style>
+  body { font-family: sans-serif; background: #222; color: #eee; margin: 0; padding: 1rem; }
+  #controls { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  button { background: #444; color: #eee; border: 1px solid #666; border-radius: 4px; padding: 0.4rem 0.8rem; cursor: pointer; }
+  button:hover { background: #555; }
+  #canvasWrap { overflow: auto; max-width: 100%; border: 1px solid #555; }
+  canvas { display: block; cursor: crosshair; }
+  #output { white-space: pre; background: #111; color: #9f9; padding: 0.75rem; margin-top: 0.75rem; overflow-x: auto; font-family: monospace; font-size: 0.85rem; }
+  .mode-label { padding: 0.3rem 0.6rem; border: 1px solid #666; border-radius: 4px; cursor: pointer; }
+  .mode-label.active { background: #2ecc71; color: #111; border-color: #2ecc71; }
+</style>
+</head>
+<body>
+  <h1>맵 좌표 피커</h1>
+  <p>이미지를 불러온 뒤, "벽" 모드에서는 드래그로 사각형을, "스폰" 모드에서는 클릭으로 점을 찍으세요. 아래 출력을 그대로 <code>shapes/battleMap.js</code>에 붙여넣으면 됩니다.</p>
+  <div id="controls">
+    <input type="file" id="fileInput" accept="image/*" />
+    <span class="mode-label active" id="wallModeLabel">벽 모드</span>
+    <span class="mode-label" id="spawnModeLabel">스폰 모드</span>
+    <button id="undoBtn">실행취소</button>
+    <button id="clearBtn">초기화</button>
+    <button id="copyBtn">복사</button>
+  </div>
+  <div id="canvasWrap">
+    <canvas id="canvas" width="800" height="600"></canvas>
+  </div>
+  <pre id="output"></pre>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const fileInput = document.getElementById('fileInput');
+    const wallModeLabel = document.getElementById('wallModeLabel');
+    const spawnModeLabel = document.getElementById('spawnModeLabel');
+    const undoBtn = document.getElementById('undoBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const output = document.getElementById('output');
+
+    let image = null;
+    let mode = 'wall'; // 'wall' | 'spawn'
+    let walls = [];
+    let spawnPoints = [];
+    let dragStart = null;
+    let dragCurrent = null;
+
+    function setMode(next) {
+      mode = next;
+      wallModeLabel.classList.toggle('active', mode === 'wall');
+      spawnModeLabel.classList.toggle('active', mode === 'spawn');
+    }
+    wallModeLabel.addEventListener('click', () => setMode('wall'));
+    spawnModeLabel.addEventListener('click', () => setMode('spawn'));
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = () => {
+        image = img;
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        redraw();
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    function redraw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (image) ctx.drawImage(image, 0, 0);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#e74c3c';
+      ctx.fillStyle = 'rgba(231, 76, 60, 0.3)';
+      walls.forEach((w) => {
+        ctx.fillRect(w.x, w.y, w.width, w.height);
+        ctx.strokeRect(w.x, w.y, w.width, w.height);
+      });
+      ctx.fillStyle = '#3498db';
+      spawnPoints.forEach((p) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      if (mode === 'wall' && dragStart && dragCurrent) {
+        const x = Math.min(dragStart.x, dragCurrent.x);
+        const y = Math.min(dragStart.y, dragCurrent.y);
+        const width = Math.abs(dragCurrent.x - dragStart.x);
+        const height = Math.abs(dragCurrent.y - dragStart.y);
+        ctx.strokeStyle = '#f1c40f';
+        ctx.fillStyle = 'rgba(241, 196, 15, 0.25)';
+        ctx.fillRect(x, y, width, height);
+        ctx.strokeRect(x, y, width, height);
+      }
+      updateOutput();
+    }
+
+    function canvasPoint(e) {
+      const rect = canvas.getBoundingClientRect();
+      // canvas가 CSS로 확대/축소돼 있어도(지금은 안 그러지만 방어적으로) 실제 픽셀 좌표로
+      // 환산 — naturalWidth 기준 canvas.width와 화면에 보이는 rect.width가 다를 수 있음.
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return {
+        x: Math.round((e.clientX - rect.left) * scaleX),
+        y: Math.round((e.clientY - rect.top) * scaleY),
+      };
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+      const p = canvasPoint(e);
+      if (mode === 'wall') {
+        dragStart = p;
+        dragCurrent = p;
+      } else {
+        spawnPoints.push(p);
+        redraw();
+      }
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      if (mode === 'wall' && dragStart) {
+        dragCurrent = canvasPoint(e);
+        redraw();
+      }
+    });
+    canvas.addEventListener('mouseup', (e) => {
+      if (mode === 'wall' && dragStart) {
+        const end = canvasPoint(e);
+        const x = Math.min(dragStart.x, end.x);
+        const y = Math.min(dragStart.y, end.y);
+        const width = Math.abs(end.x - dragStart.x);
+        const height = Math.abs(end.y - dragStart.y);
+        if (width > 2 && height > 2) {
+          walls.push({ x, y, width, height });
+        }
+        dragStart = null;
+        dragCurrent = null;
+        redraw();
+      }
+    });
+
+    undoBtn.addEventListener('click', () => {
+      if (mode === 'wall') walls.pop();
+      else spawnPoints.pop();
+      redraw();
+    });
+    clearBtn.addEventListener('click', () => {
+      walls = [];
+      spawnPoints = [];
+      redraw();
+    });
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(output.textContent);
+    });
+
+    function formatArray(name, items) {
+      const lines = items.map((it) => '    ' + JSON.stringify(it).replace(/"([a-zA-Z]+)":/g, '$1:'));
+      return `  ${name}: [\n${lines.join(',\n')}${items.length ? ',' : ''}\n  ],`;
+    }
+
+    function updateOutput() {
+      const sizeLine = image
+        ? `  arenaSize: { width: ${canvas.width}, height: ${canvas.height} },`
+        : '  arenaSize: { width: 800, height: 600 },';
+      output.textContent =
+        '{\n' + sizeLine + '\n' +
+        formatArray('walls', walls) + '\n' +
+        formatArray('spawnPoints', spawnPoints) + '\n' +
+        '}';
+    }
+
+    redraw();
+  </script>
+</body>
+</html>
