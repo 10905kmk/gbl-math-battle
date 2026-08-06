@@ -16,33 +16,37 @@
 .battle-controls {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  justify-content: space-between;
+  width: 800px;
 }
 
-.dpad {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.dpad-row {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.dpad button,
-.attack-button {
-  width: 3rem;
-  height: 3rem;
-  font-size: 1.2rem;
+.joystick-base {
+  position: relative;
+  width: 6rem;
+  height: 6rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   touch-action: none;
 }
 
-.attack-button {
-  width: 5rem;
-  height: 5rem;
+.joystick-base.aim {
+  background: rgba(192, 57, 43, 0.12);
+  border-color: rgba(192, 57, 43, 0.4);
+}
+
+.joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: -1.25rem;
   border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
+
+.joystick-base.aim .joystick-knob {
   background: #c0392b;
-  color: #fff;
 }
