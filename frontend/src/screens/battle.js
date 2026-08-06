@@ -4,6 +4,7 @@ import htm from 'htm';
 import Konva from 'konva';
 import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
 import { DEFAULT_MAP } from '../../../shapes/battleMap.js';
+import { meleeHitboxRect, ATTACK_HITBOX_SIZE, PROJECTILE_RADIUS } from '../../../shapes/attackGeometry.js';
 import { VirtualJoystick } from './VirtualJoystick.js';
 
 const html = htm.bind(h);
@@ -35,6 +36,11 @@ export function BattleScreen({ socket, state }) {
   const layerRef = useRef(null);
   const stageRef = useRef(null);
   const nodesRef = useRef({});
+  // 투사체는 플레이어와 달리 계속 생겼다 없어지므로 별도로 관리한다(id별 Konva 노드).
+  const projectileNodesRef = useRef({});
+  // 내 캐릭터의 공격 미리보기(텔레그래프) 노드 — 무기 종류(근접 Rect/원거리 Line)는 대전
+  // 중 안 바뀌므로 한 번만 만들고 이후 위치만 갱신한다.
+  const previewNodeRef = useRef(null);
   // PC 마우스 조준을 계산하려면 "내 캐릭터가 화면에서 어디 있는지"가 필요한데, battle:state로만
   // 갱신되는 서버 진실이라 여기 별도로 캐시해둔다(마우스 이벤트는 그 사이 계속 발생하므로).
   const selfPosRef = useRef({ x: DEFAULT_MAP.arenaSize.width / 2, y: DEFAULT_MAP.arenaSize.height / 2 });
@@ -98,6 +104,28 @@ export function BattleScreen({ socket, state }) {
           // Important I2). updateCamera가 먼저 실행돼서 cameraRef가 이 틱 기준으로
           // 최신 상태여야 아래 updateAimFromPointer의 좌표 변환이 정확하다.
           updateAimFromPointer();
+
+          // 공격 미리보기(텔레그래프) — 내 캐릭터 것만 보여준다(브롤스타즈처럼 상대 조준은
+          // 화면에 안 보임). 무기 종류(근접/원거리)는 대전 중 안 바뀌므로 노드 타입은 한 번만
+          // 정하고, 이후엔 위치/방향만 갱신한다. meleeHitboxRect는 서버(battleSimulation.js)와
+          // 똑같은 계산식을 shapes/attackGeometry.js에서 그대로 가져다 쓴 것이라, 여기 보이는
+          // 자리가 실제 판정 자리와 항상 일치한다.
+          const previewAimX = p.aimX ?? 0;
+          const previewAimY = p.aimY ?? 1;
+          if (!previewNodeRef.current) {
+            previewNodeRef.current = p.isRanged
+              ? new Konva.Line({ points: [0, 0, 0, 0], stroke: 'rgba(255,255,255,0.5)', strokeWidth: 3 })
+              : new Konva.Rect({ width: ATTACK_HITBOX_SIZE, height: ATTACK_HITBOX_SIZE, fill: 'rgba(255,255,255,0.25)' });
+            layer.add(previewNodeRef.current);
+          }
+          if (p.isRanged) {
+            const range = p.rangeDistance ?? 0;
+            previewNodeRef.current.points([p.x, p.y, p.x + previewAimX * range, p.y + previewAimY * range]);
+          } else {
+            const hitbox = meleeHitboxRect(p.x, p.y, previewAimX, previewAimY, CHARACTER_RADIUS);
+            previewNodeRef.current.x(hitbox.x);
+            previewNodeRef.current.y(hitbox.y);
+          }
         }
         let entry = nodesRef.current[p.id];
         if (!entry) {
@@ -161,6 +189,26 @@ export function BattleScreen({ socket, state }) {
         entry.weaponGroup.y(Math.min(DEFAULT_MAP.arenaSize.height, Math.max(0, p.y + aimY * WEAPON_OFFSET)));
         entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
         entry.weaponGroup.opacity(isConnected ? 1 : 0.2);
+      });
+
+      // 투사체 렌더링 — 플레이어 노드와 달리 계속 생겼다 없어지므로, 이번 프레임에 없는
+      // id의 노드는 지운다(플레이어 노드는 한 번 생기면 안 사라지는 지금 방식과 다름).
+      const liveProjectileIds = new Set((room.projectiles ?? []).map((proj) => proj.id));
+      Object.keys(projectileNodesRef.current).forEach((id) => {
+        if (!liveProjectileIds.has(id)) {
+          projectileNodesRef.current[id].destroy();
+          delete projectileNodesRef.current[id];
+        }
+      });
+      (room.projectiles ?? []).forEach((proj) => {
+        let node = projectileNodesRef.current[proj.id];
+        if (!node) {
+          node = new Konva.Circle({ radius: PROJECTILE_RADIUS, fill: '#f1c40f' });
+          layer.add(node);
+          projectileNodesRef.current[proj.id] = node;
+        }
+        node.x(proj.x);
+        node.y(proj.y);
       });
 
       layer.draw();
