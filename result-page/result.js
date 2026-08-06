@@ -4,13 +4,8 @@ import htm from 'htm';
 
 const html = htm.bind(h);
 
-// TODO: Supabase 프로젝트를 만든 뒤(backend/lib/supabase/schema.sql 실행 포함) Project
-// Settings > API에서 이 두 값을 채울 것. anon key는 읽기 전용이라(schema.sql의
-// "public read" RLS 정책 — select만 허용, insert/update/delete는 서버의 service key로만
-// 가능) 브라우저에 그대로 노출해도 안전하게 설계되어 있다. service key와 절대 혼동하지
-// 말 것 — 그건 여기(정적 파일, 누구나 볼 수 있음)에 넣으면 안 된다.
-const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+const SUPABASE_URL = 'https://sfqhhclxzgvwvlpsmiou.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_N_wvfJULzEEi4Azpq-7YtA_adyPra5v';
 
 // Supabase에서 URL의 id로 결과를 조회하는 상시 페이지.
 // 현장 result.js와 동일한 수준의 요약을 영구 소장하는 용도. docs/초안.md 7-④ 참고.

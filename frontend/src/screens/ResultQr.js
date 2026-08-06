@@ -5,8 +5,7 @@ import QRCode from 'qrcode';
 
 const html = htm.bind(h);
 
-// TODO: result-page/를 처음 `vercel deploy`한 뒤 실제 배포 도메인으로 바꿀 것.
-const RESULT_PAGE_URL = 'https://YOUR-RESULT-PAGE.vercel.app';
+const RESULT_PAGE_URL = 'https://gbl-math-battle.vercel.app/';
 
 // 결과 화면(result.js)과 감사 화면(thanks.js)이 똑같은 QR을 보여줘야 해서(result 화면에서
 // 못 찍은 참가자를 위해 thanks 화면에서도 마지막 기회로 계속 표시, docs/초안.md 7-⑤) 공용
