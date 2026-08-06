@@ -52,6 +52,7 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
     endsAt: Date.now() + BATTLE_DURATION_MS,
     players,
     walls: DEFAULT_MAP.walls,
+    arenaSize: DEFAULT_MAP.arenaSize,
   };
 
   tickInterval = setInterval(() => {

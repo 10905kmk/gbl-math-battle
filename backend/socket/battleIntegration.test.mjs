@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import { registerSessionHandlers } from './session.js';
 import { getBattleRoom, stopBattleRoom, startBattleRoom } from './battle.js';
+import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 
 const handlers = {};
 const emitted = [];
@@ -43,6 +44,9 @@ assert.strictEqual(room.players.p1.hitScore, 50, 'damage=1000 -> round(1000*0.05
 assert.strictEqual(room.players.p5.hitScore, 250, 'damage=5000 -> round(5000*0.05)=250');
 assert.strictEqual(room.status, 'active');
 console.log('battle room initialized from participants: OK');
+
+assert.deepStrictEqual(room.arenaSize, DEFAULT_MAP.arenaSize, 'battle room의 arenaSize가 DEFAULT_MAP.arenaSize와 일치해야 함');
+console.log('battle room carries arenaSize from DEFAULT_MAP: OK');
 
 assert.deepStrictEqual(
   room.players.p1.weaponParts,

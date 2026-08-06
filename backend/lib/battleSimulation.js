@@ -1,4 +1,3 @@
-export const ARENA_SIZE = { width: 800, height: 600 };
 export const CHARACTER_RADIUS = 20;
 export const MOVE_SPEED = 4;
 export const HIT_SCORE_COEFFICIENT = 0.05;
@@ -54,14 +53,14 @@ function normalizeIfLong(x, y) {
 
 // 이동 벡터(moveX/moveY, -1~1)로 이동한다 — 대각선 입력이 자동으로 가능해지고(둘 다 0이
 // 아닐 수 있으므로), 벽/경계 충돌 판정은 기존과 동일하다.
-function moveOne(player, walls) {
+function moveOne(player, walls, arenaSize) {
   const input = player.input ?? {};
   const move = normalizeIfLong(input.moveX ?? 0, input.moveY ?? 0);
   const dx = move.x * MOVE_SPEED;
   const dy = move.y * MOVE_SPEED;
 
-  let x = clamp(player.x + dx, CHARACTER_RADIUS, ARENA_SIZE.width - CHARACTER_RADIUS);
-  let y = clamp(player.y + dy, CHARACTER_RADIUS, ARENA_SIZE.height - CHARACTER_RADIUS);
+  let x = clamp(player.x + dx, CHARACTER_RADIUS, arenaSize.width - CHARACTER_RADIUS);
+  let y = clamp(player.y + dy, CHARACTER_RADIUS, arenaSize.height - CHARACTER_RADIUS);
 
   if (circleOverlapsAnyWall(x, player.y, CHARACTER_RADIUS, walls)) x = player.x;
   if (circleOverlapsAnyWall(x, y, CHARACTER_RADIUS, walls)) y = player.y;
@@ -108,7 +107,7 @@ export function stepSimulation(room, now) {
   const players = {};
   for (const id of Object.keys(room.players)) {
     const p = room.players[id];
-    players[id] = p.connected ? applyAim(moveOne(p, room.walls)) : { ...p };
+    players[id] = p.connected ? applyAim(moveOne(p, room.walls, room.arenaSize)) : { ...p };
   }
 
   // 공격 판정 — 참가자 순서(입장 순서)대로 한 명씩 처리, 쿨다운 통과 시 즉시 판정.

@@ -20,7 +20,7 @@ function makePlayer(overrides) {
   };
 }
 function makeRoom(players, overrides) {
-  return { status: 'active', endsAt: 1_000_000, players, walls: [], ...overrides };
+  return { status: 'active', endsAt: 1_000_000, players, walls: [], arenaSize: { width: 800, height: 600 }, ...overrides };
 }
 
 // hitScoreFromWeaponDamage — 데미지 1~10000 x 계수 0.05
@@ -281,6 +281,20 @@ console.log('hitScoreFromWeaponDamage clamps abnormally large weapon damage: OK'
   assert.ok(Number.isFinite(next.players.p1.x), 'NaN/Infinity 이동 입력이 들어와도 x는 유한한 값이어야 함');
   assert.ok(Number.isFinite(next.players.p1.y), 'NaN/Infinity 이동 입력이 들어와도 y는 유한한 값이어야 함');
   console.log('NaN/Infinity move input does not poison position: OK');
+}
+
+// 회귀: 아레나 경계가 모듈 상수가 아니라 room.arenaSize를 따른다 — 기본값(800x600)과 다른
+// 작은 커스텀 아레나를 준 room에서 그 경계를 실제로 지키는지 확인한다(하드코딩이 남아있으면
+// 이 테스트가 실패한다 — 800x600 기준으로는 절대 clamp가 안 걸리는 위치이므로).
+{
+  const room = makeRoom(
+    { p1: makePlayer({ x: 79, y: 79, input: { ...noInput, moveX: 1, moveY: 1 } }) },
+    { arenaSize: { width: 100, height: 100 } },
+  );
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.players.p1.x, 100 - CHARACTER_RADIUS, '작은 커스텀 아레나의 경계(100-20=80)를 따라야 함');
+  assert.strictEqual(next.players.p1.y, 100 - CHARACTER_RADIUS);
+  console.log('room.arenaSize (not a hardcoded module constant) drives the boundary clamp: OK');
 }
 
 console.log('battleSimulation.test.mjs: OK');
