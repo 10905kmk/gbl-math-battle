@@ -67,10 +67,17 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   console.log('battle:input tolerates malformed payload: OK');
 
   // 정상 입력은 실제로 반영되는지도 같이 확인
-  battleHandlers['battle:input']({ right: true });
-  assert.strictEqual(getBattleRoom().players.p1.input.right, true);
+  battleHandlers['battle:input']({ moveX: 1, moveY: 0, aimX: 1, aimY: 0 });
+  assert.strictEqual(getBattleRoom().players.p1.input.moveX, 1);
+  assert.strictEqual(getBattleRoom().players.p1.input.aimX, 1);
   battleHandlers['battle:input'](undefined);
-  assert.strictEqual(getBattleRoom().players.p1.input.right, false, 'undefined는 전부 false로 취급');
+  assert.strictEqual(getBattleRoom().players.p1.input.moveX, 0, 'undefined는 전부 0으로 취급');
+
+  // battle:attack — 1회성 공격 요청. 페이로드 없이 emit되고 attackRequested만 세팅한다.
+  assert.strictEqual(getBattleRoom().players.p1.attackRequested, false, '초기값은 false');
+  battleHandlers['battle:attack']();
+  assert.strictEqual(getBattleRoom().players.p1.attackRequested, true, 'battle:attack 수신 시 attackRequested가 true로 세팅됨');
+  console.log('battle:attack sets attackRequested: OK');
 
   // 연결이 끊기면 해당 참가자는 조작 불가 상태로 처리되어야 한다(더 이상 "죽는" 개념은 없음).
   battleHandlers['disconnect']();
