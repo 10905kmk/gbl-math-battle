@@ -9,6 +9,13 @@ import { VirtualJoystick } from './VirtualJoystick.js';
 const html = htm.bind(h);
 
 const CHARACTER_RADIUS = 20;
+// 화면에 실제로 보이는 영역(뷰포트) — 맵 전체 크기(DEFAULT_MAP.arenaSize, 지금 2176x1632)와는
+// 별개로 고정이다. Konva Stage를 이 크기로 만들고, 카메라가 이 뷰포트 안에서 맵을 따라 움직인다.
+const VIEWPORT_SIZE = { width: 800, height: 600 };
+
+function clamp(v, min, max) {
+  return Math.min(max, Math.max(min, v));
+}
 // CHARACTER_RADIUS(20)과 똑같이 하면 시에르핀스키/코흐눈꽃처럼 점이 많은 프랙탈은 뭉개져서
 // 거의 안 보인다(Opus 리뷰에서 실측: 20px 아이콘에 43픽셀만 칠해짐) — 조금 더 키운다.
 const WEAPON_ICON_SIZE = 28;
@@ -31,12 +38,15 @@ export function BattleScreen({ socket, state }) {
   // PC 마우스 조준을 계산하려면 "내 캐릭터가 화면에서 어디 있는지"가 필요한데, battle:state로만
   // 갱신되는 서버 진실이라 여기 별도로 캐시해둔다(마우스 이벤트는 그 사이 계속 발생하므로).
   const selfPosRef = useRef({ x: DEFAULT_MAP.arenaSize.width / 2, y: DEFAULT_MAP.arenaSize.height / 2 });
+  // 현재 카메라가 월드 좌표계에서 어디를 보고 있는지(뷰포트 왼쪽 위 모서리의 월드 좌표).
+  // 마우스 조준 좌표 변환(뷰포트 좌표 -> 월드 좌표)에도 이 값이 필요해서 ref로 공유한다.
+  const cameraRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     const stage = new Konva.Stage({
       container: containerRef.current,
-      width: DEFAULT_MAP.arenaSize.width,
-      height: DEFAULT_MAP.arenaSize.height,
+      width: VIEWPORT_SIZE.width,
+      height: VIEWPORT_SIZE.height,
     });
     const layer = new Konva.Layer();
     stage.add(layer);
@@ -81,10 +91,12 @@ export function BattleScreen({ socket, state }) {
       Object.values(room.players).forEach((p) => {
         if (p.id === socket.id) {
           selfPosRef.current = { x: p.x, y: p.y };
+          updateCamera(p.x, p.y);
           // 마우스가 가만히 있어도 내 캐릭터는 서버 틱마다 움직이므로, "캐릭터 -> 마우스"
           // 조준 방향도 그때마다 다시 계산해야 한다 — mousemove 이벤트에서만 갱신하면
           // 이동 중엔 조준이 마지막으로 마우스가 움직였던 순간에 멈춰버린다(Opus 리뷰
-          // Important I2).
+          // Important I2). updateCamera가 먼저 실행돼서 cameraRef가 이 틱 기준으로
+          // 최신 상태여야 아래 updateAimFromPointer의 좌표 변환이 정확하다.
           updateAimFromPointer();
         }
         let entry = nodesRef.current[p.id];
@@ -232,14 +244,35 @@ export function BattleScreen({ socket, state }) {
   // 새로 계산돼야 하기 때문(Opus 리뷰 Important I2). mousedown(누르는 순간)은 그 시점의
   // 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다
   // 다시 클릭해야 함).
+  // 카메라 — 내 캐릭터(월드 좌표 myX, myY)가 화면 중앙에 오도록 레이어를 이동시키되, 맵
+  // 가장자리에서는 그 이상 못 밀리게 clamp한다. cameraRef에 저장해두는 이유는
+  // updateAimFromPointer가 뷰포트 좌표를 월드 좌표로 되돌릴 때 이 값이 필요하기 때문.
+  function updateCamera(myX, myY) {
+    const layer = layerRef.current;
+    if (!layer) return;
+    const maxX = Math.max(0, DEFAULT_MAP.arenaSize.width - VIEWPORT_SIZE.width);
+    const maxY = Math.max(0, DEFAULT_MAP.arenaSize.height - VIEWPORT_SIZE.height);
+    const cameraX = clamp(myX - VIEWPORT_SIZE.width / 2, 0, maxX);
+    const cameraY = clamp(myY - VIEWPORT_SIZE.height / 2, 0, maxY);
+    cameraRef.current = { x: cameraX, y: cameraY };
+    layer.x(-cameraX);
+    layer.y(-cameraY);
+  }
+
   function updateAimFromPointer() {
     const stage = stageRef.current;
     if (!stage) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
     const { x: sx, y: sy } = selfPosRef.current;
-    const dx = pointer.x - sx;
-    const dy = pointer.y - sy;
+    // getPointerPosition()은 뷰포트(스테이지) 기준 좌표(0~800, 0~600)를 반환한다 —
+    // 카메라 오프셋을 더해서 월드 좌표로 변환한 뒤에야 내 캐릭터(월드 좌표)와 정확히
+    // 비교할 수 있다. 안 그러면 카메라가 원점(0,0)에서 벗어나는 순간 조준 방향이 어긋난다.
+    const { x: camX, y: camY } = cameraRef.current;
+    const worldPointerX = pointer.x + camX;
+    const worldPointerY = pointer.y + camY;
+    const dx = worldPointerX - sx;
+    const dy = worldPointerY - sy;
     const len = Math.hypot(dx, dy);
     if (len < 1) return; // 캐릭터 위치와 거의 겹치면(1px 미만) 조준을 갱신하지 않음
     sendInput({ aimX: dx / len, aimY: dy / len });
