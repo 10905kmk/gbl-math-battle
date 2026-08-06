@@ -4,6 +4,7 @@ import htm from 'htm';
 import { io } from 'socket.io-client';
 
 import { state } from './state.js';
+import { NameScreen } from './screens/name.js';
 import { LearnScreen } from './screens/learn.js';
 import { CreateScreen } from './screens/create.js';
 import { BattleScreen } from './screens/battle.js';
@@ -23,6 +24,8 @@ const SCREENS = {
 function App() {
   const [stage, setStage] = useState('learn');
   const [socket] = useState(() => io());
+  // null이면 아직 이름을 안 넣은 상태 — 단계(stage)와 무관하게 이름 입력 화면을 먼저 보여준다.
+  const [name, setName] = useState(null);
 
   useEffect(() => {
     socket.on('stage:change', setStage);
@@ -34,6 +37,9 @@ function App() {
     // 서버에 소켓으로 접속하므로 접속 자체로는 구분이 안 됨) — admin:startSession 시점에
     // 이 신호를 보낸 소켓 수가 그 세션의 목표 인원으로 고정된다(backend/socket/session.js
     // 참고). 네트워크가 끊겼다 재연결되는 경우에도 다시 등록되도록 'connect'에 건다.
+    // 이름 입력 여부와는 완전히 무관하게 항상 즉시 보낸다 — 이름 입력에 시간이 걸려서 이
+    // 신호가 늦어지면 인원수 집계가 어긋나는 사고로 이어질 수 있다(예전에 실제로 겪은
+    // 문제와 같은 부류).
     function join() {
       socket.emit('participant:join');
     }
@@ -41,6 +47,10 @@ function App() {
     if (socket.connected) join();
     return () => socket.off('connect', join);
   }, [socket]);
+
+  if (name === null) {
+    return html`<${NameScreen} onSubmit=${(n) => { socket.emit('participant:name', n); setName(n); }} />`;
+  }
 
   const Screen = SCREENS[stage] ?? LearnScreen;
   return html`<${Screen} socket=${socket} state=${state} />`;
