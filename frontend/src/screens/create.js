@@ -23,6 +23,8 @@ export function CreateScreen({ socket, state }) {
     setPhase('evaluating');
     setError(null);
     let damage;
+    let attackRange;
+    let attackRangeDistance;
     try {
       const res = await fetch('/api/weapon/evaluate', {
         method: 'POST',
@@ -32,6 +34,8 @@ export function CreateScreen({ socket, state }) {
       if (!res.ok) throw new Error(`evaluate request failed with ${res.status}`);
       const data = await res.json();
       damage = data.damage;
+      attackRange = data.attackRange;
+      attackRangeDistance = data.attackRangeDistance;
     } catch (err) {
       // 예전엔 여기서 damage=1로 조용히 대체하고 그대로 waiting 화면으로 넘어갔다 — 네트워크
       // 문제 한 번으로 참가자가 최저 점수에 영구히 고정되고 재시도도 못 했다(Opus 리뷰
@@ -46,6 +50,8 @@ export function CreateScreen({ socket, state }) {
       image: previewImage,
       stats: { attack: damage, defense: damage },
       damage,
+      attackRange,
+      attackRangeDistance,
       parts: weaponState.parts,
     };
     state.weapon = weapon;

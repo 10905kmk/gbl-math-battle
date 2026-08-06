@@ -29,16 +29,19 @@ const p2 = seededPick(cacheKey(b), 100, 200);
 assert.strictEqual(p1, p2);
 assert.ok(p1 >= 100 && p1 <= 200);
 
-// 캐시 get/set
+// 캐시 get/set — 이제 값은 damage 하나가 아니라 attackRange/attackRangeDistance를 포함한 객체
 const key = cacheKey(a);
 assert.strictEqual(getCached(key), undefined);
-setCached(key, 5000);
-assert.strictEqual(getCached(key), 5000);
+setCached(key, { damage: 5000, attackRange: 'melee', attackRangeDistance: null });
+assert.deepStrictEqual(getCached(key), { damage: 5000, attackRange: 'melee', attackRangeDistance: null });
 
-// 사전 시딩
+// 사전 시딩 — attackRange가 melee인 샘플은 attackRangeDistance가 null로 채워져야 함
 const before = cacheSize();
-seedCache([{ parts: [{ id: 'x', shapeId: 'koch', x: 0, y: 0, rotation: 0, scale: 1 }], damage: 999 }]);
+seedCache([{ parts: [{ id: 'x', shapeId: 'koch', x: 0, y: 0, rotation: 0, scale: 1 }], damage: 999, attackRange: 'melee' }]);
 assert.strictEqual(cacheSize(), before + 1);
+const seededKey = cacheKey({ parts: [{ id: 'x', shapeId: 'koch', x: 0, y: 0, rotation: 0, scale: 1 }] });
+assert.deepStrictEqual(getCached(seededKey), { damage: 999, attackRange: 'melee', attackRangeDistance: null });
+console.log('seedCache stores attackRange/attackRangeDistance alongside damage: OK');
 
 // 여러 부품이 있을 때, 추가한 "순서"가 아니라 "내용"만으로 캐시 키가 결정되어야 한다
 // (같은 shapeId/x/y 버킷에 rotation/scale만 다른 부품이 있을 때 정렬이 안정적이지 않으면

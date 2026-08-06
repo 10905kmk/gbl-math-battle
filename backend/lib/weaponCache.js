@@ -40,14 +40,20 @@ export function getCached(key) {
   return cache.get(key);
 }
 
-export function setCached(key, damage) {
-  cache.set(key, damage);
+export function setCached(key, value) {
+  cache.set(key, value);
 }
 
-// few-shot 샘플(팀이 미리 만든 무기-데미지 쌍)을 캐시에 미리 채워, 그 무기들은 AI 호출 없이 항상 정해진 값이 나가게 한다.
+// few-shot 샘플(팀이 미리 만든 무기 정보)을 캐시에 미리 채워, 그 무기들은 AI 호출 없이 항상
+// 정해진 damage/attackRange가 나가게 한다. attackRangeDistance는 melee 샘플이면 안 쓰이므로
+// null — ranged 샘플을 추가할 땐 sample.attackRangeDistance도 같이 채워야 한다.
 export function seedCache(samples) {
   for (const sample of samples) {
-    cache.set(cacheKey(sample), sample.damage);
+    cache.set(cacheKey(sample), {
+      damage: sample.damage,
+      attackRange: sample.attackRange,
+      attackRangeDistance: sample.attackRange === 'ranged' ? sample.attackRangeDistance : null,
+    });
   }
 }
 

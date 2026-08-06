@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { fallbackDamage } from './weaponEvaluate.js';
+import { fallbackDamage, fallbackAttackRange } from './weaponEvaluate.js';
 
 const weapon = { parts: [{ id: 'p1', shapeId: 'triangle', x: 0, y: 0, rotation: 0, scale: 1 }] };
 const damage = fallbackDamage(weapon);
@@ -39,5 +39,25 @@ assert.ok(damage1 < damage5, '부품이 많을수록 점수가 더 높아야 함
 assert.ok(damage5 < damage10, '5개 < 10개 — 예전엔 5개부터 이미 최댓값이라 여기서 실패했음');
 assert.ok(damage10 <= 10000);
 console.log('fallbackDamage no longer saturates by 5 parts: OK');
+
+// fallbackAttackRange — 크래시 없이 항상 melee/ranged 중 하나를 반환
+{
+  const result = fallbackAttackRange(undefined);
+  assert.strictEqual(result.attackRange, 'melee', 'weaponState가 undefined면 안전하게 근접');
+  console.log('fallbackAttackRange tolerates undefined weaponState: OK');
+}
+{
+  // 길쭉하게 뻗은 부품 배치 -> 원거리로 분류돼야 함
+  const elongated = {
+    parts: [
+      { id: 'a', shapeId: 'square', x: 100, y: 100, rotation: 0, scale: 0.3 },
+      { id: 'b', shapeId: 'square', x: 100, y: 400, rotation: 0, scale: 0.3 },
+    ],
+  };
+  const result = fallbackAttackRange(elongated);
+  assert.strictEqual(result.attackRange, 'ranged');
+  assert.ok(result.attackRangeDistance >= 150 && result.attackRangeDistance <= 600);
+  console.log('fallbackAttackRange classifies elongated weapons as ranged: OK');
+}
 
 console.log('weaponEvaluate.test.mjs: OK');

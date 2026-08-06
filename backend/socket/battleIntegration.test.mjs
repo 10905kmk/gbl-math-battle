@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import { registerSessionHandlers } from './session.js';
 import { getBattleRoom, stopBattleRoom, startBattleRoom } from './battle.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
+import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX } from '../../shapes/attackGeometry.js';
 
 const handlers = {};
 const emitted = [];
@@ -40,8 +41,10 @@ handlers.p1['admin:nextStage'](); // -> battle (startBattleRoom 트리거되어�
 const room = getBattleRoom();
 assert.ok(room, 'battle room이 생성되어 있어야 함');
 assert.strictEqual(Object.keys(room.players).length, 5);
-assert.strictEqual(room.players.p1.hitScore, 50, 'damage=1000 -> round(1000*0.05)=50');
-assert.strictEqual(room.players.p5.hitScore, 250, 'damage=5000 -> round(5000*0.05)=250');
+// 이 참가자들의 weapon에는 attackRange가 없다(구버전 페이로드/평가 실패 등) — 그런 무기는
+// 근접으로 취급되므로 MELEE_DAMAGE_MULTIPLIER(1.3)가 곱해진 값이 나온다.
+assert.strictEqual(room.players.p1.hitScore, 65, 'damage=1000 -> round(1000*0.05)=50, 근접 배율 1.3 -> 65');
+assert.strictEqual(room.players.p5.hitScore, 325, 'damage=5000 -> round(5000*0.05)=250, 근접 배율 1.3 -> 325');
 assert.strictEqual(room.status, 'active');
 console.log('battle room initialized from participants: OK');
 
@@ -183,6 +186,41 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   assert.deepStrictEqual(onEndArgs.scores, { sc1: 42, sc2: 7 }, 'onEnd의 scores가 종료 시점 점수 스냅샷과 정확히 일치해야 함');
   assert.deepStrictEqual(onEndArgs.winners, ['sc1'], 'sc1(42점)이 sc2(7점)보다 높으므로 단독 승자');
   console.log('battle.js onEnd callback delivers accurate score snapshot: OK');
+}
+
+// 회귀: startBattleRoom이 weapon.attackRange/attackRangeDistance를 읽어 플레이어 상태에
+// 정확히 반영하는지 직접 확인 — 근접은 데미지 배율이 붙고, 원거리는 AI가 정한 사거리를
+// 그대로 갖는다.
+{
+  startBattleRoom(io, [
+    { id: 'r1', weapon: { damage: 1000, attackRange: 'ranged', attackRangeDistance: 400 } },
+    { id: 'm1', weapon: { damage: 1000, attackRange: 'melee' } },
+  ]);
+  const room = getBattleRoom();
+  assert.strictEqual(room.players.r1.isRanged, true);
+  assert.strictEqual(room.players.r1.rangeDistance, 400);
+  assert.strictEqual(room.players.r1.hitScore, 50, '원거리는 배율 없이 hitScoreFromWeaponDamage(1000)=50 그대로');
+
+  assert.strictEqual(room.players.m1.isRanged, false);
+  assert.strictEqual(room.players.m1.rangeDistance, null);
+  assert.strictEqual(room.players.m1.hitScore, 65, '근접은 50 * 1.3 = 65(반올림)');
+  assert.deepStrictEqual(room.projectiles, [], 'projectiles는 빈 배열로 시작');
+  console.log('startBattleRoom applies isRanged/rangeDistance/melee damage multiplier from weapon.attackRange: OK');
+}
+
+// 방어: attackRange가 이상한 값이거나 attackRangeDistance가 범위 밖/비숫자여도 안전하게
+// 처리된다(근접으로 취급 / 사거리는 clamp).
+{
+  startBattleRoom(io, [
+    { id: 'x1', weapon: { damage: 1000, attackRange: 'not-a-real-type' } },
+    { id: 'x2', weapon: { damage: 1000, attackRange: 'ranged', attackRangeDistance: 999999 } },
+    { id: 'x3', weapon: { damage: 1000, attackRange: 'ranged', attackRangeDistance: 'huge' } },
+  ]);
+  const room2 = getBattleRoom();
+  assert.strictEqual(room2.players.x1.isRanged, false, '알 수 없는 attackRange 값은 근접으로 취급');
+  assert.strictEqual(room2.players.x2.rangeDistance, RANGE_DISTANCE_MAX, '범위를 넘는 사거리는 상한으로 clamp');
+  assert.strictEqual(room2.players.x3.rangeDistance, RANGE_DISTANCE_MIN, '숫자가 아닌 사거리는 하한으로 대체');
+  console.log('startBattleRoom defends against malformed attackRange/attackRangeDistance: OK');
 }
 
 stopBattleRoom();

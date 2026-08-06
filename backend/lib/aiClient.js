@@ -2,6 +2,8 @@
 import { cacheKey, seededPick, getCached, setCached, seedCache } from './weaponCache.js';
 import { SAMPLES } from './weaponEvaluationSamples.js';
 import { getApiKeys } from './apiKeys.js';
+import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX, classifyWeaponRangeFallback } from '../../shapes/attackGeometry.js';
+import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
 
 export const DAMAGE_MIN = 1;
 export const DAMAGE_MAX = 10000;
@@ -47,8 +49,10 @@ function summarizeParts(parts) {
     .join(', ');
 }
 
-function buildDamagePrompt(weaponState) {
-  const examples = SAMPLES.map((s) => `- ${summarizeParts(s.parts)} → 데미지 ${s.damage} (${s.note})`).join('\n');
+function buildEvaluationPrompt(weaponState) {
+  const examples = SAMPLES.map(
+    (s) => `- ${summarizeParts(s.parts)} → 데미지 ${s.damage}, ${s.attackRange === 'ranged' ? '원거리' : '근접'} (${s.note})`,
+  ).join('\n');
   return [
     '너는 수학 도형으로 만든 무기의 전투력을 채점하는 심판이다.',
     `데미지는 ${DAMAGE_MIN}~${DAMAGE_MAX} 범위의 정수다. 아래는 참고용 예시다:`,
@@ -57,16 +61,22 @@ function buildDamagePrompt(weaponState) {
     `채점할 무기: ${summarizeParts(weaponState.parts)}`,
     '',
     '절대값이 아니라 (min, max) 범위로 답하라. max - min은 1000 이내로 좁게 잡아라.',
+    '',
+    '또한 이 무기가 화살/창/총처럼 던지거나 발사되어 날아가는 무기처럼 보이면 attackRange를',
+    '"ranged"로, 검/방패/도끼처럼 손에 들고 휘두르는 무기면 "melee"로 판단하라.',
+    `"ranged"라면 사거리(attackRangeDistance)도 ${RANGE_DISTANCE_MIN}~${RANGE_DISTANCE_MAX} 범위의`,
+    '정수로 함께 판단하라(짧은 사거리 무기처럼 보이면 낮은 값, 긴 사거리 무기처럼 보이면 높은',
+    `값). "melee"라면 attackRangeDistance는 ${RANGE_DISTANCE_MIN}으로 고정해서 답하라.`,
   ].join('\n');
 }
 
-// 완성된 무기 하나를 Gemini에게 채점받아 데미지 범위(min,max)를 받아온다.
-export async function requestDamageRange(apiKey, weaponState) {
+// 완성된 무기 하나를 Gemini에게 채점받아 데미지 범위(min,max)와 근접/원거리 판정을 받아온다.
+export async function requestWeaponEvaluation(apiKey, weaponState) {
   const res = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: buildDamagePrompt(weaponState) }] }],
+      contents: [{ parts: [{ text: buildEvaluationPrompt(weaponState) }] }],
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: {
@@ -74,14 +84,16 @@ export async function requestDamageRange(apiKey, weaponState) {
           properties: {
             min: { type: 'INTEGER' },
             max: { type: 'INTEGER' },
+            attackRange: { type: 'STRING', enum: ['melee', 'ranged'] },
+            attackRangeDistance: { type: 'INTEGER' },
           },
-          required: ['min', 'max'],
+          required: ['min', 'max', 'attackRange', 'attackRangeDistance'],
         },
       },
     }),
   });
   if (!res.ok) {
-    const err = new Error(`Gemini damage request failed with ${res.status}`);
+    const err = new Error(`Gemini weapon evaluation request failed with ${res.status}`);
     err.status = res.status;
     throw err;
   }
@@ -89,29 +101,39 @@ export async function requestDamageRange(apiKey, weaponState) {
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   const parsed = JSON.parse(text);
   if (!Number.isFinite(parsed.min) || !Number.isFinite(parsed.max)) {
-    throw new Error('Gemini damage response missing numeric min/max');
+    throw new Error('Gemini weapon evaluation response missing numeric min/max');
   }
-  return { min: parsed.min, max: parsed.max };
+  // attackRange/attackRangeDistance는 min/max와 달리 안전한 기본값이 있으므로(멀쩡한 데미지
+  // 평가 자체를 무효화할 정도는 아님), 이상한 값이 와도 던지지 않고 조용히 대체한다.
+  const attackRange = parsed.attackRange === 'ranged' ? 'ranged' : 'melee';
+  const attackRangeDistance = Number.isFinite(parsed.attackRangeDistance) ? parsed.attackRangeDistance : RANGE_DISTANCE_MIN;
+  return { min: parsed.min, max: parsed.max, attackRange, attackRangeDistance };
 }
 
-// 완성된 무기를 AI에게 채점받는다. 같은(또는 거의 같은) 무기는 항상 같은 damage를 반환한다.
+// 완성된 무기를 AI에게 채점받는다. 같은(또는 거의 같은) 무기는 항상 같은 damage/attackRange를 반환한다.
 export async function evaluateWeapon(weaponState) {
   const key = cacheKey(weaponState);
   const cached = getCached(key);
   if (cached !== undefined) {
-    return { damage: cached, cached: true };
+    return { ...cached, cached: true };
   }
 
   if (process.env.MOCK_AI === 'true') {
     const damage = seededPick(key, DAMAGE_MIN, DAMAGE_MAX);
-    setCached(key, damage);
-    return { damage, cached: false };
+    const bounds = computeWeaponBounds(weaponState?.parts);
+    const { attackRange, attackRangeDistance } = classifyWeaponRangeFallback(bounds);
+    const result = { damage, attackRange, attackRangeDistance };
+    setCached(key, result);
+    return { ...result, cached: false };
   }
 
-  const { min, max } = await callGeminiWithRotation((apiKey) => requestDamageRange(apiKey, weaponState));
+  const { min, max, attackRange, attackRangeDistance } = await callGeminiWithRotation((apiKey) =>
+    requestWeaponEvaluation(apiKey, weaponState),
+  );
   const damage = seededPick(key, Math.max(DAMAGE_MIN, min), Math.min(DAMAGE_MAX, max));
-  setCached(key, damage);
-  return { damage, cached: false };
+  const result = { damage, attackRange, attackRangeDistance };
+  setCached(key, result);
+  return { ...result, cached: false };
 }
 
 const TOOL_DECLARATIONS = [
