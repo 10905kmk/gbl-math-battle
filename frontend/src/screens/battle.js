@@ -59,6 +59,11 @@ export function BattleScreen({ socket, state }) {
       Object.values(room.players).forEach((p) => {
         if (p.id === socket.id) {
           selfPosRef.current = { x: p.x, y: p.y };
+          // 마우스가 가만히 있어도 내 캐릭터는 서버 틱마다 움직이므로, "캐릭터 -> 마우스"
+          // 조준 방향도 그때마다 다시 계산해야 한다 — mousemove 이벤트에서만 갱신하면
+          // 이동 중엔 조준이 마지막으로 마우스가 움직였던 순간에 멈춰버린다(Opus 리뷰
+          // Important I2).
+          updateAimFromPointer();
         }
         let entry = nodesRef.current[p.id];
         if (!entry) {
@@ -199,30 +204,35 @@ export function BattleScreen({ socket, state }) {
     };
   }, []);
 
-  // PC 조준 — 아레나 위 마우스 위치와 내 캐릭터 위치(selfPosRef, battle:state로 갱신됨)의
-  // 차이를 방향벡터로 보낸다. mousedown(누르는 순간)은 그 시점의 조준 방향으로 공격을 1회
-  // 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다 다시 클릭해야 함).
+  // PC 조준 — 아레나 위 마지막 마우스 위치와 내 캐릭터 위치(selfPosRef)의 차이를 방향벡터로
+  // 보낸다. mousemove(마우스가 움직였을 때)뿐 아니라 battle:state 갱신(내 캐릭터가 움직였을
+  // 때)에서도 호출된다 — 마우스가 가만히 있어도 캐릭터가 이동 중이면 조준 방향이 계속
+  // 새로 계산돼야 하기 때문(Opus 리뷰 Important I2). mousedown(누르는 순간)은 그 시점의
+  // 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다
+  // 다시 클릭해야 함).
+  function updateAimFromPointer() {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+    const { x: sx, y: sy } = selfPosRef.current;
+    const dx = pointer.x - sx;
+    const dy = pointer.y - sy;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return; // 캐릭터 위치와 거의 겹치면(1px 미만) 조준을 갱신하지 않음
+    sendInput({ aimX: dx / len, aimY: dy / len });
+  }
+
   useEffect(() => {
-    function onMouseMove() {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const pointer = stage.getPointerPosition();
-      if (!pointer) return;
-      const { x: sx, y: sy } = selfPosRef.current;
-      const dx = pointer.x - sx;
-      const dy = pointer.y - sy;
-      const len = Math.hypot(dx, dy);
-      if (len < 1) return; // 캐릭터 위치와 거의 겹치면(1px 미만) 조준을 갱신하지 않음
-      sendInput({ aimX: dx / len, aimY: dy / len });
-    }
-    function onMouseDown() {
+    function onMouseDown(e) {
+      if (e.button !== 0) return; // 좌클릭만 공격으로 취급(우클릭 컨텍스트 메뉴 등은 무시)
       socket.emit('battle:attack');
     }
     const el = containerRef.current;
-    el?.addEventListener('mousemove', onMouseMove);
+    el?.addEventListener('mousemove', updateAimFromPointer);
     el?.addEventListener('mousedown', onMouseDown);
     return () => {
-      el?.removeEventListener('mousemove', onMouseMove);
+      el?.removeEventListener('mousemove', updateAimFromPointer);
       el?.removeEventListener('mousedown', onMouseDown);
     };
   }, [socket]);
@@ -233,8 +243,12 @@ export function BattleScreen({ socket, state }) {
   function onAimStick({ x, y }) {
     // 스틱이 중앙 근처(길이 거의 0)면 조준을 보내지 않는다 — 서버의 데드존과 같은 이유로,
     // 손을 떼는 순간 조준이 (0,0)으로 무너져 공격 위치가 캐릭터 자기 자신으로 붕괴하는 것 방지.
-    if (Math.hypot(x, y) < 0.05) return;
-    sendInput({ aimX: x, aimY: y });
+    const len = Math.hypot(x, y);
+    if (len < 0.05) return;
+    // 스틱 벡터를 그대로 보내면 살짝 민 입력(길이가 짧음)일수록 각도 변화 감지 임계값
+    // (INPUT_EPSILON)을 넘기려면 더 큰 각도 변화가 필요해져 조준이 뭉툭해진다 — PC 마우스
+    // 조준(단위벡터)과 똑같이 정규화해서 보낸다(Opus 리뷰 Important I5).
+    sendInput({ aimX: x / len, aimY: y / len });
   }
   function onAimRelease() {
     socket.emit('battle:attack');

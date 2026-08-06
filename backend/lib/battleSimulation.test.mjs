@@ -259,4 +259,28 @@ console.log('hitScoreFromWeaponDamage clamps abnormally large weapon damage: OK'
   console.log('battle with 0 participants ends immediately without crashing: OK');
 }
 
+// 회귀(Opus 리뷰 Important I3): Number.MAX_VALUE처럼 유한하지만 정규화 시 길이가 Infinity로
+// 오버플로하는 조준 입력은 x/len, y/len이 둘 다 0이 되어 "조준 없음(0,0)"이 영구 저장되는
+// 사고로 이어진다 — 그 상태에선 모든 방향의 상대가 맞아버리는 전방위 히트박스가 된다.
+{
+  const room = makeRoom({
+    p1: makePlayer({ aimX: 1, aimY: 0, input: { ...noInput, aimX: Number.MAX_VALUE, aimY: Number.MAX_VALUE } }),
+  });
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.players.p1.aimX, 1, '길이가 Infinity로 오버플로하는 입력은 무시되고 이전 조준 유지');
+  assert.strictEqual(next.players.p1.aimY, 0);
+  console.log('aim input that overflows to Infinity length keeps previous aim: OK');
+}
+
+// 회귀(Opus 리뷰 Minor M1): NaN/Infinity 이동 입력이 들어와도 위치가 NaN으로 영구 오염되지
+// 않는다 — 이 값들은 소켓 레이어(battle.js의 num())에서 이미 걸러지지만, 순수 로직 계층도
+// 같은 원칙을 한 번 더 지켜야 한다(weaponDamage clamp와 같은 방어적 이중화).
+{
+  const room = makeRoom({ p1: makePlayer({ input: { ...noInput, moveX: NaN, moveY: Infinity } }) });
+  const { room: next } = stepSimulation(room, 1000);
+  assert.ok(Number.isFinite(next.players.p1.x), 'NaN/Infinity 이동 입력이 들어와도 x는 유한한 값이어야 함');
+  assert.ok(Number.isFinite(next.players.p1.y), 'NaN/Infinity 이동 입력이 들어와도 y는 유한한 값이어야 함');
+  console.log('NaN/Infinity move input does not poison position: OK');
+}
+
 console.log('battleSimulation.test.mjs: OK');

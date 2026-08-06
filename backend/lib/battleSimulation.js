@@ -43,7 +43,10 @@ function circleOverlapsAnyWall(cx, cy, r, walls) {
 
 // 벡터 길이가 1을 넘으면 방향은 유지한 채 길이만 1로 줄인다 — 클라이언트가 정규화 안 된
 // 값(버그 또는 조작된 입력)을 보내도 서버가 항상 재검증한다(weaponDamage clamp와 같은 원칙).
+// NaN/Infinity가 섞여 있으면(소켓 레이어에서 이미 걸러지지만, 방어적 이중화 원칙에 따라
+// 여기서도 한 번 더) 이동 없음(0,0)으로 취급 — 위치가 NaN으로 영구 오염되는 것을 막는다.
 function normalizeIfLong(x, y) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return { x: 0, y: 0 };
   const len = Math.hypot(x, y);
   if (len <= 1) return { x, y };
   return { x: x / len, y: y / len };
@@ -52,7 +55,8 @@ function normalizeIfLong(x, y) {
 // 이동 벡터(moveX/moveY, -1~1)로 이동한다 — 대각선 입력이 자동으로 가능해지고(둘 다 0이
 // 아닐 수 있으므로), 벽/경계 충돌 판정은 기존과 동일하다.
 function moveOne(player, walls) {
-  const move = normalizeIfLong(player.input.moveX ?? 0, player.input.moveY ?? 0);
+  const input = player.input ?? {};
+  const move = normalizeIfLong(input.moveX ?? 0, input.moveY ?? 0);
   const dx = move.x * MOVE_SPEED;
   const dy = move.y * MOVE_SPEED;
 
@@ -68,11 +72,16 @@ function moveOne(player, walls) {
 // 조준(aimX/aimY)은 이동과 분리된 별개 입력이라 여기서 따로 갱신한다. 입력 벡터가
 // 데드존보다 짧으면(스틱이 중앙 근처, 마우스가 캐릭터 위인 등) 이전 조준을 그대로
 // 유지하고, 그렇지 않으면 정규화(단위벡터화)해서 저장한다.
+// len이 Infinity로 오버플로하는 경우(예: Number.MAX_VALUE급 입력값)도 데드존 미달과 같이
+// 취급해 이전 조준을 유지한다 — 안 그러면 x/len, y/len이 둘 다 0이 되어 "조준 없음"이
+// 영구 저장되고, 그 상태의 히트박스는 캐릭터 중심에 고정돼 전방위로 맞아버린다(Opus 리뷰
+// Important I3).
 function applyAim(player) {
-  const x = player.input.aimX ?? 0;
-  const y = player.input.aimY ?? 0;
+  const input = player.input ?? {};
+  const x = input.aimX ?? 0;
+  const y = input.aimY ?? 0;
   const len = Math.hypot(x, y);
-  if (len < AIM_DEADZONE) return player;
+  if (!Number.isFinite(len) || len < AIM_DEADZONE) return player;
   return { ...player, aimX: x / len, aimY: y / len };
 }
 
@@ -81,8 +90,10 @@ function applyAim(player) {
 // 자체는 회전하지 않는 axis-aligned 사각형 그대로라 circleRectOverlap을 그대로 재사용한다.
 function attackHitboxRect(player) {
   const offset = CHARACTER_RADIUS + ATTACK_HITBOX_SIZE / 2;
-  const centerX = player.x + player.aimX * offset;
-  const centerY = player.y + player.aimY * offset;
+  const aimX = player.aimX ?? 0;
+  const aimY = player.aimY ?? 1;
+  const centerX = player.x + aimX * offset;
+  const centerY = player.y + aimY * offset;
   return {
     x: centerX - ATTACK_HITBOX_SIZE / 2,
     y: centerY - ATTACK_HITBOX_SIZE / 2,

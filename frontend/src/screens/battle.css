@@ -17,7 +17,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 800px;
+  /* .battle-shell은 800px 고정폭 아레나 기준으로 크기가 잡히기 때문에 width:100%는 그대로
+     800px로 풀려버린다(부스 태블릿/폰 뷰포트보다 넓음) — 좁은 화면에서는 뷰포트 폭을
+     기준으로 줄여서, 이동 스틱이 화면 밖(음수 좌표)으로 밀려나 손이 안 닿는 걸 막는다
+     (Opus 리뷰 Important I1, 실측 확인됨). */
+  width: min(800px, 100vw - 3rem);
 }
 
 .joystick-base {
