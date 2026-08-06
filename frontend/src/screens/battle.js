@@ -3,11 +3,11 @@ import { useEffect, useRef } from 'preact/hooks';
 import htm from 'htm';
 import Konva from 'konva';
 import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
+import { DEFAULT_MAP } from '../../../shapes/battleMap.js';
 import { VirtualJoystick } from './VirtualJoystick.js';
 
 const html = htm.bind(h);
 
-const ARENA_SIZE = { width: 800, height: 600 };
 const CHARACTER_RADIUS = 20;
 // CHARACTER_RADIUS(20)과 똑같이 하면 시에르핀스키/코흐눈꽃처럼 점이 많은 프랙탈은 뭉개져서
 // 거의 안 보인다(Opus 리뷰에서 실측: 20px 아이콘에 43픽셀만 칠해짐) — 조금 더 키운다.
@@ -30,18 +30,37 @@ export function BattleScreen({ socket, state }) {
   const nodesRef = useRef({});
   // PC 마우스 조준을 계산하려면 "내 캐릭터가 화면에서 어디 있는지"가 필요한데, battle:state로만
   // 갱신되는 서버 진실이라 여기 별도로 캐시해둔다(마우스 이벤트는 그 사이 계속 발생하므로).
-  const selfPosRef = useRef({ x: ARENA_SIZE.width / 2, y: ARENA_SIZE.height / 2 });
+  const selfPosRef = useRef({ x: DEFAULT_MAP.arenaSize.width / 2, y: DEFAULT_MAP.arenaSize.height / 2 });
 
   useEffect(() => {
     const stage = new Konva.Stage({
       container: containerRef.current,
-      width: ARENA_SIZE.width,
-      height: ARENA_SIZE.height,
+      width: DEFAULT_MAP.arenaSize.width,
+      height: DEFAULT_MAP.arenaSize.height,
     });
     const layer = new Konva.Layer();
     stage.add(layer);
     layerRef.current = layer;
     stageRef.current = stage;
+
+    // 배경 이미지 — 아직 파일이 없거나 로드에 실패해도(onerror) 아무 것도 하지 않고
+    // .battle-arena의 어두운 배경색이 그대로 보이게 조용히 폴백한다(게임이 깨지면 안 됨).
+    const bgImage = new Image();
+    bgImage.onload = () => {
+      const bg = new Konva.Image({
+        image: bgImage,
+        x: 0,
+        y: 0,
+        width: DEFAULT_MAP.arenaSize.width,
+        height: DEFAULT_MAP.arenaSize.height,
+      });
+      layer.add(bg);
+      bg.moveToBottom();
+      layer.draw();
+    };
+    bgImage.onerror = () => {};
+    bgImage.src = DEFAULT_MAP.imagePath;
+
     return () => stage.destroy();
   }, []);
 
@@ -50,12 +69,8 @@ export function BattleScreen({ socket, state }) {
       const layer = layerRef.current;
       if (!layer) return;
 
-      if (layer.find('.wall').length === 0) {
-        room.walls.forEach((w) => {
-          layer.add(new Konva.Rect({ x: w.x, y: w.y, width: w.width, height: w.height, fill: '#555', name: 'wall' }));
-        });
-      }
-
+      // 벽은 배경 이미지에 실제 그림으로 이미 표현돼 있다고 가정하고, 여기서는 시각적으로
+      // 그리지 않는다 — room.walls는 서버 충돌판정 전용 데이터.
       Object.values(room.players).forEach((p) => {
         if (p.id === socket.id) {
           selfPosRef.current = { x: p.x, y: p.y };
@@ -123,8 +138,8 @@ export function BattleScreen({ socket, state }) {
         const aimX = p.aimX ?? 0;
         const aimY = p.aimY ?? 1;
         const WEAPON_OFFSET = CHARACTER_RADIUS;
-        entry.weaponGroup.x(Math.min(ARENA_SIZE.width, Math.max(0, p.x + aimX * WEAPON_OFFSET)));
-        entry.weaponGroup.y(Math.min(ARENA_SIZE.height, Math.max(0, p.y + aimY * WEAPON_OFFSET)));
+        entry.weaponGroup.x(Math.min(DEFAULT_MAP.arenaSize.width, Math.max(0, p.x + aimX * WEAPON_OFFSET)));
+        entry.weaponGroup.y(Math.min(DEFAULT_MAP.arenaSize.height, Math.max(0, p.y + aimY * WEAPON_OFFSET)));
         entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
         entry.weaponGroup.opacity(isConnected ? 1 : 0.2);
       });
