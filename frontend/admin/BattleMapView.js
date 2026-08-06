@@ -68,7 +68,7 @@ export function BattleMapView({ socket }) {
   useEffect(() => {
     function onState(room) {
       const layer = layerRef.current;
-      if (!layer) return;
+      if (!layer || !room?.players) return;
 
       Object.values(room.players).forEach((p) => {
         let node = nodesRef.current[p.id];
@@ -94,19 +94,27 @@ export function BattleMapView({ socket }) {
     return () => socket.off('battle:state', onState);
   }, [socket]);
 
-  const sorted = Object.values(players).sort((a, b) => b.score - a.score);
+  // score ?? 0 — 이 프로젝트 전반의 방어 원칙(connected !== false 등)과 같은 이유. score가
+  // 하나라도 undefined면 비교식이 NaN이 되어 목록 전체 순서가 조용히 뒤섞인다(Opus 리뷰
+  // Minor M4 — 지금은 battle.js가 항상 0으로 초기화해서 안 걸리지만, 방어선을 하나만 두지
+  // 않는다는 이 프로젝트의 원칙을 따른다).
+  const sorted = Object.values(players).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
   return html`
     <div class="battle-map-view">
       <div class="battle-map-canvas" ref=${containerRef}></div>
       <ol class="leaderboard">
-        ${sorted.map((p) => html`
-          <li key=${p.id}>
-            <span class="leaderboard-swatch" style=${{ background: CHARACTER_COLORS[p.characterId] ?? '#999' }}></span>
-            <span class="leaderboard-name">${p.name || characterLabel(p.characterId)}</span>
-            <span class="leaderboard-score">${p.score}</span>
-          </li>
-        `)}
+        ${sorted.map((p, i) => {
+          const isConnected = p.connected !== false;
+          return html`
+            <li key=${p.id} class=${isConnected ? '' : 'leaderboard-disconnected'}>
+              <span class="leaderboard-rank">${i + 1}</span>
+              <span class="leaderboard-swatch" style=${{ background: CHARACTER_COLORS[p.characterId] ?? '#999' }}></span>
+              <span class="leaderboard-name">${p.name || characterLabel(p.characterId)}</span>
+              <span class="leaderboard-score">${p.score ?? 0}</span>
+            </li>
+          `;
+        })}
       </ol>
     </div>
   `;

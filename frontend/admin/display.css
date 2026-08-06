@@ -67,6 +67,17 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* 미니맵에서 연결 끊긴 캐릭터를 흐리게 표시하는 것과 같은 원칙 — 리더보드도 일관되게. */
+.leaderboard li.leaderboard-disconnected {
+  opacity: 0.4;
+}
+
+.leaderboard-rank {
+  min-width: 2ch;
+  opacity: 0.7;
+  text-align: right;
+}
+
 .leaderboard-swatch {
   width: 1.5rem;
   height: 1.5rem;

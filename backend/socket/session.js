@@ -80,6 +80,11 @@ export function registerSessionHandlers(io, socket) {
   socket.on('participant:name', (name) => {
     const safeName = typeof name === 'string' ? name.trim().slice(0, 20) : '';
     participantNames.set(socket.id, safeName);
+    // create:done이 이미 지나간 뒤에(재연결 등으로) 이름이 뒤늦게/다시 도착하면, 이미 만들어진
+    // cohort.participants 엔트리에도 즉시 반영한다 — 안 그러면 다음 create:done(무기 재평가 등)
+    // 전까지 공용화면 리더보드가 옛 이름/"이름 없음" 상태로 남는다(Opus 리뷰 Minor M3).
+    const existing = cohort.participants.find((p) => p.id === socket.id);
+    if (existing) existing.name = safeName || null;
   });
 
   socket.on('admin:startSession', () => {
