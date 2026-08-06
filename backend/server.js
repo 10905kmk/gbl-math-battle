@@ -22,6 +22,11 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 // 그냥 파일시스템 import로 쓰지만, 브라우저 쪽 상대 import(예: CanvasEditor.js의
 // '../../../../shapes/registry.js')가 실제로 뜨려면 이 경로도 정적 서빙해야 한다.
 app.use('/shapes', express.static(path.join(__dirname, '../shapes')));
+// tools/는 개발자 전용 보조 도구(맵 좌표 피커, few-shot 빌더) — 부스 당일 참가자에게 노출되는
+// 경로가 아니지만, few-shot 빌더는 CanvasEditor.js/shapes/의 실제 렌더링 로직을 ES 모듈로
+// 그대로 재사용하므로(중복 구현 방지) file://로 직접 열면 CORS에 막혀 동작하지 않는다 —
+// 이 서버를 통해 http://localhost:3000/tools/...로 열어야 한다.
+app.use('/tools', express.static(path.join(__dirname, '../tools')));
 
 app.use('/api/result', resultRoutes);
 app.use('/api/admin', adminRoutes);

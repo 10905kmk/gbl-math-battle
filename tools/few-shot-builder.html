@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>무기 채점 few-shot 빌더</title>
+<link rel="stylesheet" href="../src/screens/create/create.css" />
+<style>
+  body { font-family: sans-serif; background: #222; color: #eee; margin: 0; padding: 1rem; }
+  h1 { font-size: 1.2rem; }
+  p.hint { color: #aaa; max-width: 60rem; }
+  #root { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+  .side-panel { display: flex; flex-direction: column; gap: 0.75rem; min-width: 320px; max-width: 420px; }
+  fieldset { border: 1px solid #555; border-radius: 4px; padding: 0.75rem; }
+  legend { padding: 0 0.4rem; color: #ccc; }
+  label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; margin-bottom: 0.5rem; }
+  input[type="number"], input[type="text"], select, textarea {
+    background: #111; color: #eee; border: 1px solid #555; border-radius: 4px; padding: 0.4rem; font-family: inherit;
+  }
+  textarea { min-height: 3.5rem; font-family: monospace; font-size: 0.8rem; resize: vertical; }
+  button { background: #444; color: #eee; border: 1px solid #666; border-radius: 4px; padding: 0.4rem 0.8rem; cursor: pointer; }
+  button:hover { background: #555; }
+  .fallback-preview { background: #1a1a1a; border: 1px solid #444; border-radius: 4px; padding: 0.6rem; font-size: 0.85rem; line-height: 1.5; }
+  .fallback-preview .tag { font-weight: bold; }
+  .fallback-preview .tag.melee { color: #f1c40f; }
+  .fallback-preview .tag.ranged { color: #3498db; }
+  #output { white-space: pre; background: #111; color: #9f9; padding: 0.75rem; overflow-x: auto; font-family: monospace; font-size: 0.85rem; border-radius: 4px; }
+  #importInput { font-family: monospace; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+  <h1>무기 채점 few-shot 빌더</h1>
+  <p class="hint">
+    실제 무기 제작 캔버스(480x480)와 같은 도형/좌표 로직을 그대로 재사용합니다. 도형을 배치해
+    만든 무기를 damage/attackRange와 함께 라벨링하면, 아래 출력을 그대로
+    <code>backend/lib/weaponEvaluationSamples.js</code>의 <code>SAMPLES</code> 배열에 붙여넣을 수
+    있습니다. 아래 "결정론적 폴백 미리보기"는 AI 호출이 실패했을 때만 쓰이는 가로세로 비율
+    규칙이 이 무기를 어떻게 판단할지 참고용으로 보여줄 뿐, 실제 라벨은 직접 정해야 합니다.
+  </p>
+  <div id="root"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "preact": "https://esm.sh/preact@10",
+      "preact/hooks": "https://esm.sh/preact@10/hooks",
+      "htm": "https://esm.sh/htm@3",
+      "konva": "https://esm.sh/konva@9"
+    }
+  }
+  </script>
+  <script type="module">
+    import { h, render } from 'preact';
+    import { useState } from 'preact/hooks';
+    import htm from 'htm';
+    import { CanvasEditor } from '../src/screens/create/CanvasEditor.js';
+    import { generatePartId } from '../shapes/registry.js';
+    import { computeWeaponBounds } from '../shapes/weaponRenderer.js';
+    import {
+      RANGE_DISTANCE_MIN,
+      RANGE_DISTANCE_MAX,
+      ASPECT_RATIO_THRESHOLD,
+      classifyWeaponRangeFallback,
+    } from '../shapes/attackGeometry.js';
+
+    const html = htm.bind(h);
+
+    // 첫 '{'부터 짝이 맞는 '}'까지만 뽑아낸다(단순 첫/마지막 인덱스가 아니라 중첩 depth를
+    // 추적) — SAMPLES 배열 전체를 통째로 붙여넣어도 첫 번째 원소 하나만 정확히 집어낼 수
+    // 있고, 이 도구 자신이 만든 단일 객체 출력도 그대로 받아들인다.
+    function extractFirstObject(text) {
+      const start = text.indexOf('{');
+      if (start === -1) return null;
+      let depth = 0;
+      for (let i = start; i < text.length; i += 1) {
+        if (text[i] === '{') depth += 1;
+        else if (text[i] === '}') {
+          depth -= 1;
+          if (depth === 0) return text.slice(start, i + 1);
+        }
+      }
+      return null;
+    }
+
+    function formatSample({ parts, damage, attackRange, attackRangeDistance, note }) {
+      const partLines = parts.map((p) => {
+        const out = {
+          id: p.id,
+          shapeId: p.shapeId,
+          x: Math.round(p.x),
+          y: Math.round(p.y),
+          rotation: Math.round(p.rotation),
+          scale: Math.round(p.scale * 100) / 100,
+        };
+        return '      ' + JSON.stringify(out).replace(/"([a-zA-Z]+)":/g, '$1:');
+      });
+      const lines = [
+        '  {',
+        '    parts: [',
+        partLines.join(',\n'),
+        '    ],',
+        `    damage: ${Number.isFinite(damage) ? damage : 0},`,
+        `    attackRange: '${attackRange}',`,
+      ];
+      // weaponCache.js의 seedCache는 melee 샘플에서 attackRangeDistance를 아예 안 읽으므로
+      // (attackRange === 'ranged'일 때만 참조), 기존 손으로 쓴 melee 샘플들과 같은 관례로
+      // ranged일 때만 이 필드를 넣는다.
+      if (attackRange === 'ranged') {
+        lines.push(`    attackRangeDistance: ${Number.isFinite(attackRangeDistance) ? attackRangeDistance : RANGE_DISTANCE_MIN},`);
+      }
+      lines.push(`    note: '${(note || '').replace(/'/g, "\\'")}',`);
+      lines.push('  },');
+      return lines.join('\n');
+    }
+
+    function App() {
+      const [parts, setParts] = useState([]);
+      const [damage, setDamage] = useState(1000);
+      const [attackRange, setAttackRange] = useState('melee');
+      const [attackRangeDistance, setAttackRangeDistance] = useState(RANGE_DISTANCE_MIN);
+      const [note, setNote] = useState('');
+      const [importText, setImportText] = useState('');
+      const [copyLabel, setCopyLabel] = useState('복사');
+
+      const bounds = computeWeaponBounds(parts);
+      const fallback = classifyWeaponRangeFallback(bounds);
+      const minDim = Math.max(1, Math.min(bounds.width, bounds.height));
+      const aspectRatio = Math.max(bounds.width, bounds.height) / minDim;
+
+      function handleImport() {
+        const raw = importText.trim();
+        if (!raw) return;
+        const objectText = extractFirstObject(raw);
+        if (!objectText) {
+          alert('불러오기 실패 — 중괄호 { }로 둘러싸인 객체를 찾을 수 없습니다.');
+          return;
+        }
+        let parsed;
+        try {
+          // 이 페이지는 로컬 개발자 전용 도구라는 신뢰 범위 안에서, 따옴표 없는 키도 그대로
+          // 읽을 수 있게 JSON.parse 대신 느슨하게 평가한다(map-coordinate-picker.html과 같은 방식).
+          parsed = new Function('return (' + objectText + ')')();
+        } catch (err) {
+          alert('불러오기 실패 — 형식이 올바른지 확인해주세요.\n' + err.message);
+          return;
+        }
+        if (!parsed || typeof parsed !== 'object') {
+          alert('불러오기 실패 — 객체 형태가 아닙니다.');
+          return;
+        }
+        const importedParts = Array.isArray(parsed.parts)
+          ? parsed.parts.map((p) => ({
+              id: typeof p.id === 'string' && p.id ? p.id : generatePartId(),
+              shapeId: p.shapeId,
+              x: Number.isFinite(p.x) ? p.x : 240,
+              y: Number.isFinite(p.y) ? p.y : 240,
+              rotation: Number.isFinite(p.rotation) ? p.rotation : 0,
+              scale: Number.isFinite(p.scale) ? p.scale : 1,
+            }))
+          : [];
+        setParts(importedParts);
+        setDamage(Number.isFinite(parsed.damage) ? parsed.damage : 1000);
+        setAttackRange(parsed.attackRange === 'ranged' ? 'ranged' : 'melee');
+        setAttackRangeDistance(
+          Number.isFinite(parsed.attackRangeDistance) ? parsed.attackRangeDistance : RANGE_DISTANCE_MIN,
+        );
+        setNote(typeof parsed.note === 'string' ? parsed.note : '');
+      }
+
+      const output = formatSample({ parts, damage, attackRange, attackRangeDistance, note });
+
+      function handleCopy() {
+        navigator.clipboard.writeText(output).then(
+          () => {
+            setCopyLabel('복사됨!');
+            setTimeout(() => setCopyLabel('복사'), 1000);
+          },
+          () => alert('복사에 실패했습니다 — 출력 텍스트를 직접 드래그해서 복사해주세요.'),
+        );
+      }
+
+      return html`
+        <${CanvasEditor} parts=${parts} onChange=${setParts} disabled=${false} />
+        <div class="side-panel">
+          <fieldset>
+            <legend>불러오기 (기존 샘플 수정)</legend>
+            <textarea
+              id="importInput"
+              placeholder="weaponEvaluationSamples.js의 SAMPLES 배열 통째로, 또는 원소 하나, 또는 이 도구의 출력을 그대로 붙여넣으세요(첫 번째 객체 하나만 불러옵니다)."
+              value=${importText}
+              onInput=${(e) => setImportText(e.target.value)}
+            ></textarea>
+            <button onClick=${handleImport}>불러오기</button>
+          </fieldset>
+
+          <fieldset>
+            <legend>라벨링</legend>
+            <label>
+              damage
+              <input type="number" value=${damage} onInput=${(e) => setDamage(Number(e.target.value))} />
+            </label>
+            <label>
+              attackRange
+              <select value=${attackRange} onChange=${(e) => setAttackRange(e.target.value)}>
+                <option value="melee">melee (근접)</option>
+                <option value="ranged">ranged (원거리/투척)</option>
+              </select>
+            </label>
+            ${attackRange === 'ranged' && html`
+              <label>
+                attackRangeDistance (${RANGE_DISTANCE_MIN}~${RANGE_DISTANCE_MAX})
+                <input
+                  type="number"
+                  min=${RANGE_DISTANCE_MIN}
+                  max=${RANGE_DISTANCE_MAX}
+                  value=${attackRangeDistance}
+                  onInput=${(e) => setAttackRangeDistance(Number(e.target.value))}
+                />
+              </label>
+            `}
+            <label>
+              note (판정 근거를 짧게)
+              <input type="text" value=${note} onInput=${(e) => setNote(e.target.value)} />
+            </label>
+          </fieldset>
+
+          <div class="fallback-preview">
+            <div>bounds: ${Math.round(bounds.width)} x ${Math.round(bounds.height)} (가로세로 비율 ${aspectRatio.toFixed(2)}, 임계값 ${ASPECT_RATIO_THRESHOLD})</div>
+            <div>
+              결정론적 폴백(AI 실패 시에만 씀) 판단:
+              <span class="tag ${fallback.attackRange}">${fallback.attackRange}</span>
+              ${fallback.attackRange === 'ranged' && html` (거리 ${fallback.attackRangeDistance})`}
+            </div>
+          </div>
+
+          <fieldset>
+            <legend>출력 — SAMPLES 배열에 붙여넣기</legend>
+            <pre id="output">${output}</pre>
+            <button onClick=${handleCopy}>${copyLabel}</button>
+          </fieldset>
+        </div>
+      `;
+    }
+
+    render(html`<${App} />`, document.getElementById('root'));
+  </script>
+</body>
+</html>
