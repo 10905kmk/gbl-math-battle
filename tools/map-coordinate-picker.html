@@ -13,6 +13,8 @@
   #output { white-space: pre; background: #111; color: #9f9; padding: 0.75rem; margin-top: 0.75rem; overflow-x: auto; font-family: monospace; font-size: 0.85rem; }
   .mode-label { padding: 0.3rem 0.6rem; border: 1px solid #666; border-radius: 4px; cursor: pointer; }
   .mode-label.active { background: #2ecc71; color: #111; border-color: #2ecc71; }
+  #importRow { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.5rem; }
+  #importInput { flex: 1; min-width: 0; min-height: 3rem; background: #111; color: #9f9; font-family: monospace; font-size: 0.8rem; padding: 0.5rem; border: 1px solid #555; border-radius: 4px; resize: vertical; }
 </style>
 </head>
 <body>
@@ -25,6 +27,10 @@
     <button id="undoBtn">실행취소</button>
     <button id="clearBtn">초기화</button>
     <button id="copyBtn">복사</button>
+  </div>
+  <div id="importRow">
+    <textarea id="importInput" placeholder="shapes/battleMap.js의 export const DEFAULT_MAP = {...}; 블록을 통째로 복사해 붙여넣거나, 이 도구가 만든 출력을 그대로 붙여넣으면 walls/spawnPoints가 캔버스 위에 그대로 표시됩니다(이어서 작업할 때 사용)."></textarea>
+    <button id="importBtn">불러오기</button>
   </div>
   <div id="canvasWrap">
     <canvas id="canvas" width="800" height="600"></canvas>
@@ -41,6 +47,8 @@
     const clearBtn = document.getElementById('clearBtn');
     const copyBtn = document.getElementById('copyBtn');
     const output = document.getElementById('output');
+    const importInput = document.getElementById('importInput');
+    const importBtn = document.getElementById('importBtn');
 
     let image = null;
     let mode = 'wall'; // 'wall' | 'spawn'
@@ -180,6 +188,50 @@
         },
         () => { alert('복사에 실패했습니다 — 출력 텍스트를 직접 드래그해서 복사해주세요.'); },
       );
+    });
+
+    importBtn.addEventListener('click', () => {
+      const raw = importInput.value.trim();
+      if (!raw) return;
+      // "export const DEFAULT_MAP = { ... };"를 통째로 복사해 붙여넣어도 되게, 첫 '{'부터
+      // 마지막 '}'까지만 뽑아서 파싱한다 — 이 도구 자신의 출력(따옴표 없는 키)도, 순수
+      // JSON도, battleMap.js의 객체 리터럴도 전부 이 방식으로 받아들일 수 있다.
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start === -1 || end === -1 || end < start) {
+        alert('불러오기 실패 — 중괄호 { }로 둘러싸인 객체를 찾을 수 없습니다.');
+        return;
+      }
+      const objectText = raw.slice(start, end + 1);
+      let parsed;
+      try {
+        // JSON.parse는 따옴표 없는 키(이 도구 자신의 출력 형식)를 못 읽으므로, 이 페이지를
+        // 로컬에서 직접 여는 개발자 전용 도구라는 신뢰 범위 안에서 느슨하게 평가한다.
+        parsed = new Function('return (' + objectText + ')')();
+      } catch (err) {
+        alert('불러오기 실패 — 형식이 올바른지 확인해주세요.\n' + err.message);
+        return;
+      }
+      if (!parsed || typeof parsed !== 'object') {
+        alert('불러오기 실패 — 객체 형태가 아닙니다.');
+        return;
+      }
+      if (image && parsed.arenaSize
+        && (parsed.arenaSize.width !== canvas.width || parsed.arenaSize.height !== canvas.height)) {
+        alert(
+          `주의: 불러온 arenaSize(${parsed.arenaSize.width}x${parsed.arenaSize.height})가 `
+          + `현재 이미지 크기(${canvas.width}x${canvas.height})와 다릅니다 — 좌표가 어긋나 보일 수 있어요.`,
+        );
+      }
+      if (!image && parsed.arenaSize) {
+        canvas.width = parsed.arenaSize.width;
+        canvas.height = parsed.arenaSize.height;
+      }
+      walls = Array.isArray(parsed.walls) ? parsed.walls : [];
+      spawnPoints = Array.isArray(parsed.spawnPoints) ? parsed.spawnPoints : [];
+      dragStart = null;
+      dragCurrent = null;
+      redraw();
     });
 
     function formatArray(name, items) {
