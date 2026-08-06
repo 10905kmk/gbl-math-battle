@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { callGeminiWithRotation, requestDamageRange, requestToolCalls } from './aiClient.js';
+import { callGeminiWithRotation, requestWeaponEvaluation, requestToolCalls } from './aiClient.js';
 
 // callGeminiWithRotation — 429면 다음 키로 재시도, 그 외 에러는 즉시 던짐. 실제 fetch 없이
 // pool/requestFn을 직접 주입해서 로테이션 로직만 검증한다(DI 패턴 —
@@ -39,39 +39,58 @@ console.log('callGeminiWithRotation propagates non-429 errors immediately: OK');
 }
 console.log('callGeminiWithRotation throws a clear error when the key pool is empty: OK');
 
-// requestDamageRange — 실제 네트워크 없이 global.fetch를 모킹해서 응답 파싱만 검증.
+// requestWeaponEvaluation — 실제 네트워크 없이 global.fetch를 모킹해서 응답 파싱만 검증.
 {
   const origFetch = global.fetch;
   global.fetch = async () => ({
     ok: true,
     json: async () => ({
-      candidates: [{ content: { parts: [{ text: JSON.stringify({ min: 100, max: 900 }) }] } }],
+      candidates: [{
+        content: { parts: [{ text: JSON.stringify({ min: 100, max: 900, attackRange: 'ranged', attackRangeDistance: 400 }) }] },
+      }],
     }),
   });
-  const range = await requestDamageRange('fake-key', { parts: [{ shapeId: 'triangle', x: 0, y: 0, rotation: 0, scale: 1 }] });
+  const result = await requestWeaponEvaluation('fake-key', { parts: [{ shapeId: 'triangle', x: 0, y: 0, rotation: 0, scale: 1 }] });
   global.fetch = origFetch;
-  assert.deepStrictEqual(range, { min: 100, max: 900 });
+  assert.deepStrictEqual(result, { min: 100, max: 900, attackRange: 'ranged', attackRangeDistance: 400 });
 }
-console.log('requestDamageRange parses a well-formed Gemini response: OK');
+console.log('requestWeaponEvaluation parses a well-formed Gemini response: OK');
 
 {
   const origFetch = global.fetch;
   global.fetch = async () => ({ ok: false, status: 429 });
-  await assert.rejects(() => requestDamageRange('fake-key', { parts: [] }), (err) => err.status === 429);
+  await assert.rejects(() => requestWeaponEvaluation('fake-key', { parts: [] }), (err) => err.status === 429);
   global.fetch = origFetch;
 }
-console.log('requestDamageRange attaches the HTTP status to the thrown error: OK');
+console.log('requestWeaponEvaluation attaches the HTTP status to the thrown error: OK');
 
 {
   const origFetch = global.fetch;
   global.fetch = async () => ({
     ok: true,
-    json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ min: 'not-a-number', max: 900 }) }] } }] }),
+    json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ min: 'not-a-number', max: 900, attackRange: 'melee', attackRangeDistance: 150 }) }] } }] }),
   });
-  await assert.rejects(() => requestDamageRange('fake-key', { parts: [] }), /min\/max/);
+  await assert.rejects(() => requestWeaponEvaluation('fake-key', { parts: [] }), /min\/max/);
   global.fetch = origFetch;
 }
-console.log('requestDamageRange rejects a non-numeric min/max response: OK');
+console.log('requestWeaponEvaluation rejects a non-numeric min/max response: OK');
+
+// 방어: attackRange가 'melee'/'ranged'가 아닌 이상한 값이면 조용히 'melee'로, attackRangeDistance가
+// 숫자가 아니면 RANGE_DISTANCE_MIN으로 대체한다(min/max와 달리 안전한 기본값이 있으므로 던지지 않음).
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ min: 100, max: 900, attackRange: 'weird', attackRangeDistance: 'huge' }) }] } }],
+    }),
+  });
+  const result = await requestWeaponEvaluation('fake-key', { parts: [] });
+  global.fetch = origFetch;
+  assert.strictEqual(result.attackRange, 'melee', "알 수 없는 attackRange 값은 'melee'로 대체");
+  assert.strictEqual(result.attackRangeDistance, 150, '숫자가 아닌 attackRangeDistance는 RANGE_DISTANCE_MIN으로 대체');
+}
+console.log('requestWeaponEvaluation defends against malformed attackRange/attackRangeDistance: OK');
 
 // requestToolCalls — functionCall 파트를 {op, ...args}로, text 파트를 reply로 매핑.
 {
