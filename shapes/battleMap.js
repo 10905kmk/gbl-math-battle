@@ -4,23 +4,19 @@
 // 런타임이 공유하는 순수 로직 폴더, weaponRenderer.js와 같은 패턴) — arenaSize를 두 군데에
 // 따로 하드코딩해서 값이 어긋나는 사고를 막기 위한 단일 소스.
 export const DEFAULT_MAP = {
-  arenaSize: { width: 800, height: 600 },
-  // 아직 실제 이미지 파일이 없다 — frontend/assets/maps/에 파일을 넣고 이 경로만 맞추면 된다.
-  // 파일이 없는 동안은 프론트엔드가 조용히 어두운 배경색으로 폴백한다(게임은 깨지지 않음).
+  arenaSize: { width: 2176, height: 1632 },
   imagePath: '/assets/maps/battle-map.png',
   walls: [
-    { x: 350, y: 250, width: 100, height: 20 },
-    { x: 100, y: 100, width: 20, height: 150 },
-    { x: 680, y: 350, width: 20, height: 150 },
+
   ],
   spawnPoints: [
-    { x: 60, y: 60 },
-    { x: 740, y: 60 },
-    { x: 60, y: 540 },
-    { x: 740, y: 540 },
-    { x: 400, y: 550 },
-    { x: 400, y: 60 },
-    { x: 60, y: 300 },
-    { x: 740, y: 300 },
+    {x:239,y:257},
+    {x:232,y:354},
+    {x:232,y:403},
+    {x:276,y:477},
+    {x:461,y:527},
+    {x:539,y:621},
+    {x:223,y:617},
+    {x:512,y:342},
   ],
 };
