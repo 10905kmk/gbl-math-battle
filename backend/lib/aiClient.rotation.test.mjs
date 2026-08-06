@@ -21,6 +21,25 @@ import { callGeminiWithRotation, requestWeaponEvaluation, requestToolCalls } fro
 }
 console.log('callGeminiWithRotation retries the next key on 429: OK');
 
+// 회귀 테스트: 503("high demand" 일시적 과부하)도 429와 같이 다음 키로 재시도해야 한다 —
+// 실제 라이브 호출에서 4개 중 2개가 503으로 통째로 실패하는 걸 확인한 뒤 추가함.
+{
+  const calls = [];
+  const requestFn = async (key) => {
+    calls.push(key);
+    if (key === 'overloaded-key') {
+      const err = new Error('model overloaded');
+      err.status = 503;
+      throw err;
+    }
+    return `ok-from-${key}`;
+  };
+  const result = await callGeminiWithRotation(requestFn, ['overloaded-key', 'good-key']);
+  assert.strictEqual(result, 'ok-from-good-key');
+  assert.deepStrictEqual(calls, ['overloaded-key', 'good-key']);
+}
+console.log('callGeminiWithRotation retries the next key on 503: OK');
+
 {
   const requestFn = async () => {
     const err = new Error('bad request');
@@ -92,28 +111,91 @@ console.log('requestWeaponEvaluation rejects a non-numeric min/max response: OK'
 }
 console.log('requestWeaponEvaluation defends against malformed attackRange/attackRangeDistance: OK');
 
-// requestToolCalls — functionCall 파트를 {op, ...args}로, text 파트를 reply로 매핑.
+// requestToolCalls — 함수 호출이 있는 턴은 functionResponse를 왕복으로 돌려주고, 텍스트만
+// 있는(함수 호출 없는) 턴이 나오면 그걸 최종 reply로 쓴다. 1차 호출(functionCall만) ->
+// 2차 호출(텍스트만)까지 실제로 2번 fetch되는지, contents가 왕복마다 올바르게 이어붙는지도
+// 함께 확인한다.
 {
   const origFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: true,
-    json: async () => ({
-      candidates: [{
-        content: {
-          parts: [
-            { functionCall: { name: 'addPart', args: { shapeId: 'triangle', x: 100, y: 100 } } },
-            { text: '삼각형을 추가했어요.' },
-          ],
-        },
-      }],
-    }),
-  });
+  const requestBodies = [];
+  let callCount = 0;
+  global.fetch = async (url, opts) => {
+    callCount += 1;
+    requestBodies.push(JSON.parse(opts.body));
+    if (callCount === 1) {
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ functionCall: { name: 'addPart', args: { shapeId: 'triangle', x: 100, y: 100 } } }] } }],
+        }),
+      };
+    }
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '삼각형을 추가했어요.' }] } }] }) };
+  };
   const result = await requestToolCalls('fake-key', { parts: [] }, '삼각형 추가해줘', ['triangle'], { width: 480, height: 480 });
   global.fetch = origFetch;
+  assert.strictEqual(callCount, 2, '함수 호출 -> 텍스트로 끝나는 2턴이면 fetch도 정확히 2번이어야 함');
   assert.deepStrictEqual(result.toolCalls, [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100 }]);
   assert.strictEqual(result.reply, '삼각형을 추가했어요.');
+  // 2차 요청의 contents에 1차 사용자 메시지 + 모델의 functionCall 턴 + functionResponse
+  // (user 턴)가 순서대로 왕복돼서 들어갔는지 확인 — role:'function'은 Gemini REST API가
+  // 거부해서(실측 확인됨) user 턴으로 보내야 한다.
+  const secondContents = requestBodies[1].contents;
+  assert.strictEqual(secondContents.length, 3);
+  assert.strictEqual(secondContents[1].role, 'model');
+  assert.ok(secondContents[1].parts[0].functionCall);
+  assert.strictEqual(secondContents[2].role, 'user');
+  assert.deepStrictEqual(secondContents[2].parts[0].functionResponse, { name: 'addPart', response: { status: 'ok' } });
 }
-console.log('requestToolCalls maps functionCall parts to {op, ...args} and text parts to reply: OK');
+console.log('requestToolCalls loops function-call turns until a text-only turn, wiring functionResponse back correctly: OK');
+
+// 회귀 테스트: 모델이 명령 하나를 여러 턴에 걸쳐 함수 호출로 쪼개서 처리해도(예: 부품 추가 ->
+// 이동을 각각 다른 턴에서 호출) 전부 모아서 toolCalls로 반환해야 한다 — 2턴 고정이 아니라
+// 텍스트만 있는 턴이 나올 때까지 계속 도는지 확인.
+{
+  const origFetch = global.fetch;
+  let callCount = 0;
+  global.fetch = async () => {
+    callCount += 1;
+    if (callCount === 1) {
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ functionCall: { name: 'addPart', args: { shapeId: 'triangle', x: 100, y: 100 } } }] } }] }) };
+    }
+    if (callCount === 2) {
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ functionCall: { name: 'movePart', args: { partId: 'p1', x: 200, y: 200 } } }] } }] }) };
+    }
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '삼각형을 추가하고 옮겼어요.' }] } }] }) };
+  };
+  const result = await requestToolCalls('fake-key', { parts: [] }, '삼각형 추가하고 오른쪽 아래로 옮겨줘', ['triangle'], { width: 480, height: 480 });
+  global.fetch = origFetch;
+  assert.strictEqual(callCount, 3);
+  assert.deepStrictEqual(result.toolCalls, [
+    { op: 'addPart', shapeId: 'triangle', x: 100, y: 100 },
+    { op: 'movePart', partId: 'p1', x: 200, y: 200 },
+  ]);
+  assert.strictEqual(result.reply, '삼각형을 추가하고 옮겼어요.');
+}
+console.log('requestToolCalls accumulates tool calls across more than two turns until a text-only turn: OK');
+
+// 안전장치 회귀 테스트: 모델이 비정상적으로 함수 호출만 계속 반복해도(텍스트 턴이 절대 안 옴)
+// 무한정 왕복하지 않고 MAX_TOOL_CALL_TURNS에서 멈춰야 한다.
+{
+  const origFetch = global.fetch;
+  let callCount = 0;
+  global.fetch = async () => {
+    callCount += 1;
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ functionCall: { name: 'removePart', args: { partId: `p${callCount}` } } }] } }] }) };
+  };
+  const result = await requestToolCalls('fake-key', { parts: [] }, '계속 지워줘', [], { width: 480, height: 480 });
+  global.fetch = origFetch;
+  assert.strictEqual(callCount, 5, '함수 호출만 계속 오면 MAX_TOOL_CALL_TURNS(5)에서 멈춰야 함');
+  assert.strictEqual(result.toolCalls.length, 5);
+  assert.strictEqual(
+    result.reply,
+    `${Array(5).fill('부품 제거').join(', ')}했어요.`,
+    '텍스트 턴이 끝내 안 오면 지금까지의 toolCalls로 설명을 대체해야 함',
+  );
+}
+console.log('requestToolCalls stops at MAX_TOOL_CALL_TURNS if the model never produces a text-only turn: OK');
 
 {
   const origFetch = global.fetch;
@@ -127,28 +209,5 @@ console.log('requestToolCalls maps functionCall parts to {op, ...args} and text 
   assert.strictEqual(result.reply, '(응답 텍스트가 없어요)', '텍스트 파트도 toolCalls도 전혀 없으면 기본 안내 문구로 대체되어야 함');
 }
 console.log('requestToolCalls falls back to a placeholder reply when Gemini returns no text: OK');
-
-// 회귀 테스트: 프롬프트 지시("함수 호출과 텍스트를 항상 함께 답하라")를 지켜도 LLM이 실제로는
-// 텍스트를 생략하는 경우가 실전에서 잦았다 — toolCalls는 있는데 텍스트만 없는 경우, 의미 없는
-// placeholder 대신 실제로 호출된 함수를 바탕으로 설명을 만들어줘야 한다(어떤 부품이 어떻게
-// 바뀌었는지는 서버가 이미 정확히 알고 있으므로, 모델의 협조 여부와 무관하게 항상 정확하다).
-{
-  const origFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: true,
-    json: async () => ({
-      candidates: [{
-        content: {
-          parts: [{ functionCall: { name: 'addPart', args: { shapeId: 'triangle', x: 100, y: 100 } } }],
-        },
-      }],
-    }),
-  });
-  const result = await requestToolCalls('fake-key', { parts: [] }, '삼각형 추가해줘', [], { width: 480, height: 480 });
-  global.fetch = origFetch;
-  assert.deepStrictEqual(result.toolCalls, [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100 }]);
-  assert.strictEqual(result.reply, '삼각형 추가했어요.', 'toolCalls는 있는데 텍스트가 없으면 toolCalls로 설명을 만들어야 함(플레이스홀더 아님)');
-}
-console.log('requestToolCalls derives a reply from toolCalls when Gemini omits text but calls a function: OK');
 
 console.log('aiClient.rotation.test.mjs: OK');

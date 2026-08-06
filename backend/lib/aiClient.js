@@ -23,7 +23,11 @@ function nextKey(pool) {
   return key;
 }
 
-// 키 풀을 순환하며 요청. 429(rate limit)면 다음 키로 재시도, 그 외 에러는 즉시 던짐.
+// 키 풀을 순환하며 요청. 429(rate limit) 또는 503(일시적 과부하, "high demand" — 실제
+// 라이브 호출에서 실측됨)이면 다음 키로 재시도, 그 외 에러는 즉시 던짐. 503은 특정 키의
+// 문제가 아니라 모델 자체의 일시적 과부하라 같은 키로 재시도해도 될 수 있지만, 이미 있는
+// "다음 키로 재시도" 경로를 그대로 재사용하는 쪽이 새 백오프 로직을 따로 만드는 것보다
+// 간단하고, 결과적으로 몇 번의 재시도 기회를 준다는 점은 동일하다.
 // pool은 기본으로 apiKeys.json의 gemini 키 배열을 쓰지만, 파라미터로 받을 수 있게 해서
 // 테스트가 실제 키 파일 없이도 가짜 키 배열을 주입해 로테이션 로직만 따로 검증할 수 있다
 // (shapes/weaponRenderer.js의 drawWeaponGroup(Konva, ...)와 같은 이유의 의존성 주입).
@@ -38,7 +42,7 @@ export async function callGeminiWithRotation(requestFn, pool = getApiKeys('gemin
       return await requestFn(key);
     } catch (err) {
       lastError = err;
-      if (err.status !== 429) throw err;
+      if (err.status !== 429 && err.status !== 503) throw err;
     }
   }
   throw lastError;
@@ -241,14 +245,15 @@ function describeToolCalls(toolCalls) {
   return `${phrases.join(', ')}했어요.`;
 }
 
-// 사용자의 자연어 명령을 Gemini function calling으로 해석해 toolCalls로 변환한다.
-export async function requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize) {
+// generateContent 한 번 호출 — contents를 그대로 넘기고 candidates[0]의 parts를 돌려준다.
+// 첫 턴/왕복 턴 둘 다 이 함수 하나로 처리한다(요청 바디 구성이 똑같고 contents만 다름).
+async function callGeminiChat(apiKey, contents, weaponState, availableShapeIds, canvasSize) {
   const res = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) }] },
-      contents: [{ role: 'user', parts: [{ text: message }] }],
+      contents,
       tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
     }),
   });
@@ -258,17 +263,80 @@ export async function requestToolCalls(apiKey, weaponState, message, availableSh
     throw err;
   }
   const data = await res.json();
-  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  return data.candidates?.[0]?.content?.parts ?? [];
+}
+
+function extractToolCallsAndText(parts) {
   const toolCalls = [];
-  let reply = '';
+  let text = '';
   for (const part of parts) {
     if (part.functionCall) {
       toolCalls.push({ op: part.functionCall.name, ...part.functionCall.args });
     } else if (part.text) {
-      reply += part.text;
+      text += part.text;
     }
   }
-  return { toolCalls, reply: reply || describeToolCalls(toolCalls) || '(응답 텍스트가 없어요)' };
+  return { toolCalls, text };
+}
+
+// 한 번의 요청-실행-응답 왕복으로 끝내지 않고, 모델이 텍스트만 있는(함수 호출 없는) 턴을
+// 낼 때까지 계속 돈다 — "삼각형 추가하고 오른쪽으로 옮겨줘"처럼 모델이 한 번에 하나씩만
+// 함수를 부르는 스타일이어도 전부 반영되게 한다. 모델이 비정상적으로 함수 호출만 계속
+// 반복하는 경우(버그/루프)에도 API 호출이 무한정 나가지 않도록 상한을 둔다 — 이 앱의
+// 명령은 "삼각형 추가해줘" 수준으로 단순해서 실제로는 1~2턴이면 끝나므로 5는 넉넉한 여유.
+const MAX_TOOL_CALL_TURNS = 5;
+
+// 사용자의 자연어 명령을 Gemini function calling으로 해석해 toolCalls로 변환한다.
+//
+// 함수 호출이 있는 턴마다 표준 function calling 왕복 패턴을 따른다: 그 턴의 functionCall들을
+// 모델 턴으로 그대로 돌려주고, "실행 결과"를 user 턴(functionResponse)으로 보내 다음 턴을
+// 받는다 — 실제 결과를 모르는 채로(함수 호출 시점에) 설명 텍스트까지 한번에 쓰라고 프롬프트로
+// 강요하는 것보다 모델 입장에서도 더 자연스럽고, 실전에서 텍스트가 자주 빠지던 문제(요청
+// 몇 개를 실제로 보내서 확인함: "방금 만든 거 지워줘" -> functionCall만 오고 텍스트 없음)도
+// 이 왕복이 근본적으로 줄여준다. 실제 반영/좌표 clamp는 이 함수의 호출자(weaponChat.js의
+// applyToolCalls)가 하므로, 여기서 모델에게 돌려주는 "결과"는 좌표까지 정확할 필요 없이
+// "성공적으로 반영했다"는 확인이면 된다.
+export async function requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize) {
+  let contents = [{ role: 'user', parts: [{ text: message }] }];
+  const allToolCalls = [];
+
+  for (let turn = 0; turn < MAX_TOOL_CALL_TURNS; turn += 1) {
+    let parts;
+    try {
+      parts = await callGeminiChat(apiKey, contents, weaponState, availableShapeIds, canvasSize);
+    } catch (err) {
+      // 첫 턴 실패는 그대로 던진다 — callGeminiWithRotation이 이 함수 전체를 다른 키로
+      // 재시도한다(기존 동작과 동일). 이미 함수 호출을 하나 이상 확정한 뒤(왕복 중) 실패하면
+      // 그 결과를 버리지 않고 지금까지 모은 toolCalls를 그대로 살려 반환한다 — 사용자가
+      // 명령한 도형 조작 자체가 텍스트 생성 실패 때문에 무효화되면 안 된다.
+      if (turn === 0) throw err;
+      return { toolCalls: allToolCalls, reply: describeToolCalls(allToolCalls) || '(응답 텍스트가 없어요)' };
+    }
+
+    const { toolCalls, text } = extractToolCallsAndText(parts);
+    if (toolCalls.length === 0) {
+      // 함수 호출이 없는 턴 — 최종 응답으로 보고 루프를 끝낸다.
+      return { toolCalls: allToolCalls, reply: text || describeToolCalls(allToolCalls) || '(응답 텍스트가 없어요)' };
+    }
+
+    allToolCalls.push(...toolCalls);
+    contents = [
+      ...contents,
+      { role: 'model', parts },
+      {
+        // Gemini REST API는 role:'function'을 거부한다(실측: "Role 'function' is not
+        // supported... valid role: ...USER...") — functionResponse도 그냥 user 턴으로 보낸다.
+        role: 'user',
+        parts: toolCalls.map((call) => ({
+          functionResponse: { name: call.op, response: { status: 'ok' } },
+        })),
+      },
+    ];
+  }
+
+  // MAX_TOOL_CALL_TURNS를 넘도록 계속 함수만 호출하면(비정상) 더 왕복하지 않고 안전하게
+  // 종료한다 — 지금까지 모은 toolCalls는 전부 살리고 텍스트만 설명으로 대체한다.
+  return { toolCalls: allToolCalls, reply: describeToolCalls(allToolCalls) || '(응답 텍스트가 없어요)' };
 }
 
 function mockInterpretCommand(message) {
