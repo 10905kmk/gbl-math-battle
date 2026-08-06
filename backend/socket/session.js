@@ -16,6 +16,11 @@ const cohort = {
 // 접속 시 보내는 participant:join 신호로만 구분한다.
 const joined = new Set();
 
+// participant:name으로 받은 이름을 socket.id 기준으로 잠깐 보관해둔다 — 이름이 무기 완성
+// (create:done)보다 먼저 도착하므로, 그때까지 cohort.participants 엔트리가 아직 없어도
+// 저장해둘 곳이 필요하다. create:done 시점에 이 값을 참가자 엔트리에 합쳐 넣는다.
+const participantNames = new Map();
+
 // 관리자가 수동으로 단계를 앞뒤로 넘길 때의 순서. idle은 startSession/reset으로만 드나든다.
 const STAGE_ORDER = ['learn', 'create', 'battle', 'result', 'thanks'];
 
@@ -69,6 +74,14 @@ export function registerSessionHandlers(io, socket) {
     joined.add(socket.id);
   });
 
+  // 참가자 이름 — 인원수 집계(participant:join)와 완전히 분리된 별도 신호다. 이름 입력에
+  // 시간이 걸려도 인원수 집계 타이밍에 영향을 주면 안 되므로 절대 합치지 않는다. 클라이언트가
+  // 보낸 값을 그대로 믿지 않고 문자열인지 확인한 뒤 trim + 20자로 제한한다.
+  socket.on('participant:name', (name) => {
+    const safeName = typeof name === 'string' ? name.trim().slice(0, 20) : '';
+    participantNames.set(socket.id, safeName);
+  });
+
   socket.on('admin:startSession', () => {
     // 이 시점까지 접속해 있던 참가자 수를 이번 세션의 목표 인원으로 고정한다. 하드코딩된
     // 상수(예전엔 5) 대신, 실제 부스 회차마다 다를 수 있는 인원에 맞춘다.
@@ -115,12 +128,16 @@ export function registerSessionHandlers(io, socket) {
   });
 
   socket.on('create:done', (weapon) => {
+    // 빈 문자열(이름을 안 넣었거나 participant:name을 아예 안 보낸 경우 모두)은 null로
+    // 통일한다 — 화면 쪽에서 "이름 없음"을 한 가지 값으로만 처리하면 되게.
+    const name = participantNames.get(socket.id) || null;
     const existing = cohort.participants.find((p) => p.id === socket.id);
     if (existing) {
       existing.done = true;
       existing.weapon = weapon;
+      existing.name = name;
     } else {
-      cohort.participants.push({ id: socket.id, done: true, weapon });
+      cohort.participants.push({ id: socket.id, done: true, weapon, name });
     }
     broadcastProgress(io);
     // 관리자가 이미 create 단계를 벗어난 뒤에(강제로 다음 단계로 넘긴 경우 등) 뒤늦게 도착한
@@ -142,6 +159,7 @@ export function registerSessionHandlers(io, socket) {
   // 있다(Opus 리뷰 Critical #2b, 실제로 재현됨).
   socket.on('disconnect', () => {
     joined.delete(socket.id);
+    participantNames.delete(socket.id);
     const before = cohort.participants.length;
     cohort.participants = cohort.participants.filter((p) => p.id !== socket.id);
     if (cohort.participants.length !== before) {

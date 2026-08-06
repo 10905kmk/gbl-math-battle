@@ -29,6 +29,14 @@ for (let i = 1; i <= 5; i += 1) {
   registerSessionHandlers(io, makeSocket(`p${i}`));
 }
 
+// participant:name — 이름을 먼저 보내두면 이후 create:done 때 참가자 엔트리에 반영된다.
+// trim/길이 제한(20자)/비문자열 방어를 함께 확인한다 — 클라이언트 제공값을 그대로 믿지
+// 않는 이 프로젝트의 기존 원칙(weaponDamage clamp 등)과 같은 이유. p4/p5는 아예 안 보내서
+// "이름을 안 넣은 참가자는 null" 경로도 같이 확인한다.
+handlers.p1['participant:name']('  민수  ');
+handlers.p2['participant:name']('가'.repeat(50));
+handlers.p3['participant:name'](12345);
+
 for (let i = 1; i <= 5; i += 1) {
   const parts = i === 1 ? [{ id: 'x1', shapeId: 'triangle', x: 100, y: 100, rotation: 0, scale: 1 }] : [];
   handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts });
@@ -47,6 +55,12 @@ assert.strictEqual(room.players.p1.hitScore, 65, 'damage=1000 -> round(1000*0.05
 assert.strictEqual(room.players.p5.hitScore, 325, 'damage=5000 -> round(5000*0.05)=250, 근접 배율 1.3 -> 325');
 assert.strictEqual(room.status, 'active');
 console.log('battle room initialized from participants: OK');
+
+assert.strictEqual(room.players.p1.name, '민수', '앞뒤 공백은 trim되어야 함');
+assert.strictEqual(room.players.p2.name, '가'.repeat(20), '20자를 넘는 이름은 잘려야 함');
+assert.strictEqual(room.players.p3.name, null, '문자열이 아닌 이름은 무시되고 null이어야 함');
+assert.strictEqual(room.players.p4.name, null, '이름을 아예 안 보낸 참가자는 null');
+console.log('participant names flow from participant:name through create:done into battleRoom.players: OK');
 
 assert.deepStrictEqual(room.arenaSize, DEFAULT_MAP.arenaSize, 'battle room의 arenaSize가 DEFAULT_MAP.arenaSize와 일치해야 함');
 console.log('battle room carries arenaSize from DEFAULT_MAP: OK');

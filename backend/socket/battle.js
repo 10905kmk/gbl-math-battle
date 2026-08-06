@@ -42,6 +42,7 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
     const hitScore = isRanged ? baseHitScore : Math.round(baseHitScore * MELEE_DAMAGE_MULTIPLIER);
     players[participant.id] = {
       id: participant.id,
+      name: participant.name ?? null,
       characterId: CHARACTER_IDS[i % CHARACTER_IDS.length],
       x: spawn.x,
       y: spawn.y,
