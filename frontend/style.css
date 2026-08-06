@@ -35,3 +35,37 @@ body {
   font-size: 1.2rem;
   padding: 0.5rem 1.5rem;
 }
+
+.result-card,
+.thanks-card {
+  text-align: center;
+  max-width: 24rem;
+}
+
+.result-card img {
+  max-width: 12rem;
+  max-height: 12rem;
+}
+
+.result-rank {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.result-score {
+  color: #ccc;
+}
+
+.qr-slot {
+  margin-top: 1rem;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.result-qr {
+  background: #fff;
+  padding: 0.5rem;
+  border-radius: 4px;
+}

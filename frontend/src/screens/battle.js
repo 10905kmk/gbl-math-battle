@@ -1,5 +1,5 @@
 import { h } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import htm from 'htm';
 import Konva from 'konva';
 import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
@@ -16,6 +16,16 @@ const VIEWPORT_SIZE = { width: 800, height: 600 };
 
 function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v));
+}
+
+// room.endsAt(서버 시각 기준 종료 시점)까지 남은 시간을 "M:SS"로 포맷 — Math.ceil을 써서
+// 599ms 남았을 때도 "0:01"로 보이게 한다(Math.floor면 남은 시간이 그대로 있는데도 한 박자
+// 일찍 0:00으로 보임). 음수(서버 응답이 살짝 늦게 도착하는 경우 등)는 0으로 방어.
+function formatTimeRemaining(ms) {
+  const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 // CHARACTER_RADIUS(20)과 똑같이 하면 시에르핀스키/코흐눈꽃처럼 점이 많은 프랙탈은 뭉개져서
 // 거의 안 보인다(Opus 리뷰에서 실측: 20px 아이콘에 43픽셀만 칠해짐) — 조금 더 키운다.
@@ -47,6 +57,9 @@ export function BattleScreen({ socket, state }) {
   // 현재 카메라가 월드 좌표계에서 어디를 보고 있는지(뷰포트 왼쪽 위 모서리의 월드 좌표).
   // 마우스 조준 좌표 변환(뷰포트 좌표 -> 월드 좌표)에도 이 값이 필요해서 ref로 공유한다.
   const cameraRef = useRef({ x: 0, y: 0 });
+  // 제한시간 HUD는 Konva 캔버스가 아니라 일반 DOM 텍스트라 useState로 관리 — battle:state가
+  // 50ms마다 오므로 이 값도 그 주기로 갱신되어 카운트다운이 매끄럽게 보인다.
+  const [remainingMs, setRemainingMs] = useState(null);
 
   useEffect(() => {
     const stage = new Konva.Stage({
@@ -89,6 +102,9 @@ export function BattleScreen({ socket, state }) {
 
   useEffect(() => {
     function onState(room) {
+      if (Number.isFinite(room.endsAt)) {
+        setRemainingMs(Math.max(0, room.endsAt - Date.now()));
+      }
       const layer = layerRef.current;
       if (!layer) return;
 
@@ -230,8 +246,13 @@ export function BattleScreen({ socket, state }) {
   }, [socket]);
 
   useEffect(() => {
-    function onResult({ win }) {
-      state.battleResult = win ? 'win' : 'lose';
+    // 탈락이 없는 점수제라 승/패보다 등수가 더 정확한 표현이다(공동 순위도 있을 수 있음) —
+    // win은 result-page 등 기존 소비처와의 호환을 위해 그대로 같이 들고 있는다.
+    // result:saved(QR용 id)는 여기서 안 듣는다 — Supabase 저장은 비동기라 stage가 이미
+    // result로 넘어가 이 화면이 unmount된 뒤에 도착하는 경우가 흔해서, 화면 전환과 무관하게
+    // 항상 떠 있는 app.js에서 듣는다(frontend/src/app.js 참고).
+    function onResult({ win, score, rank, total }) {
+      state.battleResult = { win, score, rank, total };
     }
     socket.on('battle:result', onResult);
     return () => socket.off('battle:result', onResult);
@@ -371,7 +392,10 @@ export function BattleScreen({ socket, state }) {
 
   return html`
     <div class="battle-shell" style=${{ '--arena-width': `${VIEWPORT_SIZE.width}px` }}>
-      <div class="battle-arena" ref=${containerRef}></div>
+      <div class="battle-viewport">
+        <div class="battle-arena" ref=${containerRef}></div>
+        ${remainingMs !== null && html`<div class="battle-timer">${formatTimeRemaining(remainingMs)}</div>`}
+      </div>
       <div class="battle-controls">
         <${VirtualJoystick} onChange=${onMoveStick} />
         <${VirtualJoystick} onChange=${onAimStick} onRelease=${onAimRelease} className="aim" />

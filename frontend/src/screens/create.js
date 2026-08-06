@@ -48,7 +48,6 @@ export function CreateScreen({ socket, state }) {
     const weapon = {
       name: '내가 만든 무기',
       image: previewImage,
-      stats: { attack: damage, defense: damage },
       damage,
       attackRange,
       attackRangeDistance,

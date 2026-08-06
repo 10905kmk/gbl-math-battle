@@ -33,10 +33,31 @@ function App() {
   // [socket] 의존성 배열은 그대로 둬서(이름과 무관하게 유지) 인원수 집계 타이밍에 영향을
   // 주지 않는다.
   const nameRef = useRef(null);
+  // 결과 저장(Supabase) 완료 후 서버가 알려주는 저장된 행의 id — result-page QR/링크에 쓴다.
+  // battle.js가 아니라 여기서 듣는 이유: 저장은 비동기라 stage가 이미 result로 넘어가
+  // BattleScreen이 unmount된 뒤에 이 이벤트가 도착하는 경우가 흔한데, App은 화면 전환과
+  // 무관하게 항상 떠 있어서 놓치지 않는다. 실제 UI 갱신(ResultScreen 리렌더)이 일어나려면
+  // Preact state여야 하므로 state.js가 아니라 useState로 들고 내려준다.
+  const [resultId, setResultId] = useState(null);
 
   useEffect(() => {
-    socket.on('stage:change', setStage);
-    return () => socket.off('stage:change', setStage);
+    function onStageChange(nextStage) {
+      setStage(nextStage);
+      // 새 라운드(battle)가 시작되면 지난 라운드의 결과 id는 더 이상 유효하지 않다 —
+      // 다음 result:saved가 올 때까지 QR을 안 보여주는 게, 지난 라운드 QR을 잘못 보여주는
+      // 것보다 낫다.
+      if (nextStage === 'battle') setResultId(null);
+    }
+    socket.on('stage:change', onStageChange);
+    return () => socket.off('stage:change', onStageChange);
+  }, [socket]);
+
+  useEffect(() => {
+    function onSaved({ id }) {
+      setResultId(id);
+    }
+    socket.on('result:saved', onSaved);
+    return () => socket.off('result:saved', onSaved);
   }, [socket]);
 
   useEffect(() => {
@@ -70,7 +91,7 @@ function App() {
   }
 
   const Screen = SCREENS[stage] ?? LearnScreen;
-  return html`<${Screen} socket=${socket} state=${state} />`;
+  return html`<${Screen} socket=${socket} state=${state} resultId=${resultId} />`;
 }
 
 render(html`<${App} />`, document.getElementById('app'));

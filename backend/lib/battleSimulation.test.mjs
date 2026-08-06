@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import {
   stepSimulation,
   hitScoreFromWeaponDamage,
+  computeRanks,
   MOVE_SPEED,
   CHARACTER_RADIUS,
 } from './battleSimulation.js';
@@ -386,6 +387,34 @@ console.log('hitScoreFromWeaponDamage clamps abnormally large weapon damage: OK'
   assert.strictEqual(next.projectiles.length, 0, '쿨다운 중이면 투사체가 생기지 않아야 함');
   assert.strictEqual(next.players.p1.lastAttackAt, 900);
   console.log('ranged attack respects the same cooldown as melee: OK');
+}
+
+// computeRanks — 모두 점수가 다르면 그냥 순위대로
+{
+  const ranks = computeRanks({ a: 90, b: 70, c: 80 });
+  assert.deepStrictEqual(ranks, { a: 1, b: 3, c: 2 });
+  console.log('computeRanks: distinct scores rank in order: OK');
+}
+
+// 동점자는 같은 등수를 공유하고, 다음 등수는 동점자 수만큼 건너뛴다 (90,90,80 -> 1,1,3)
+{
+  const ranks = computeRanks({ a: 90, b: 90, c: 80 });
+  assert.deepStrictEqual(ranks, { a: 1, b: 1, c: 3 });
+  console.log('computeRanks: tied scores share a rank and skip the next: OK');
+}
+
+// 참가자 1명뿐이면 항상 1위
+{
+  const ranks = computeRanks({ a: 42 });
+  assert.deepStrictEqual(ranks, { a: 1 });
+  console.log('computeRanks: single participant is always rank 1: OK');
+}
+
+// 전원 동점이면 전원 공동 1위
+{
+  const ranks = computeRanks({ a: 10, b: 10, c: 10 });
+  assert.deepStrictEqual(ranks, { a: 1, b: 1, c: 1 });
+  console.log('computeRanks: all tied means everyone is rank 1: OK');
 }
 
 console.log('battleSimulation.test.mjs: OK');

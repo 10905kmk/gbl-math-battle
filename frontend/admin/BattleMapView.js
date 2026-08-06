@@ -26,11 +26,21 @@ function characterLabel(characterId) {
   return `캐릭터 ${(characterId ?? '').replace('char', '')}`;
 }
 
+// frontend/src/screens/battle.js의 formatTimeRemaining과 같은 로직 — CHARACTER_COLORS와
+// 같은 이유(위 주석 참고)로 공유 모듈로 빼지 않고 그대로 복제했다.
+function formatTimeRemaining(ms) {
+  const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export function BattleMapView({ socket }) {
   const containerRef = useRef(null);
   const layerRef = useRef(null);
   const nodesRef = useRef({});
   const [players, setPlayers] = useState({});
+  const [remainingMs, setRemainingMs] = useState(null);
 
   useEffect(() => {
     const stage = new Konva.Stage({
@@ -70,6 +80,10 @@ export function BattleMapView({ socket }) {
       const layer = layerRef.current;
       if (!layer || !room?.players) return;
 
+      if (Number.isFinite(room.endsAt)) {
+        setRemainingMs(Math.max(0, room.endsAt - Date.now()));
+      }
+
       Object.values(room.players).forEach((p) => {
         let node = nodesRef.current[p.id];
         if (!node) {
@@ -102,7 +116,10 @@ export function BattleMapView({ socket }) {
 
   return html`
     <div class="battle-map-view">
-      <div class="battle-map-canvas" ref=${containerRef}></div>
+      <div class="battle-map-wrap">
+        <div class="battle-map-canvas" ref=${containerRef}></div>
+        ${remainingMs !== null && html`<div class="battle-map-timer">${formatTimeRemaining(remainingMs)}</div>`}
+      </div>
       <ol class="leaderboard">
         ${sorted.map((p, i) => {
           const isConnected = p.connected !== false;

@@ -5,6 +5,14 @@
   gap: 1rem;
 }
 
+/* battle-arena 자체는 순수 Konva 마운트 지점(battle.js가 ref로만 씀, Preact 자식을 그
+   안에 렌더링하지 않음) — 타이머 HUD는 Konva가 관리하지 않는 이 바깥 wrapper에 형제로
+   둬서, Preact와 Konva가 같은 DOM 노드의 자식을 두고 서로 덮어쓰지 않게 한다. */
+.battle-viewport {
+  position: relative;
+  width: fit-content;
+}
+
 .battle-arena {
   /* Konva가 컨테이너 안에 만드는 .konvajs-content div가 이미 정확한 픽셀 크기(인라인
      스타일)를 갖고 있으므로, 여기서 크기를 또 하드코딩하지 않고 그 크기에 맞춰
@@ -16,6 +24,21 @@
   background: #1a1a1a;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
+}
+
+.battle-timer {
+  position: absolute;
+  top: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-weight: bold;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.25rem 0.9rem;
+  border-radius: 999px;
+  pointer-events: none;
 }
 
 .battle-controls {

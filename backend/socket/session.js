@@ -40,9 +40,22 @@ function goToStage(io, nextStage) {
       // battle이 아니게 됐으면 무시한다. (아래 else 분기가 stopBattleRoom도 호출하므로
       // 정상 경로에서는 이 콜백 자체가 그 뒤로 불릴 일이 없다 — 이건 이중 방어.)
       onEnd: (winners, scores) => {
-        saveParticipantResults(participantsAtBattleStart, winners, scores).catch((err) => {
-          console.error('[session] 결과 저장 중 예외:', err);
-        });
+        // 저장이 끝나야 각 참가자 결과 행의 id를 알 수 있다(QR/링크가 그 id로 result-page를
+        // 가리켜야 하므로) — outcomes는 participantsAtBattleStart와 같은 순서라 인덱스로
+        // 그대로 짝지을 수 있다. 저장 실패(rejected)한 참가자에게는 보내지 않는다 — 존재하지
+        // 않는 id로 QR을 만들면 스캔했을 때 "결과 없음"만 보게 되므로, 아예 안 보내는 쪽이
+        // 참가자 화면이 QR 없이 요약만 보여주는 정상적인 폴백으로 이어진다.
+        saveParticipantResults(participantsAtBattleStart, winners, scores)
+          .then((outcomes) => {
+            outcomes.forEach((outcome, i) => {
+              if (outcome.status === 'fulfilled' && outcome.value?.id) {
+                io.to(participantsAtBattleStart[i].id).emit('result:saved', { id: outcome.value.id });
+              }
+            });
+          })
+          .catch((err) => {
+            console.error('[session] 결과 저장 중 예외:', err);
+          });
         if (cohort.stage === 'battle') goToStage(io, 'result');
       },
     });

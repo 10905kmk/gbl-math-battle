@@ -21,10 +21,11 @@ function makeParticipant(id, overrides) {
   assert.strictEqual(calls.length, 2, '참가자 수만큼 saveFn이 호출되어야 함');
   assert.deepStrictEqual(calls[0], {
     weapon_name: '무기-p1', weapon_image: 'data:image/png;base64,AAA',
-    weapon_stats: { attack: 10, defense: 5 }, weapon_damage: 500, win: true, score: 120,
-  }, 'winners에 포함된 p1은 win:true, score는 scores[p1] 값, parts는 저장 대상에서 제외되어야 함');
+    weapon_damage: 500, win: true, score: 120, rank: 1,
+  }, 'winners에 포함된 p1은 win:true, score는 scores[p1] 값, 점수가 더 높으니 rank 1, parts/stats는 저장 대상에서 제외되어야 함');
   assert.strictEqual(calls[1].win, false, 'winners에 없는 p2는 win:false');
   assert.strictEqual(calls[1].score, 45);
+  assert.strictEqual(calls[1].rank, 2, 'p2는 p1보다 점수가 낮으니 rank 2');
   assert.strictEqual(outcomes.every((o) => o.status === 'fulfilled'), true);
   console.log('saveParticipantResults maps participants to saveFn calls: OK');
 }
@@ -59,6 +60,7 @@ console.log('saveParticipantResults tolerates partial failure: OK');
   const outcomes = await saveParticipantResults([makeParticipant('p1')], undefined, undefined, fakeSaveFn);
   assert.strictEqual(calls[0].win, false, 'winners가 배열이 아니면 아무도 승자가 아닌 것으로 취급');
   assert.strictEqual(calls[0].score, null, 'scores가 객체가 아니면 score는 null로 취급');
+  assert.strictEqual(calls[0].rank, null, 'score가 없으면 순위도 계산할 수 없으니 null');
   assert.strictEqual(outcomes[0].status, 'fulfilled');
 }
 console.log('saveParticipantResults tolerates non-array winners and missing scores: OK');

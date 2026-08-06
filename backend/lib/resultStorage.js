@@ -2,6 +2,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { saveResult } from './supabaseClient.js';
+import { computeRanks } from './battleSimulation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FALLBACK_PATH = path.join(__dirname, '../data/results-fallback.jsonl');
@@ -17,13 +18,22 @@ const DEFAULT_FALLBACK_PATH = path.join(__dirname, '../data/results-fallback.jso
 export async function saveParticipantResults(participants, winners, scores, saveFn = saveResult, fallbackPath = DEFAULT_FALLBACK_PATH) {
   const winnerIds = Array.isArray(winners) ? winners : [];
   const safeScores = scores && typeof scores === 'object' ? scores : {};
+  // computeRanks는 { [id]: score } 형태만 받으므로 undefined/NaN 참가자는 미리 걸러내고
+  // 계산한 뒤, 랭크가 없는(걸러진) 참가자는 저장 시점에 null로 남긴다 — battle:result가
+  // 이미 같은 데이터로 참가자 화면에 보낸 등수와 어긋나지 않아야 한다(battle.js와 이
+  // 함수가 각자 computeRanks를 호출하는 이유 — battleSimulation.js의 computeRanks 주석 참고).
+  const rankableScores = {};
+  for (const p of participants) {
+    if (Number.isFinite(safeScores[p.id])) rankableScores[p.id] = safeScores[p.id];
+  }
+  const ranks = computeRanks(rankableScores);
   const payloads = participants.map((p) => ({
     weapon_name: p.weapon?.name,
     weapon_image: p.weapon?.image,
-    weapon_stats: p.weapon?.stats,
     weapon_damage: p.weapon?.damage,
     win: winnerIds.includes(p.id),
     score: Number.isFinite(safeScores[p.id]) ? safeScores[p.id] : null,
+    rank: ranks[p.id] ?? null,
   }));
 
   const outcomes = await Promise.allSettled(payloads.map((payload) => saveFn(payload)));

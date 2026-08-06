@@ -33,6 +33,20 @@ function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v));
 }
 
+// scores: { [id]: number } -> { [id]: rank } — 표준 대회 순위(동점자는 같은 등수를 공유하고,
+// 그다음 등수는 동점자 수만큼 건너뛴다. 예: 90,90,80 -> 1,1,3). 대전 종료 브로드캐스트
+// (backend/socket/battle.js)와 결과 저장(backend/lib/resultStorage.js) 양쪽이 같은 scores
+// 데이터로 이 함수를 각자 호출한다 — 등수 계산식이 한 곳에만 있어야 두 값이 어긋나지 않는다.
+export function computeRanks(scores) {
+  const entries = Object.entries(scores);
+  const ranks = {};
+  entries.forEach(([id, score]) => {
+    const higherCount = entries.filter(([, s]) => s > score).length;
+    ranks[id] = higherCount + 1;
+  });
+  return ranks;
+}
+
 function circleRectOverlap(cx, cy, r, rectX, rectY, rectW, rectH) {
   const closestX = clamp(cx, rectX, rectX + rectW);
   const closestY = clamp(cy, rectY, rectY + rectH);

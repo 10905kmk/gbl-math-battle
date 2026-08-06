@@ -44,10 +44,33 @@ body {
   gap: 2rem;
 }
 
+/* battle-map-canvas는 순수 Konva 마운트 지점(BattleMapView.js가 ref로만 씀) — 타이머 HUD는
+   그 바깥 wrap에 형제로 둬서 Preact/Konva가 같은 DOM 노드를 두고 충돌하지 않게 한다
+   (frontend/src/screens/battle.css의 .battle-viewport와 같은 이유). */
+.battle-map-wrap {
+  position: relative;
+  width: fit-content;
+}
+
 .battle-map-canvas {
   background: #1a1a1a;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
+}
+
+.battle-map-timer {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-weight: bold;
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.3rem 1.1rem;
+  border-radius: 999px;
+  pointer-events: none;
 }
 
 .leaderboard {

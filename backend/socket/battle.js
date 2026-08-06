@@ -1,4 +1,4 @@
-import { stepSimulation, hitScoreFromWeaponDamage, BATTLE_DURATION_MS, MELEE_DAMAGE_MULTIPLIER } from '../lib/battleSimulation.js';
+import { stepSimulation, hitScoreFromWeaponDamage, computeRanks, BATTLE_DURATION_MS, MELEE_DAMAGE_MULTIPLIER } from '../lib/battleSimulation.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX } from '../../shapes/attackGeometry.js';
 
@@ -83,9 +83,11 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
       for (const id of Object.keys(endedRoom.players)) {
         scores[id] = endedRoom.players[id].score;
       }
+      const ranks = computeRanks(scores);
+      const total = Object.keys(endedRoom.players).length;
       stopBattleRoom();
       for (const id of Object.keys(endedRoom.players)) {
-        io.to(id).emit('battle:result', { win: winners.includes(id) });
+        io.to(id).emit('battle:result', { win: winners.includes(id), score: scores[id], rank: ranks[id], total });
       }
       if (onEnd) onEnd(winners, scores);
     }

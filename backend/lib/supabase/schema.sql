@@ -3,14 +3,18 @@
 -- 이미 results 테이블이 있는 기존 Supabase 프로젝트라면(create table if not exists는 기존
 -- 테이블의 컬럼을 바꿔주지 않음) SQL Editor에서 아래를 먼저 실행할 것:
 --   alter table results add column if not exists score integer;
+--   alter table results add column if not exists rank integer;
+-- weapon_stats(예전 공격/방어 수치 — 지금은 damage 하나로 통일됨)는 새 행에는 더 이상 안
+-- 쓰지만, 과거 데이터를 지우지 않도록 컬럼 자체는 남겨둔다.
 create table if not exists results (
   id uuid primary key default gen_random_uuid(),
   weapon_name text,
   weapon_image text,       -- Konva 캔버스 toDataURL() 결과, base64 그대로 저장 (Storage 버킷 미사용)
-  weapon_stats jsonb,      -- { attack, defense }
+  weapon_stats jsonb,      -- 예전 { attack, defense } — 더 이상 안 씀, 과거 데이터 보존용
   weapon_damage integer,
   win boolean,
   score integer,           -- 대전 종료 시점 누적 점수 (2026-08-06 배틀로얄 점수제 설계 참고)
+  rank integer,            -- 대전 종료 시점 순위 (동점자는 같은 순위 공유, computeRanks 참고)
   created_at timestamptz not null default now()
 );
 
