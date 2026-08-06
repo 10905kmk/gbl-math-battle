@@ -4,6 +4,7 @@ import { SAMPLES } from './weaponEvaluationSamples.js';
 import { getApiKeys } from './apiKeys.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX, classifyWeaponRangeFallback } from '../../shapes/attackGeometry.js';
 import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
+import { getShapeById } from '../../shapes/registry.js';
 
 export const DAMAGE_MIN = 1;
 export const DAMAGE_MAX = 10000;
@@ -221,6 +222,25 @@ function buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) 
   ].join('\n');
 }
 
+// toolCalls만 있고 텍스트가 없을 때 쓰는 결정론적 대체 문구 — 프롬프트 지시("함수 호출과
+// 텍스트를 항상 함께 답하라")를 강화해도 LLM이 100% 지키지는 않는다(특히 function calling
+// 모드에서는 텍스트를 그냥 생략하는 경우가 실제로 잦다). "(응답 텍스트가 없어요)"라는 의미
+// 없는 placeholder보다, 실제로 어떤 함수가 호출됐는지(toolCalls)로 직접 설명을 만들어주는
+// 쪽이 모델의 협조 여부와 무관하게 항상 정확하다.
+const OP_LABELS = {
+  addPart: (call) => `${getShapeById(call.shapeId)?.name ?? call.shapeId} 추가`,
+  movePart: () => '부품 이동',
+  rotatePart: () => '부품 회전',
+  scalePart: () => '부품 크기 조절',
+  removePart: () => '부품 제거',
+};
+
+function describeToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) return null;
+  const phrases = toolCalls.map((call) => (OP_LABELS[call.op] ? OP_LABELS[call.op](call) : call.op));
+  return `${phrases.join(', ')}했어요.`;
+}
+
 // 사용자의 자연어 명령을 Gemini function calling으로 해석해 toolCalls로 변환한다.
 export async function requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize) {
   const res = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
@@ -248,7 +268,7 @@ export async function requestToolCalls(apiKey, weaponState, message, availableSh
       reply += part.text;
     }
   }
-  return { toolCalls, reply: reply || '(응답 텍스트가 없어요)' };
+  return { toolCalls, reply: reply || describeToolCalls(toolCalls) || '(응답 텍스트가 없어요)' };
 }
 
 function mockInterpretCommand(message) {

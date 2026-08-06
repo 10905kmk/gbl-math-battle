@@ -124,8 +124,31 @@ console.log('requestToolCalls maps functionCall parts to {op, ...args} and text 
   const result = await requestToolCalls('fake-key', { parts: [] }, '아무 말', [], { width: 480, height: 480 });
   global.fetch = origFetch;
   assert.deepStrictEqual(result.toolCalls, []);
-  assert.strictEqual(result.reply, '(응답 텍스트가 없어요)', '텍스트 파트가 전혀 없으면 기본 안내 문구로 대체되어야 함');
+  assert.strictEqual(result.reply, '(응답 텍스트가 없어요)', '텍스트 파트도 toolCalls도 전혀 없으면 기본 안내 문구로 대체되어야 함');
 }
 console.log('requestToolCalls falls back to a placeholder reply when Gemini returns no text: OK');
+
+// 회귀 테스트: 프롬프트 지시("함수 호출과 텍스트를 항상 함께 답하라")를 지켜도 LLM이 실제로는
+// 텍스트를 생략하는 경우가 실전에서 잦았다 — toolCalls는 있는데 텍스트만 없는 경우, 의미 없는
+// placeholder 대신 실제로 호출된 함수를 바탕으로 설명을 만들어줘야 한다(어떤 부품이 어떻게
+// 바뀌었는지는 서버가 이미 정확히 알고 있으므로, 모델의 협조 여부와 무관하게 항상 정확하다).
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: {
+          parts: [{ functionCall: { name: 'addPart', args: { shapeId: 'triangle', x: 100, y: 100 } } }],
+        },
+      }],
+    }),
+  });
+  const result = await requestToolCalls('fake-key', { parts: [] }, '삼각형 추가해줘', [], { width: 480, height: 480 });
+  global.fetch = origFetch;
+  assert.deepStrictEqual(result.toolCalls, [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100 }]);
+  assert.strictEqual(result.reply, '삼각형 추가했어요.', 'toolCalls는 있는데 텍스트가 없으면 toolCalls로 설명을 만들어야 함(플레이스홀더 아님)');
+}
+console.log('requestToolCalls derives a reply from toolCalls when Gemini omits text but calls a function: OK');
 
 console.log('aiClient.rotation.test.mjs: OK');
