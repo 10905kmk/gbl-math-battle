@@ -1093,6 +1093,18 @@ git commit -m "feat: 대전 화면에 듀얼스틱/키보드+마우스 조작 �
 
 ---
 
+## 구현 후 최종 리뷰(Opus) 반영 사항
+
+Opus 모델로 전체 브랜치 diff를 최종 리뷰한 결과, 다음 이슈가 발견되어 모두 수정했다(커밋: `fix: opus 리뷰에서 발견된 Critical/Important 이슈 수정`):
+
+- **Important I1**: `.battle-controls { width: 800px }`가 부스 태블릿/폰 같은 좁은 뷰포트에서 이동 조이스틱을 화면 밖(음수 좌표)으로 밀어내 손이 안 닿는 상태를 만들었다 — 실제 브라우저 측정으로 확인된 회귀. `width: min(800px, 100vw - 3rem)`로 수정.
+- **Important I2**: PC 조준(`updateAimFromPointer`, 옛 `onMouseMove`)이 `mousemove` 이벤트에서만 갱신돼서, 마우스를 가만히 두고 WASD로만 이동하면 조준이 마지막 마우스 위치 기준으로 멈춰버렸다 — 이 기능의 핵심(이동/조준 분리)이 무너지는 문제. `battle:state` 갱신(내 캐릭터 위치가 바뀔 때)에서도 같은 함수를 호출하도록 수정.
+- **Important I3**: `applyAim`이 `Number.MAX_VALUE`급 입력처럼 `Math.hypot`이 `Infinity`로 오버플로하는 케이스를 걸러내지 못해 `x/len, y/len`이 둘 다 `0`이 되고, 그 상태가 영구 저장되어 히트박스가 캐릭터 중심에 고정된 채 전방위로 맞는 취약점이 됐다. `Number.isFinite(len)` 체크 추가.
+- **Important I4**: `VirtualJoystick`이 `pointerId`를 추적하지 않아 두 번째 손가락이 스틱에 닿으면 조작권이 넘어가고, 첫 손가락을 떼는 순간 스틱이 리셋되며(조준 스틱의 경우 `battle:attack`까지 오발동) 남은 손가락 입력이 무시됐다. `activeIdRef`로 조작 중인 손가락 하나만 추적하도록 수정.
+- **Important I5**: 모바일 조준 스틱(`onAimStick`)이 정규화 안 된 벡터를 그대로 보내서, 살짝 민 입력일수록(길이가 짧을수록) `INPUT_EPSILON` 임계값을 넘기기 위한 실제 각도 변화폭이 커져 조준 해상도가 나빠졌다(실측: 풀로 밀면 1.25°, 살짝 밀면 23.75°). PC 마우스 조준과 동일하게 단위벡터로 정규화해서 전송하도록 수정.
+- **Minor(반영)**: `normalizeIfLong`/`moveOne`에 NaN/Infinity·`player.input` 누락 방어 추가(소켓 레이어의 `num()` 가드와의 이중 방어), `attackHitboxRect`에 `aimX/aimY` 기본값 추가, PC 공격이 우클릭에도 발동하던 것을 좌클릭(`e.button === 0`)으로 제한, `VirtualJoystick`의 `setPointerCapture` 실패 시 입력 유실 방지(`try/catch`).
+- **보류(수정 안 함)**: 무기 아이콘 오프셋의 아레나 clamp가 현재 상수값 조합상 항상 no-op이라는 지적(Minor) — 맵이 넓어지거나 오프셋 상수가 커지면 실제로 동작할 방어 코드라 그대로 둠. 터치+키보드 동시 사용 시 스틱을 떼면 키보드 이동이 순간 끊기는 문제(Minor) — 이 부스 환경에서 한 기기가 터치와 키보드를 동시에 쓸 일이 사실상 없어 보류.
+
 ## Self-Review 메모 (계획 작성자 기록)
 
 - **스펙 커버리지**: 데이터 모델 변경(Task 1,2) / 이동·조준·공격 로직(Task 1) / 프론트엔드 컴포넌트+통합(Task 3,4) / 스코프 제외 항목(계획에 새 맵/캐릭터선택/이펙트 관련 태스크 없음, Global Constraints에 명시) / 테스트 범위(각 태스크의 Step 1~4가 스펙의 "테스트 범위" 섹션과 1:1 대응) — 스펙의 모든 섹션이 태스크로 커버됨.
