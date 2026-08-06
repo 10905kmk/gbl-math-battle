@@ -115,16 +115,28 @@ export function BattleScreen({ socket, state }) {
           if (!previewNodeRef.current) {
             previewNodeRef.current = p.isRanged
               ? new Konva.Line({ points: [0, 0, 0, 0], stroke: 'rgba(255,255,255,0.5)', strokeWidth: 3 })
-              : new Konva.Rect({ width: ATTACK_HITBOX_SIZE, height: ATTACK_HITBOX_SIZE, fill: 'rgba(255,255,255,0.25)' });
+              : new Konva.Rect({
+                  width: ATTACK_HITBOX_SIZE,
+                  height: ATTACK_HITBOX_SIZE,
+                  // 회전축을 중심에 맞춘다 — 기본값(좌상단 기준 회전)이면 rotation()을 걸었을 때
+                  // 실제 판정 자리(meleeHitboxRect의 centerX/centerY 중심)와 어긋나 보인다.
+                  offsetX: ATTACK_HITBOX_SIZE / 2,
+                  offsetY: ATTACK_HITBOX_SIZE / 2,
+                  fill: 'rgba(255,255,255,0.25)',
+                });
             layer.add(previewNodeRef.current);
           }
           if (p.isRanged) {
             const range = p.rangeDistance ?? 0;
             previewNodeRef.current.points([p.x, p.y, p.x + previewAimX * range, p.y + previewAimY * range]);
           } else {
+            // meleeHitboxRect가 중심좌표+회전각을 주므로, 미리보기도 캐릭터가 든 무기 방향과
+            // 똑같이 회전시킨다 — 서버 판정(battleSimulation.js)이 쓰는 값과 완전히 같은
+            // 계산식이라 여기 보이는 자리가 실제 판정 자리와 항상 일치한다.
             const hitbox = meleeHitboxRect(p.x, p.y, previewAimX, previewAimY, CHARACTER_RADIUS);
-            previewNodeRef.current.x(hitbox.x);
-            previewNodeRef.current.y(hitbox.y);
+            previewNodeRef.current.x(hitbox.centerX);
+            previewNodeRef.current.y(hitbox.centerY);
+            previewNodeRef.current.rotation((hitbox.angle * 180) / Math.PI);
           }
         }
         let entry = nodesRef.current[p.id];

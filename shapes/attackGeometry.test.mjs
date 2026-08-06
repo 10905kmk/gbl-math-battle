@@ -5,17 +5,38 @@ import {
   RANGE_DISTANCE_MAX,
   ASPECT_RATIO_THRESHOLD,
   meleeHitboxRect,
+  circleOverlapsRotatedRect,
   classifyWeaponRangeFallback,
 } from './attackGeometry.js';
 
-// meleeHitboxRect — 캐릭터 중심에서 조준 방향으로 오프셋만큼 떨어진 고정 크기 정사각형
+// meleeHitboxRect — 캐릭터 중심에서 조준 방향으로 오프셋만큼 떨어진 고정 크기 정사각형,
+// 조준 방향으로 회전(angle)까지 반환
 {
   const rect = meleeHitboxRect(400, 300, 1, 0, 20);
-  assert.strictEqual(rect.x, 420, 'centerX=400+(20+15)=435, rect.x=435-15=420');
-  assert.strictEqual(rect.y, 285, 'centerY=300+0=300, rect.y=300-15=285');
+  assert.strictEqual(rect.centerX, 435, 'centerX=400+(20+15)*1=435');
+  assert.strictEqual(rect.centerY, 300, 'centerY=300+(20+15)*0=300');
   assert.strictEqual(rect.width, ATTACK_HITBOX_SIZE);
   assert.strictEqual(rect.height, ATTACK_HITBOX_SIZE);
-  console.log('meleeHitboxRect computes offset rect in aim direction: OK');
+  assert.strictEqual(rect.angle, 0, 'aimX=1,aimY=0(오른쪽) -> angle 0');
+  console.log('meleeHitboxRect computes offset+rotated rect in aim direction: OK');
+}
+{
+  const rect = meleeHitboxRect(400, 300, 0, 1, 20);
+  assert.strictEqual(rect.centerX, 400, 'centerX=400+(20+15)*0=400');
+  assert.strictEqual(rect.centerY, 335, 'centerY=300+(20+15)*1=335');
+  assert.strictEqual(rect.angle, Math.PI / 2, 'aimX=0,aimY=1(아래) -> angle 90도');
+  console.log('meleeHitboxRect angle follows aim direction: OK');
+}
+
+// circleOverlapsRotatedRect — 회전 여부에 따라 같은 점이라도 충돌 결과가 달라져야 한다
+// (회전이 실제로 판정에 반영되는지 확인). width=40(로컬 x축), height=10(로컬 y축)인
+// 사각형을 원점에 두고, 회전 전엔 안 겹치던 점이 90도 회전 후엔 겹치는지 검증.
+{
+  const flat = { centerX: 0, centerY: 0, width: 40, height: 10, angle: 0 };
+  assert.strictEqual(circleOverlapsRotatedRect(0, 15, 1, flat), false, '회전 전: y=15는 half-height(5) 밖 -> 안 겹침');
+  const rotated = { ...flat, angle: Math.PI / 2 };
+  assert.strictEqual(circleOverlapsRotatedRect(0, 15, 1, rotated), true, '90도 회전 후: 원래 폭(half=20)이 y축으로 옮겨져서 겹침');
+  console.log('circleOverlapsRotatedRect: rotation changes collision result as expected: OK');
 }
 
 // classifyWeaponRangeFallback — 가로세로 비율이 낮으면(뭉툭함) 근접, distance는 null

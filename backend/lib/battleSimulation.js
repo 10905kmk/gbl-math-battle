@@ -1,4 +1,4 @@
-import { meleeHitboxRect, PROJECTILE_SPEED, PROJECTILE_RADIUS, RANGE_DISTANCE_MIN } from '../../shapes/attackGeometry.js';
+import { meleeHitboxRect, circleOverlapsRotatedRect, PROJECTILE_SPEED, PROJECTILE_RADIUS, RANGE_DISTANCE_MIN } from '../../shapes/attackGeometry.js';
 
 export const CHARACTER_RADIUS = 20;
 export const MOVE_SPEED = 4;
@@ -167,7 +167,7 @@ export function stepSimulation(room, now) {
         if (targetId === id) continue;
         const target = players[targetId];
         if (!target.connected) continue;
-        if (circleRectOverlap(target.x, target.y, CHARACTER_RADIUS, hitbox.x, hitbox.y, hitbox.width, hitbox.height)) {
+        if (circleOverlapsRotatedRect(target.x, target.y, CHARACTER_RADIUS, hitbox)) {
           players[targetId] = { ...target, score: Math.max(0, target.score - delta) };
           players[id] = { ...players[id], score: players[id].score + delta };
         }

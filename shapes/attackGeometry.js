@@ -19,18 +19,40 @@ function clamp(v, min, max) {
 }
 
 // 근접 공격 히트박스 — 캐릭터 중심에서 조준 방향으로 고정 거리만큼 떨어진 지점에 고정
-// 크기 정사각형을 둔다. 무기별로 이 오프셋/크기가 달라지지 않는다(근접은 항상 고정 — 데미지
-// 배율만 무기에 따라 달라진다, backend/lib/battleSimulation.js의 MELEE_DAMAGE_MULTIPLIER 참고).
+// 크기 정사각형을 조준 방향으로 회전시켜서 둔다(오리엔티드 박스). 무기별로 이 오프셋/크기가
+// 달라지지 않는다(근접은 항상 고정 — 데미지 배율만 무기에 따라 달라진다,
+// backend/lib/battleSimulation.js의 MELEE_DAMAGE_MULTIPLIER 참고). angle은 라디안이고,
+// battle.js의 무기 아이콘 회전(atan2(aimY,aimX))과 같은 좌표계라 미리보기가 캐릭터가 든
+// 무기 방향과 시각적으로도 맞아떨어진다.
 export function meleeHitboxRect(x, y, aimX, aimY, characterRadius) {
   const offset = characterRadius + ATTACK_HITBOX_SIZE / 2;
-  const centerX = x + aimX * offset;
-  const centerY = y + aimY * offset;
   return {
-    x: centerX - ATTACK_HITBOX_SIZE / 2,
-    y: centerY - ATTACK_HITBOX_SIZE / 2,
+    centerX: x + aimX * offset,
+    centerY: y + aimY * offset,
     width: ATTACK_HITBOX_SIZE,
     height: ATTACK_HITBOX_SIZE,
+    angle: Math.atan2(aimY, aimX),
   };
+}
+
+// 회전된 사각형(rect: {centerX, centerY, width, height, angle}) vs 원 충돌판정 — 원 중심을
+// 사각형 회전의 역방향으로 돌려 사각형이 축에 정렬된 것처럼 보이는 "로컬 좌표계"로 옮긴 뒤,
+// 기존 clamp 방식(circleRectOverlap과 같은 원리)으로 검사한다. 미리보기(battle.js)와 실제
+// 판정(battleSimulation.js)이 항상 같은 결과를 내도록 이 함수 하나만 양쪽에서 공유한다.
+export function circleOverlapsRotatedRect(cx, cy, r, rect) {
+  const dx = cx - rect.centerX;
+  const dy = cy - rect.centerY;
+  const cos = Math.cos(rect.angle);
+  const sin = Math.sin(rect.angle);
+  const localX = dx * cos + dy * sin;
+  const localY = -dx * sin + dy * cos;
+  const halfW = rect.width / 2;
+  const halfH = rect.height / 2;
+  const closestX = clamp(localX, -halfW, halfW);
+  const closestY = clamp(localY, -halfH, halfH);
+  const distX = localX - closestX;
+  const distY = localY - closestY;
+  return distX * distX + distY * distY < r * r;
 }
 
 // AI 평가가 실패했을 때(할당량 초과 등) 쓰는 결정론적 근접/원거리 분류. 무기 바운딩박스
