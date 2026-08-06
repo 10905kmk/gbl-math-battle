@@ -4,8 +4,8 @@ import {
   hitScoreFromWeaponDamage,
   MOVE_SPEED,
   CHARACTER_RADIUS,
-  ATTACK_HITBOX_SIZE,
 } from './battleSimulation.js';
+import { ATTACK_HITBOX_SIZE, PROJECTILE_SPEED, PROJECTILE_RADIUS } from '../../shapes/attackGeometry.js';
 
 function approxEqual(a, b, eps = 1e-6, msg = '') {
   assert.ok(Math.abs(a - b) < eps, `${msg} expected ${a} ≈ ${b}`);
@@ -16,11 +16,16 @@ function makePlayer(overrides) {
   return {
     id: 'p1', characterId: 'char1', x: 400, y: 300, aimX: 0, aimY: 1,
     score: 0, hitScore: 25, connected: true, lastAttackAt: 0, attackRequested: false,
+    isRanged: false, rangeDistance: null,
     input: { ...noInput }, ...overrides,
   };
 }
 function makeRoom(players, overrides) {
-  return { status: 'active', endsAt: 1_000_000, players, walls: [], arenaSize: { width: 800, height: 600 }, ...overrides };
+  return {
+    status: 'active', endsAt: 1_000_000, players, walls: [],
+    arenaSize: { width: 800, height: 600 }, projectiles: [],
+    ...overrides,
+  };
 }
 
 // hitScoreFromWeaponDamage — 데미지 1~10000 x 계수 0.05
@@ -295,6 +300,92 @@ console.log('hitScoreFromWeaponDamage clamps abnormally large weapon damage: OK'
   assert.strictEqual(next.players.p1.x, 100 - CHARACTER_RADIUS, '작은 커스텀 아레나의 경계(100-20=80)를 따라야 함');
   assert.strictEqual(next.players.p1.y, 100 - CHARACTER_RADIUS);
   console.log('room.arenaSize (not a hardcoded module constant) drives the boundary clamp: OK');
+}
+
+// 원거리 무기 공격: 즉시 판정 대신 투사체를 스폰한다 — 스폰 시점엔 점수 변화가 없다.
+{
+  const attacker = makePlayer({
+    id: 'p1', x: 400, y: 300, aimX: 1, aimY: 0, hitScore: 30,
+    isRanged: true, rangeDistance: 300, attackRequested: true,
+  });
+  const room = makeRoom({ p1: attacker });
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.players.p1.score, 0, '투사체 발사 시점엔 점수 변화 없음');
+  assert.strictEqual(next.projectiles.length, 1, '투사체가 하나 생성되어야 함');
+  assert.strictEqual(next.projectiles[0].ownerId, 'p1');
+  assert.strictEqual(next.projectiles[0].maxRange, 300);
+  assert.strictEqual(next.players.p1.lastAttackAt, 1000, '원거리도 쿨다운은 똑같이 적용됨');
+  console.log('ranged attack spawns a projectile instead of an instant hit: OK');
+}
+
+// 투사체는 매 틱 조준 방향으로 PROJECTILE_SPEED만큼 이동한다.
+{
+  const room = makeRoom(
+    { p1: makePlayer({ id: 'p1' }) },
+    { projectiles: [{ id: 'pr1', ownerId: 'p1', x: 100, y: 100, aimX: 1, aimY: 0, traveled: 0, hitScore: 30, maxRange: 300 }] },
+  );
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.projectiles.length, 1);
+  assert.strictEqual(next.projectiles[0].x, 100 + PROJECTILE_SPEED);
+  assert.strictEqual(next.projectiles[0].traveled, PROJECTILE_SPEED);
+  console.log('projectile advances by PROJECTILE_SPEED each tick: OK');
+}
+
+// 사거리를 다 쓰면(traveled >= maxRange) 아무 효과 없이 소멸한다.
+{
+  const room = makeRoom(
+    { p1: makePlayer({ id: 'p1' }), p2: makePlayer({ id: 'p2', x: 5000, y: 5000, score: 50 }) },
+    { projectiles: [{ id: 'pr1', ownerId: 'p1', x: 100, y: 100, aimX: 1, aimY: 0, traveled: 295, hitScore: 30, maxRange: 300 }] },
+  );
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.projectiles.length, 0, '사거리를 넘으면 투사체가 사라져야 함');
+  assert.strictEqual(next.players.p2.score, 50, '아무도 못 맞혔으니 점수 변화 없음');
+  console.log('projectile disappears without effect once it exceeds its max range: OK');
+}
+
+// 벽에 부딪히면 소멸한다. 벽 위치는 "출발 시점엔 안 닿고, 딱 한 틱 이동하면 닿는" 자리로
+// 잡았다 — 투사체는 한 틱에 PROJECTILE_SPEED(12)만큼만 가므로, 벽을 더 멀리 두면 이 테스트가
+// 벽 충돌이 아니라 그냥 "아직 안 닿음"을 확인하게 된다. 출발 (100,100), 1틱 후 (112,100),
+// 반지름 8 -> 벽 왼쪽 면(x=115)과 겹침. 출발 시점(x=100)에는 15px 떨어져 있어 안 겹친다.
+{
+  const wall = { x: 115, y: 80, width: 40, height: 40 };
+  const room = makeRoom(
+    { p1: makePlayer({ id: 'p1' }) },
+    { walls: [wall], projectiles: [{ id: 'pr1', ownerId: 'p1', x: 100, y: 100, aimX: 1, aimY: 0, traveled: 0, hitScore: 30, maxRange: 300 }] },
+  );
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.projectiles.length, 0, '벽과 충돌하면 투사체가 사라져야 함');
+  console.log('projectile disappears on wall collision: OK');
+}
+
+// 상대와 겹치면 점수를 반영하고 소멸한다(관통 없음).
+{
+  const room = makeRoom(
+    {
+      p1: makePlayer({ id: 'p1', x: 0, y: 0, score: 0 }),
+      p2: makePlayer({ id: 'p2', x: 100 + PROJECTILE_RADIUS + CHARACTER_RADIUS - 1, y: 100, score: 50 }),
+    },
+    { projectiles: [{ id: 'pr1', ownerId: 'p1', x: 100, y: 100, aimX: 0, aimY: 0, traveled: 0, hitScore: 30, maxRange: 300 }] },
+  );
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.projectiles.length, 0, '명중하면 투사체가 사라져야 함');
+  assert.strictEqual(next.players.p2.score, 20, '피격자는 hitScore만큼 점수 감소(50-30=20)');
+  assert.strictEqual(next.players.p1.score, 30, '발사자는 hitScore만큼 점수 획득');
+  console.log('projectile hits an overlapping player, transfers score, and is removed (no piercing): OK');
+}
+
+// 원거리 무기도 쿨다운 중엔 새 투사체를 안 만든다(기존 근접 쿨다운 로직과 동일).
+{
+  const attacker = makePlayer({
+    id: 'p1', x: 400, y: 300, aimX: 1, aimY: 0, hitScore: 30, lastAttackAt: 900,
+    isRanged: true, rangeDistance: 300, attackRequested: true,
+  });
+  const room = makeRoom({ p1: attacker });
+  // now=1000, lastAttackAt=900 -> 100ms 경과, ATTACK_COOLDOWN_MS=500이라 아직 쿨다운 중
+  const { room: next } = stepSimulation(room, 1000);
+  assert.strictEqual(next.projectiles.length, 0, '쿨다운 중이면 투사체가 생기지 않아야 함');
+  assert.strictEqual(next.players.p1.lastAttackAt, 900);
+  console.log('ranged attack respects the same cooldown as melee: OK');
 }
 
 console.log('battleSimulation.test.mjs: OK');

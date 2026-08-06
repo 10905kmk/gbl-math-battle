@@ -1,9 +1,14 @@
+import { meleeHitboxRect, PROJECTILE_SPEED, PROJECTILE_RADIUS, RANGE_DISTANCE_MIN } from '../../shapes/attackGeometry.js';
+
 export const CHARACTER_RADIUS = 20;
 export const MOVE_SPEED = 4;
 export const HIT_SCORE_COEFFICIENT = 0.05;
-export const ATTACK_HITBOX_SIZE = 30;
 export const ATTACK_COOLDOWN_MS = 500;
 export const BATTLE_DURATION_MS = 90000;
+// 근접 무기는 원거리보다 위험을 더 감수해야(가까이 붙어야) 하므로 데미지가 더 세다 —
+// hitScoreFromWeaponDamage의 결과에 이 배율을 곱해서 최종 hitScore를 만든다(적용 지점은
+// backend/socket/battle.js의 플레이어 초기화 — 이 파일은 이미 계산된 hitScore를 그대로 쓴다).
+export const MELEE_DAMAGE_MULTIPLIER = 1.3;
 // 조준 벡터가 이 길이보다 짧으면 "조준 입력 없음"으로 보고 이전 조준을 유지한다 — 모바일
 // 조준 스틱이 중앙 근처에 있거나 마우스가 캐릭터 위에 있을 때, 히트박스가 캐릭터 자기
 // 자신 위치로 무너지는 것을 방지한다.
@@ -84,20 +89,13 @@ function applyAim(player) {
   return { ...player, aimX: x / len, aimY: y / len };
 }
 
-// 공격 히트박스 — 캐릭터 중심에서 조준 방향으로 고정 거리만큼 떨어진 지점에 고정 크기
-// 정사각형을 둔다. 4방향 lookup 대신 연속 각도(aimX/aimY)로 위치만 계산하므로, 히트박스
-// 자체는 회전하지 않는 axis-aligned 사각형 그대로라 circleRectOverlap을 그대로 재사용한다.
-function attackHitboxRect(player) {
-  const offset = CHARACTER_RADIUS + ATTACK_HITBOX_SIZE / 2;
-  const aimX = player.aimX ?? 0;
-  const aimY = player.aimY ?? 1;
-  const centerX = player.x + aimX * offset;
-  const centerY = player.y + aimY * offset;
+// 투사체 하나를 한 틱만큼 이동시킨 다음 상태를 반환한다 — 순수 함수, room 자체를 안 건드림.
+function moveProjectile(proj) {
   return {
-    x: centerX - ATTACK_HITBOX_SIZE / 2,
-    y: centerY - ATTACK_HITBOX_SIZE / 2,
-    width: ATTACK_HITBOX_SIZE,
-    height: ATTACK_HITBOX_SIZE,
+    ...proj,
+    x: proj.x + proj.aimX * PROJECTILE_SPEED,
+    y: proj.y + proj.aimY * PROJECTILE_SPEED,
+    traveled: proj.traveled + PROJECTILE_SPEED,
   };
 }
 
@@ -110,6 +108,32 @@ export function stepSimulation(room, now) {
     players[id] = p.connected ? applyAim(moveOne(p, room.walls, room.arenaSize)) : { ...p };
   }
 
+  // 기존 투사체를 먼저 이동/판정한다 — 이번 틱에 새로 발사되는 투사체는 여기 안 끼고
+  // 다음 틱부터 이동을 시작한다(플레이어 이동과 같은 "한 틱에 한 번만 갱신" 원칙).
+  const projectiles = [];
+  for (const proj of room.projectiles ?? []) {
+    const next = moveProjectile(proj);
+    if (next.traveled >= next.maxRange) continue; // 사거리 소진 — 소멸, 효과 없음
+    if (circleOverlapsAnyWall(next.x, next.y, PROJECTILE_RADIUS, room.walls)) continue; // 벽 충돌 — 소멸
+
+    let hit = false;
+    for (const targetId of Object.keys(players)) {
+      if (targetId === next.ownerId) continue;
+      const target = players[targetId];
+      if (!target.connected) continue;
+      const dx = target.x - next.x;
+      const dy = target.y - next.y;
+      const hitRadius = PROJECTILE_RADIUS + CHARACTER_RADIUS;
+      if (dx * dx + dy * dy < hitRadius * hitRadius) {
+        players[targetId] = { ...target, score: Math.max(0, target.score - next.hitScore) };
+        players[next.ownerId] = { ...players[next.ownerId], score: players[next.ownerId].score + next.hitScore };
+        hit = true;
+        break; // 한 발에 한 명만 — 관통 없음
+      }
+    }
+    if (!hit) projectiles.push(next);
+  }
+
   // 공격 판정 — 참가자 순서(입장 순서)대로 한 명씩 처리, 쿨다운 통과 시 즉시 판정.
   // attackRequested는 "그 순간의 요청 1회"라, 처리 결과(성공/쿨다운 실패)와 무관하게 이
   // 틱에서 항상 소비(false로 리셋)한다 — 다음 틱까지 대기열에 남지 않는다.
@@ -120,15 +144,33 @@ export function stepSimulation(room, now) {
     if (!wantsAttack) continue;
     if (now - attacker.lastAttackAt < ATTACK_COOLDOWN_MS) continue;
 
-    const hitbox = attackHitboxRect(attacker);
-    const delta = attacker.hitScore;
-    for (const targetId of Object.keys(players)) {
-      if (targetId === id) continue;
-      const target = players[targetId];
-      if (!target.connected) continue;
-      if (circleRectOverlap(target.x, target.y, CHARACTER_RADIUS, hitbox.x, hitbox.y, hitbox.width, hitbox.height)) {
-        players[targetId] = { ...target, score: Math.max(0, target.score - delta) };
-        players[id] = { ...players[id], score: players[id].score + delta };
+    if (attacker.isRanged === true) {
+      // 원거리 무기는 즉시 판정하지 않고 투사체를 하나 스폰한다 — 이동/충돌은 다음 틱부터
+      // 위 "기존 투사체" 루프에서 처리된다. 사거리(maxRange)는 AI(또는 폴백)가 이 무기에
+      // 대해 정한 값을 그대로 쓰되, 값이 없거나 이상하면 최소 사거리로 방어한다.
+      const maxRange = Number.isFinite(attacker.rangeDistance) ? attacker.rangeDistance : RANGE_DISTANCE_MIN;
+      projectiles.push({
+        id: `${id}-${now}-${Math.random().toString(36).slice(2, 8)}`,
+        ownerId: id,
+        x: attacker.x,
+        y: attacker.y,
+        aimX: attacker.aimX ?? 0,
+        aimY: attacker.aimY ?? 1,
+        traveled: 0,
+        hitScore: attacker.hitScore,
+        maxRange,
+      });
+    } else {
+      const hitbox = meleeHitboxRect(attacker.x, attacker.y, attacker.aimX ?? 0, attacker.aimY ?? 1, CHARACTER_RADIUS);
+      const delta = attacker.hitScore;
+      for (const targetId of Object.keys(players)) {
+        if (targetId === id) continue;
+        const target = players[targetId];
+        if (!target.connected) continue;
+        if (circleRectOverlap(target.x, target.y, CHARACTER_RADIUS, hitbox.x, hitbox.y, hitbox.width, hitbox.height)) {
+          players[targetId] = { ...target, score: Math.max(0, target.score - delta) };
+          players[id] = { ...players[id], score: players[id].score + delta };
+        }
       }
     }
     players[id] = { ...players[id], lastAttackAt: now };
@@ -149,5 +191,5 @@ export function stepSimulation(room, now) {
     status = 'ended';
   }
 
-  return { room: { ...room, players, status }, winners };
+  return { room: { ...room, players, projectiles, status }, winners };
 }
