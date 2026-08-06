@@ -7,10 +7,10 @@
 
 .battle-arena {
   /* Konva가 컨테이너 안에 만드는 .konvajs-content div가 이미 정확한 픽셀 크기(인라인
-     스타일)를 갖고 있으므로, 여기서 800x600을 또 하드코딩하지 않고 그 크기에 맞춰
-     줄어들게(fit-content) 둔다 — 맵 이미지가 바뀌어 아레나 크기(DEFAULT_MAP.arenaSize)가
-     800x600이 아니게 돼도 어긋나지 않는다(Opus 리뷰 Important #1, 실측 확인됨: 예전처럼
-     고정값이면 더 큰 맵에서 캔버스가 이 박스 밖으로 넘침). */
+     스타일)를 갖고 있으므로, 여기서 크기를 또 하드코딩하지 않고 그 크기에 맞춰
+     줄어들게(fit-content) 둔다 — 캔버스 크기는 이제 battle.js의 VIEWPORT_SIZE(맵 전체
+     크기와 무관한 고정 뷰포트)가 정하므로, 그 값이 바뀌어도 여기가 어긋나지 않는다
+     (Opus 리뷰 Important #1, 실측 확인됨: 고정값이면 캔버스가 이 박스 밖으로 넘침). */
   width: fit-content;
   height: fit-content;
   background: #1a1a1a;
