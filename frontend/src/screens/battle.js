@@ -58,9 +58,11 @@ export function BattleScreen({ socket, state }) {
             stroke: isSelf ? '#ffffff' : undefined,
             strokeWidth: isSelf ? 3 : 0,
           });
-          // 탈락이 없는 점수제라 체력바 대신 현재 누적 점수를 숫자로 보여준다.
+          // 탈락이 없는 점수제라 체력바 대신 현재 누적 점수를 숫자로 보여준다. moveOne이
+          // 캐릭터를 y=CHARACTER_RADIUS까지 위로 붙게 허용하므로, 라벨을 그 위 18px에 그대로
+          // 두면 위쪽 벽 근처에서 stage 밖(y<0)으로 잘려나간다 — 0으로 clamp(Opus 리뷰 Important I2).
           const scoreLabel = new Konva.Text({
-            x: p.x - CHARACTER_RADIUS, y: p.y - CHARACTER_RADIUS - 18,
+            x: p.x - CHARACTER_RADIUS, y: Math.max(0, p.y - CHARACTER_RADIUS - 18),
             width: CHARACTER_RADIUS * 2,
             text: String(p.score ?? 0),
             fontSize: 12, fontStyle: 'bold', fill: '#fff', align: 'center',
@@ -81,17 +83,20 @@ export function BattleScreen({ socket, state }) {
           entry = { circle, scoreLabel, label, weaponGroup };
           nodesRef.current[p.id] = entry;
         }
+        // p.connected가 없는(구버전 상태 등 예상 밖) 프레임이 와도 전원이 흐려지지 않도록
+        // 명시적으로 false일 때만 흐리게 — p.score ?? 0과 같은 방어 원칙(Opus 리뷰 Minor M2).
+        const isConnected = p.connected !== false;
         entry.circle.x(p.x);
         entry.circle.y(p.y);
         // 탈락이 없으므로 이 흐림 처리는 "죽음"이 아니라 "연결 끊김"만 의미한다.
-        entry.circle.opacity(p.connected ? 1 : 0.2);
+        entry.circle.opacity(isConnected ? 1 : 0.2);
         entry.scoreLabel.x(p.x - CHARACTER_RADIUS);
-        entry.scoreLabel.y(p.y - CHARACTER_RADIUS - 18);
+        entry.scoreLabel.y(Math.max(0, p.y - CHARACTER_RADIUS - 18));
         entry.scoreLabel.text(String(p.score ?? 0));
-        entry.scoreLabel.opacity(p.connected ? 1 : 0.2);
+        entry.scoreLabel.opacity(isConnected ? 1 : 0.2);
         entry.label.x(p.x - CHARACTER_RADIUS);
         entry.label.y(p.y - 7);
-        entry.label.opacity(p.connected ? 1 : 0.2);
+        entry.label.opacity(isConnected ? 1 : 0.2);
         // 공격 히트박스(backend/lib/battleSimulation.js의 attackHitboxRect)와 같은
         // facing -> 오프셋 매핑 — 캐릭터가 바라보는 쪽에 무기를 든 것처럼 보이게 한다.
         // weaponGroup은 drawWeaponGroup 안에서 이미 자기 중심 기준으로 offset돼 있으므로,
@@ -107,7 +112,7 @@ export function BattleScreen({ socket, state }) {
         // dragBoundFunc(CanvasEditor.js)/moveOne(battleSimulation.js)과 같은 패턴.
         entry.weaponGroup.x(Math.min(ARENA_SIZE.width, Math.max(0, p.x + weaponOffset.x)));
         entry.weaponGroup.y(Math.min(ARENA_SIZE.height, Math.max(0, p.y + weaponOffset.y)));
-        entry.weaponGroup.opacity(p.connected ? 1 : 0.2);
+        entry.weaponGroup.opacity(isConnected ? 1 : 0.2);
       });
 
       layer.draw();

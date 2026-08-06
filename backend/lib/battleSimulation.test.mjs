@@ -24,13 +24,22 @@ assert.strictEqual(hitScoreFromWeaponDamage(10000), 500);
 assert.strictEqual(hitScoreFromWeaponDamage(5000), 250);
 console.log('hitScoreFromWeaponDamage: OK');
 
-// hitScoreFromWeaponDamage 방어: 숫자가 아니거나 0 이하면 최소치(1)로 취급 -> round(1*0.05)=0
-assert.strictEqual(hitScoreFromWeaponDamage('abc'), 0, '숫자로 못 바꾸는 문자열');
-assert.strictEqual(hitScoreFromWeaponDamage(undefined), 0, 'undefined');
-assert.strictEqual(hitScoreFromWeaponDamage(null), 0, 'null');
-assert.strictEqual(hitScoreFromWeaponDamage(NaN), 0, 'NaN 직접 입력');
-assert.strictEqual(hitScoreFromWeaponDamage(-500), 0, '음수도 최소치(1)로 취급');
+// hitScoreFromWeaponDamage 방어: 숫자가 아니거나 0 이하면 최소치(1)로 취급하고, 한 대라도
+// 맞히면 최소 1점은 보장한다(Opus 리뷰 Important I1 — round(1*0.05)=0이라 "최소치"가 실제로는
+// 0점이 되어, 정상적인 최소 데미지 무기로도 90초 내내 한 점도 못 얻는 문제가 있었음).
+assert.strictEqual(hitScoreFromWeaponDamage('abc'), 1, '숫자로 못 바꾸는 문자열');
+assert.strictEqual(hitScoreFromWeaponDamage(undefined), 1, 'undefined');
+assert.strictEqual(hitScoreFromWeaponDamage(null), 1, 'null');
+assert.strictEqual(hitScoreFromWeaponDamage(NaN), 1, 'NaN 직접 입력');
+assert.strictEqual(hitScoreFromWeaponDamage(-500), 1, '음수도 최소치(1)로 취급');
 console.log('hitScoreFromWeaponDamage guards non-numeric/non-positive input: OK');
+
+// hitScoreFromWeaponDamage 방어: 클라이언트가 보낸 weapon.damage는 서버 검증을 안 거치므로
+// 비정상적으로 큰 값(치트/버그)이 와도 AI 채점 상한(DAMAGE_MAX=10000, aiClient.js)을 넘겨
+// 그대로 점수에 반영되면 안 된다(Opus 리뷰 Critical C1 — 상한 없이 곱하면 한 방에 상대를
+// 0점으로 만들고, DB의 score integer 컬럼 범위도 넘길 수 있었음).
+assert.strictEqual(hitScoreFromWeaponDamage(1_000_000_000), 500, '10000을 넘는 값은 10000으로 clamp된 뒤 계수를 곱함');
+console.log('hitScoreFromWeaponDamage clamps abnormally large weapon damage: OK');
 
 // 이동: up 입력 시 y가 MOVE_SPEED만큼 감소
 {
@@ -166,6 +175,26 @@ console.log('hitScoreFromWeaponDamage guards non-numeric/non-positive input: OK'
   const { winners } = stepSimulation(room, 1000);
   assert.deepStrictEqual(winners.sort(), ['p1', 'p2']);
   console.log('win by timeout tie (multiple winners): OK');
+}
+
+// 참가자가 1명뿐이면 제한시간을 다 채울 이유가 없다 — 관리자가 아무도(또는 한 명만) 완료 안
+// 한 상태에서 강제로 battle 단계로 넘긴 경우 부스 화면이 90초간 정지해 있는 걸 막는다
+// (Opus 리뷰 Important I3).
+{
+  const room = makeRoom({ p1: makePlayer({ id: 'p1', score: 0 }) }, { endsAt: 1_000_000 });
+  const { winners, room: next } = stepSimulation(room, 1000);
+  assert.deepStrictEqual(winners, ['p1'], '참가자 1명뿐이면 제한시간과 무관하게 그 즉시 종료');
+  assert.strictEqual(next.status, 'ended');
+  console.log('battle with only 1 participant ends immediately regardless of time limit: OK');
+}
+
+// 참가자가 0명이어도(이론상 도달 가능한 경로) 크래시 없이 즉시 종료해야 한다.
+{
+  const room = makeRoom({}, { endsAt: 1_000_000 });
+  const { winners, room: next } = stepSimulation(room, 1000);
+  assert.deepStrictEqual(winners, [], '참가자가 0명이면 승자 없이 즉시 종료');
+  assert.strictEqual(next.status, 'ended');
+  console.log('battle with 0 participants ends immediately without crashing: OK');
 }
 
 console.log('battleSimulation.test.mjs: OK');

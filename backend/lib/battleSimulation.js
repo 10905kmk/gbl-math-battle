@@ -5,14 +5,20 @@ export const HIT_SCORE_COEFFICIENT = 0.05;
 export const ATTACK_HITBOX_SIZE = 30;
 export const ATTACK_COOLDOWN_MS = 500;
 export const BATTLE_DURATION_MS = 90000;
+// aiClient.js의 DAMAGE_MAX와 같은 상한 — weapon.damage는 소켓으로 들어오는 클라이언트 제공
+// 값이라 서버 검증을 거치지 않는다. 상한 없이 곱하면 비정상적으로 큰 값(치트/버그)이 그대로
+// 점수에 반영되어 한 방에 상대를 0점으로 만들거나, DB의 score integer 컬럼 범위를 넘길 수
+// 있다(Opus 리뷰 Critical C1).
+const WEAPON_DAMAGE_MAX = 10000;
 
-// weaponDamage는 소켓으로 들어오는 클라이언트 제공 값이라 숫자가 아니거나 0 이하일 수도 있다 —
-// 검증 없이 곱하면 NaN/음수 점수 변동으로 이어져 사고가 난다. 숫자가 아니거나 0 이하면
-// 최소치(1)로 취급한다.
+// weaponDamage는 숫자가 아니거나 0 이하일 수도 있다 — 검증 없이 곱하면 NaN/음수 점수 변동으로
+// 이어져 사고가 난다. 숫자가 아니거나 0 이하면 최소치(1)로 취급하고, 큰 값은 위 상한으로
+// clamp한다. 계산 결과가 0이 되면(약한 무기가 반올림으로 0점) 한 대 맞혔는데도 점수가 전혀
+// 안 오르는 게 되므로, 명중은 항상 최소 1점을 보장한다(Opus 리뷰 Important I1).
 export function hitScoreFromWeaponDamage(weaponDamage) {
   const value = Number(weaponDamage);
-  const safeValue = Number.isFinite(value) && value > 0 ? value : 1;
-  return Math.round(safeValue * HIT_SCORE_COEFFICIENT);
+  const safeValue = Number.isFinite(value) && value > 0 ? Math.min(value, WEAPON_DAMAGE_MAX) : 1;
+  return Math.max(1, Math.round(safeValue * HIT_SCORE_COEFFICIENT));
 }
 
 function clamp(v, min, max) {
@@ -108,11 +114,16 @@ export function stepSimulation(room, now) {
     players[id] = { ...players[id], lastAttackAt: now };
   }
 
-  // 탈락이 없으므로 승패는 오직 제한시간 종료 시점에만 갈린다 — 그 전까지는 winners가 항상 null.
+  // 탈락이 없으므로 승패는 원칙적으로 제한시간 종료 시점에만 갈린다 — 다만 참가자가 0~1명이면
+  // (관리자가 아무도/한 명만 완료 안 한 상태에서 강제로 battle 단계로 넘긴 경우) 제한시간을
+  // 다 채울 이유가 없으므로 그 즉시 종료한다(Opus 리뷰 Important I3).
+  const allPlayers = Object.values(players);
   let winners = null;
   let status = room.status;
-  if (now >= room.endsAt) {
-    const allPlayers = Object.values(players);
+  if (allPlayers.length <= 1) {
+    winners = allPlayers.map((p) => p.id);
+    status = 'ended';
+  } else if (now >= room.endsAt) {
     const maxScore = Math.max(...allPlayers.map((p) => p.score));
     winners = allPlayers.filter((p) => p.score === maxScore).map((p) => p.id);
     status = 'ended';

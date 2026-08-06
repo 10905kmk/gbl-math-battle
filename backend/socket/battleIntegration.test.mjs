@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { registerSessionHandlers } from './session.js';
-import { getBattleRoom, stopBattleRoom } from './battle.js';
+import { getBattleRoom, stopBattleRoom, startBattleRoom } from './battle.js';
 
 const handlers = {};
 const emitted = [];
@@ -152,6 +152,26 @@ console.log('battle room carries weaponParts from participant weapon: OK');
     '대전 도중 연결이 끊긴 p3를 포함해 대전 시작 시점 참가자 5명 전원에 대해 저장이 시도되어야 함',
   );
   console.log('disconnect during battle does not lose result storage: OK');
+}
+
+// 회귀 테스트: battle.js의 onEnd 콜백이 최종 점수 스냅샷을 정확히 전달하는지 직접 확인
+// (Opus 리뷰 Important I4 — 기존 통합 테스트는 저장 "시도 횟수"만 셌지, session.js로 넘어가는
+// scores 값 자체가 종료 시점 점수와 정확히 일치하는지는 검증하지 않았음).
+{
+  let onEndArgs = null;
+  startBattleRoom(io, [{ id: 'sc1', weapon: { damage: 1000 } }, { id: 'sc2', weapon: { damage: 2000 } }], {
+    onEnd: (winners, scores) => { onEndArgs = { winners, scores }; },
+  });
+  const scoreRoom = getBattleRoom();
+  scoreRoom.players.sc1.score = 42;
+  scoreRoom.players.sc2.score = 7;
+  scoreRoom.endsAt = Date.now() - 1;
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  assert.ok(onEndArgs, 'onEnd이 호출되어야 함');
+  assert.deepStrictEqual(onEndArgs.scores, { sc1: 42, sc2: 7 }, 'onEnd의 scores가 종료 시점 점수 스냅샷과 정확히 일치해야 함');
+  assert.deepStrictEqual(onEndArgs.winners, ['sc1'], 'sc1(42점)이 sc2(7점)보다 높으므로 단독 승자');
+  console.log('battle.js onEnd callback delivers accurate score snapshot: OK');
 }
 
 stopBattleRoom();
