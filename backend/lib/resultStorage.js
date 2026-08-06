@@ -8,7 +8,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FALLBACK_PATH = path.join(__dirname, '../data/results-fallback.jsonl');
 
 // 대전 종료 시 참가자별 결과를 저장한다. 저장 실패는 절대 호출자를 막지 않도록
-// Promise.allSettled로 감싼다 — 부스 운영 중엔 저장 실패보다 stage 전환이 막히는 쪽이 더 나쁘다.
+// 각 저장을 개별적으로 try/catch로 감싼다 — 부스 운영 중엔 저장 실패보다 stage 전환이
+// 막히는 쪽이 더 나쁘다.
+//
+// 참가자 수만큼(Promise.all로) 동시에 쏘지 않고 한 명씩 순서대로 await한다 — 처음엔
+// Promise.all로 동시에 쐈는데, 실제 부스 규모(최대 5~8명)에서는 지연이 무시할 만한
+// 수준(수백 ms)인 반면, 같은 Supabase 클라이언트 인스턴스로 여러 요청을 동시에 쏘면
+// 드물게 "JWT issued at future"(PGRST303) 오류가 한쪽에서만 나는 현상이 실제로
+// 관측됐다(같은 순간에 만든 요청 중 하나만 실패, 나머지는 성공) — 클라이언트 라이브러리
+// 내부의 인증 처리가 동시 요청에 완전히 안전하지 않을 가능성이 있어, 굳이 병렬화해서
+// 얻는 이득보다 이 리스크를 피하는 쪽을 택한다.
 //
 // winners는 배열이 아닌 값(undefined 등)이 들어와도 여기서 막아야 한다 — 이 함수는 호출자가
 // await 없이 fire-and-forget으로 호출하므로(session.js), map() 콜백 안에서 던지는 예외는
@@ -36,7 +45,17 @@ export async function saveParticipantResults(participants, winners, scores, save
     rank: ranks[p.id] ?? null,
   }));
 
-  const outcomes = await Promise.allSettled(payloads.map((payload) => saveFn(payload)));
+  // Promise.allSettled와 같은 모양({status, value|reason}[], payloads와 같은 순서)을
+  // 손수 만든다 — 호출자(session.js)가 인덱스로 참가자와 짝짓는 방식은 그대로 재사용.
+  const outcomes = [];
+  for (const payload of payloads) {
+    try {
+      const value = await saveFn(payload);
+      outcomes.push({ status: 'fulfilled', value });
+    } catch (reason) {
+      outcomes.push({ status: 'rejected', reason });
+    }
+  }
 
   const failedPayloads = [];
   outcomes.forEach((outcome, i) => {
