@@ -5,6 +5,10 @@ export const HIT_SCORE_COEFFICIENT = 0.05;
 export const ATTACK_HITBOX_SIZE = 30;
 export const ATTACK_COOLDOWN_MS = 500;
 export const BATTLE_DURATION_MS = 90000;
+// 조준 벡터가 이 길이보다 짧으면 "조준 입력 없음"으로 보고 이전 조준을 유지한다 — 모바일
+// 조준 스틱이 중앙 근처에 있거나 마우스가 캐릭터 위에 있을 때, 히트박스가 캐릭터 자기
+// 자신 위치로 무너지는 것을 방지한다.
+const AIM_DEADZONE = 0.01;
 // aiClient.js의 DAMAGE_MAX와 같은 상한 — weapon.damage는 소켓으로 들어오는 클라이언트 제공
 // 값이라 서버 검증을 거치지 않는다. 상한 없이 곱하면 비정상적으로 큰 값(치트/버그)이 그대로
 // 점수에 반영되어 한 방에 상대를 0점으로 만들거나, DB의 score integer 컬럼 범위를 넘길 수
@@ -37,26 +41,20 @@ function circleOverlapsAnyWall(cx, cy, r, walls) {
   return walls.some((w) => circleRectOverlap(cx, cy, r, w.x, w.y, w.width, w.height));
 }
 
-// 입력 방향 우선순위 고정: up > down > left > right. 여러 방향이 동시에 눌려도(대각선 입력 등)
-// 하나만 적용 — "마지막으로 누른 방향" 추적은 상태가 필요해 순수 함수 원칙과 안 맞아서 단순화.
+// 벡터 길이가 1을 넘으면 방향은 유지한 채 길이만 1로 줄인다 — 클라이언트가 정규화 안 된
+// 값(버그 또는 조작된 입력)을 보내도 서버가 항상 재검증한다(weaponDamage clamp와 같은 원칙).
+function normalizeIfLong(x, y) {
+  const len = Math.hypot(x, y);
+  if (len <= 1) return { x, y };
+  return { x: x / len, y: y / len };
+}
+
+// 이동 벡터(moveX/moveY, -1~1)로 이동한다 — 대각선 입력이 자동으로 가능해지고(둘 다 0이
+// 아닐 수 있으므로), 벽/경계 충돌 판정은 기존과 동일하다.
 function moveOne(player, walls) {
-  const { up, down, left, right } = player.input;
-  let dx = 0;
-  let dy = 0;
-  let facing = player.facing;
-  if (up) {
-    dy = -MOVE_SPEED;
-    facing = 'up';
-  } else if (down) {
-    dy = MOVE_SPEED;
-    facing = 'down';
-  } else if (left) {
-    dx = -MOVE_SPEED;
-    facing = 'left';
-  } else if (right) {
-    dx = MOVE_SPEED;
-    facing = 'right';
-  }
+  const move = normalizeIfLong(player.input.moveX ?? 0, player.input.moveY ?? 0);
+  const dx = move.x * MOVE_SPEED;
+  const dy = move.y * MOVE_SPEED;
 
   let x = clamp(player.x + dx, CHARACTER_RADIUS, ARENA_SIZE.width - CHARACTER_RADIUS);
   let y = clamp(player.y + dy, CHARACTER_RADIUS, ARENA_SIZE.height - CHARACTER_RADIUS);
@@ -64,20 +62,30 @@ function moveOne(player, walls) {
   if (circleOverlapsAnyWall(x, player.y, CHARACTER_RADIUS, walls)) x = player.x;
   if (circleOverlapsAnyWall(x, y, CHARACTER_RADIUS, walls)) y = player.y;
 
-  return { ...player, x, y, facing };
+  return { ...player, x, y };
 }
 
+// 조준(aimX/aimY)은 이동과 분리된 별개 입력이라 여기서 따로 갱신한다. 입력 벡터가
+// 데드존보다 짧으면(스틱이 중앙 근처, 마우스가 캐릭터 위인 등) 이전 조준을 그대로
+// 유지하고, 그렇지 않으면 정규화(단위벡터화)해서 저장한다.
+function applyAim(player) {
+  const x = player.input.aimX ?? 0;
+  const y = player.input.aimY ?? 0;
+  const len = Math.hypot(x, y);
+  if (len < AIM_DEADZONE) return player;
+  return { ...player, aimX: x / len, aimY: y / len };
+}
+
+// 공격 히트박스 — 캐릭터 중심에서 조준 방향으로 고정 거리만큼 떨어진 지점에 고정 크기
+// 정사각형을 둔다. 4방향 lookup 대신 연속 각도(aimX/aimY)로 위치만 계산하므로, 히트박스
+// 자체는 회전하지 않는 axis-aligned 사각형 그대로라 circleRectOverlap을 그대로 재사용한다.
 function attackHitboxRect(player) {
   const offset = CHARACTER_RADIUS + ATTACK_HITBOX_SIZE / 2;
-  const center = {
-    up: { x: player.x, y: player.y - offset },
-    down: { x: player.x, y: player.y + offset },
-    left: { x: player.x - offset, y: player.y },
-    right: { x: player.x + offset, y: player.y },
-  }[player.facing];
+  const centerX = player.x + player.aimX * offset;
+  const centerY = player.y + player.aimY * offset;
   return {
-    x: center.x - ATTACK_HITBOX_SIZE / 2,
-    y: center.y - ATTACK_HITBOX_SIZE / 2,
+    x: centerX - ATTACK_HITBOX_SIZE / 2,
+    y: centerY - ATTACK_HITBOX_SIZE / 2,
     width: ATTACK_HITBOX_SIZE,
     height: ATTACK_HITBOX_SIZE,
   };
@@ -89,15 +97,17 @@ export function stepSimulation(room, now) {
   const players = {};
   for (const id of Object.keys(room.players)) {
     const p = room.players[id];
-    players[id] = p.connected ? moveOne(p, room.walls) : { ...p };
+    players[id] = p.connected ? applyAim(moveOne(p, room.walls)) : { ...p };
   }
 
   // 공격 판정 — 참가자 순서(입장 순서)대로 한 명씩 처리, 쿨다운 통과 시 즉시 판정.
-  // 맞히면 공격자 점수는 오르고, 맞은 쪽 점수는 내려가되 0 밑으로는 안 내려간다(탈락 없음).
+  // attackRequested는 "그 순간의 요청 1회"라, 처리 결과(성공/쿨다운 실패)와 무관하게 이
+  // 틱에서 항상 소비(false로 리셋)한다 — 다음 틱까지 대기열에 남지 않는다.
   for (const id of Object.keys(players)) {
     const attacker = players[id];
-    if (!attacker.connected) continue;
-    if (!attacker.input.attack) continue;
+    const wantsAttack = attacker.connected && attacker.attackRequested;
+    players[id] = { ...attacker, attackRequested: false };
+    if (!wantsAttack) continue;
     if (now - attacker.lastAttackAt < ATTACK_COOLDOWN_MS) continue;
 
     const hitbox = attackHitboxRect(attacker);
