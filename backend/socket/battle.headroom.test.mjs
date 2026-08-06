@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { startBattleRoom, getBattleRoom, stopBattleRoom } from './battle.js';
-import { DEFAULT_MAP, SPAWN_POINTS } from '../lib/battleMap.js';
+import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 import { CHARACTER_RADIUS } from '../lib/battleSimulation.js';
 
 // 실제 예상 인원은 3~6명이지만, 스폰 지점/캐릭터는 8명까지 여유를 두기로 했다
@@ -19,7 +19,7 @@ const spawnKeys = new Set(players.map((p) => `${p.x},${p.y}`));
 assert.strictEqual(
   spawnKeys.size,
   8,
-  `8명의 스폰 좌표가 모두 달라야 함(SPAWN_POINTS가 최소 8개 필요), 실제 서로 다른 좌표 수 ${spawnKeys.size}`,
+  `8명의 스폰 좌표가 모두 달라야 함(DEFAULT_MAP.spawnPoints가 최소 8개 필요), 실제 서로 다른 좌표 수 ${spawnKeys.size}`,
 );
 
 const characterIds = new Set(players.map((p) => p.characterId));
@@ -29,7 +29,7 @@ assert.strictEqual(
   `8명의 캐릭터 id가 모두 달라야 함(CHARACTER_IDS가 최소 8개 필요), 실제 서로 다른 id 수 ${characterIds.size}`,
 );
 
-assert.ok(SPAWN_POINTS.length >= 8, 'SPAWN_POINTS는 최소 8개여야 함');
+assert.ok(DEFAULT_MAP.spawnPoints.length >= 8, 'DEFAULT_MAP.spawnPoints는 최소 8개여야 함');
 
 // 위의 두 검증(스폰 좌표/캐릭터 id가 8개 모두 다름)은 8개 항목이 서로 다른 리터럴이기만 하면
 // 항상 통과하는 동어반복이라, 새 스폰 지점이 벽 안에 파묻혀도 잡아내지 못한다(Opus 리뷰
@@ -37,7 +37,7 @@ assert.ok(SPAWN_POINTS.length >= 8, 'SPAWN_POINTS는 최소 8개여야 함');
 // 방지"하려고 만든 파일이므로, 실제로 벽/아레나 경계와 겹치지 않는지 캐릭터 반경 기준으로
 // 직접 확인한다.
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-for (const spawn of SPAWN_POINTS) {
+for (const spawn of DEFAULT_MAP.spawnPoints) {
   for (const wall of DEFAULT_MAP.walls) {
     const closestX = clamp(spawn.x, wall.x, wall.x + wall.width);
     const closestY = clamp(spawn.y, wall.y, wall.y + wall.height);

@@ -1,5 +1,5 @@
 import { stepSimulation, hitScoreFromWeaponDamage, BATTLE_DURATION_MS } from '../lib/battleSimulation.js';
-import { DEFAULT_MAP, SPAWN_POINTS } from '../lib/battleMap.js';
+import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 
 const CHARACTER_IDS = ['char1', 'char2', 'char3', 'char4', 'char5', 'char6', 'char7', 'char8'];
 const TICK_MS = 50;
@@ -28,7 +28,7 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
 
   const players = {};
   participants.forEach((participant, i) => {
-    const spawn = SPAWN_POINTS[i % SPAWN_POINTS.length];
+    const spawn = DEFAULT_MAP.spawnPoints[i % DEFAULT_MAP.spawnPoints.length];
     players[participant.id] = {
       id: participant.id,
       characterId: CHARACTER_IDS[i % CHARACTER_IDS.length],
