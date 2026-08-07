@@ -28,3 +28,38 @@ body {
   flex: 1;
   padding: 1.5rem;
 }
+
+.participant-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1.5rem;
+}
+
+.participant-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.participant-name {
+  flex: 1;
+}
+
+.error-log {
+  margin-top: 1.5rem;
+}
+
+.error-log ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.error-log li {
+  padding: 0.25rem 0;
+  color: #b00020;
+}
