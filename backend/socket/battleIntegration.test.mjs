@@ -244,5 +244,83 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   console.log('startBattleRoom defends against malformed attackRange/attackRangeDistance: OK');
 }
 
+// 회귀 테스트(2026-08-07 Opus 리뷰): 관리자가 라운드 타이머 만료를 기다리지 않고 수동으로
+// battle 단계를 벗어나도(admin:nextStage) 결과 저장/battle:result가 스킵되면 안 된다 —
+// stopBattleRoom()만 부르면 tick interval만 죽고 onEnd가 전혀 안 불려서 참가자 전원이
+// "결과 집계 중..."에 영구히 멈추는 버그였다.
+{
+  handlers.p1['admin:reset']();
+  handlers.p1['admin:startSession'](); // -> name
+  handlers.p1['admin:nextStage'](); // -> learn
+  handlers.p1['admin:nextStage'](); // -> create
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
+  }
+  handlers.p1['admin:nextStage'](); // -> battle
+  assert.ok(getBattleRoom(), '수동 전환 테스트용 battle room이 있어야 함');
+
+  for (const key of Object.keys(resultsSentTo)) delete resultsSentTo[key];
+  const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args.join(' ')); };
+
+  // 타이머 만료 전에(endsAt이 아직 미래) 관리자가 수동으로 다음 단계를 눌러 battle을 벗어남.
+  handlers.p1['admin:nextStage'](); // battle -> result (수동, 라운드 도중)
+
+  // saveParticipantResults는 참가자별로 순차 await한다(동시 요청 시 JWT 오류 회피 —
+  // resultStorage.js 참고) — admin:nextStage()가 동기로 반환된 직후엔 아직 첫 참가자
+  // 저장만 끝났을 수 있으므로, 나머지가 마저 완료될 시간을 준다.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+
+  console.warn = origWarn;
+
+  assert.strictEqual(getBattleRoom(), null, '수동 전환으로도 battleRoom은 정리되어야 함');
+  for (let i = 1; i <= 5; i += 1) {
+    assert.ok(
+      resultsSentTo[`p${i}`]?.some(([ev]) => ev === 'battle:result'),
+      `p${i}는 수동 전환으로 대전이 끝나도 battle:result를 받아야 함`,
+    );
+  }
+  assert.strictEqual(
+    warnings.filter((w) => w.includes('mock 저장')).length,
+    5,
+    '수동 전환으로 대전이 끝나도 참가자 5명 전원에 대해 결과 저장이 시도되어야 함',
+  );
+  console.log('admin manually advancing past an active battle still saves results and emits battle:result: OK');
+}
+
+// 대비: admin:reset은 여전히 "그냥 폐기"다 — 라운드 도중 강제 리셋은 결과를 저장하지 않는다
+// (신뢰할 수 없는 중간 상태를 그대로 남기고 싶지 않다는 의도적 선택 — 수동 단계 전환과는
+// 의미가 다르다).
+{
+  handlers.p1['admin:reset']();
+  handlers.p1['admin:startSession'](); // -> name
+  handlers.p1['admin:nextStage'](); // -> learn
+  handlers.p1['admin:nextStage'](); // -> create
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
+  }
+  handlers.p1['admin:nextStage'](); // -> battle
+  assert.ok(getBattleRoom(), '리셋 테스트용 battle room이 있어야 함');
+
+  for (const key of Object.keys(resultsSentTo)) delete resultsSentTo[key];
+  const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args.join(' ')); };
+
+  handlers.p1['admin:reset'](); // 라운드 도중 강제 리셋
+
+  console.warn = origWarn;
+
+  assert.strictEqual(getBattleRoom(), null, 'admin:reset도 battleRoom은 정리해야 함');
+  assert.deepStrictEqual(resultsSentTo, {}, 'admin:reset은 battle:result를 보내지 않아야 함(그냥 폐기)');
+  assert.strictEqual(
+    warnings.filter((w) => w.includes('mock 저장')).length,
+    0,
+    'admin:reset은 결과 저장을 시도하지 않아야 함',
+  );
+  console.log('admin:reset still discards an in-progress battle without saving results: OK');
+}
+
 stopBattleRoom();
 console.log('battleIntegration.test.mjs: OK');

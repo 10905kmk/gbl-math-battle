@@ -7,6 +7,11 @@ const TICK_MS = 50;
 
 let battleRoom = null;
 let tickInterval = null;
+// finishBattleRoomNow()가 자연 종료 경로와 똑같이 battle:result/onEnd를 호출하려면
+// startBattleRoom에 전달됐던 io/onEnd를 나중에도 참조할 수 있어야 한다 — battleRoom/
+// tickInterval과 같은 이유로 모듈 스코프에 들고 있는다.
+let ioRef = null;
+let onEndRef = null;
 
 export function getBattleRoom() {
   return battleRoom;
@@ -14,18 +19,62 @@ export function getBattleRoom() {
 
 // 진행 중인 대전이 있으면 정지시키고 상태를 완전히 비운다 — 멈추기만 하고 battleRoom을 그대로
 // 두면, 이미 끊긴 상태인데도 getBattleRoom()이 "진행 중"으로 보이거나 오래된 소켓의
-// battle:input이 계속 그 데이터를 건드릴 수 있다.
+// battle:input이 계속 그 데이터를 건드릴 수 있다. 결과를 저장하지 않는 "그냥 중단"이다 —
+// admin:reset처럼 라운드 자체를 폐기하고 싶을 때 쓴다. 결과를 남기면서 끝내려면
+// finishBattleRoomNow()를 쓸 것.
 export function stopBattleRoom() {
   if (tickInterval) {
     clearInterval(tickInterval);
     tickInterval = null;
   }
   battleRoom = null;
+  ioRef = null;
+  onEndRef = null;
+}
+
+// 자연 종료(타이머 만료/전원 조작 불가)든, 관리자가 결과를 기다리지 않고 수동으로 battle
+// 단계를 벗어나서 조기 종료시키는 경우든 "라운드를 정상적으로 마무리하는" 로직은 여기
+// 하나로 통일한다 — stopBattleRoom()만 부르면 tick interval만 죽고 결과 저장/
+// battle:result/onEnd가 전부 스킵된다(2026-08-07 Opus 리뷰: 관리자가 대전 중 수동으로
+// 다음 단계를 누르면 참가자 전원이 QR도 결과도 못 받고 "결과 집계 중..."에 멈추는 버그).
+function concludeRound(winners) {
+  if (!battleRoom) return;
+  const endedRoom = battleRoom;
+  const scores = {};
+  for (const id of Object.keys(endedRoom.players)) {
+    scores[id] = endedRoom.players[id].score;
+  }
+  const ranks = computeRanks(scores);
+  const total = Object.keys(endedRoom.players).length;
+  const io = ioRef;
+  const onEnd = onEndRef;
+  stopBattleRoom();
+  if (io) {
+    for (const id of Object.keys(endedRoom.players)) {
+      io.to(id).emit('battle:result', { win: winners.includes(id), score: scores[id], rank: ranks[id], total });
+    }
+  }
+  if (onEnd) onEnd(winners, scores);
+}
+
+// 진행 중인 라운드가 있으면 "지금 시점 점수"로 즉시 정상 종료 처리한다(순위 계산,
+// battle:result 전송, onEnd 콜백까지) — session.js의 goToStage가 관리자의 수동 단계
+// 전환으로 battle을 벗어날 때 호출한다. 이미 라운드가 자연 종료돼 battleRoom이 없으면
+// (흔한 정상 경로 — 결과 화면으로 이미 넘어간 뒤 관리자가 다음 단계를 또 누르는 경우)
+// 조용히 아무 일도 하지 않는다.
+export function finishBattleRoomNow() {
+  if (!battleRoom) return;
+  const allPlayers = Object.values(battleRoom.players);
+  const maxScore = Math.max(...allPlayers.map((p) => p.score));
+  const winners = allPlayers.filter((p) => p.score === maxScore).map((p) => p.id);
+  concludeRound(winners);
 }
 
 // participants: [{ id, weapon: { damage, ... } }, ...] — session.js의 cohort.participants
 export function startBattleRoom(io, participants, { onEnd } = {}) {
   stopBattleRoom();
+  ioRef = io;
+  onEndRef = onEnd ?? null;
 
   const players = {};
   participants.forEach((participant, i) => {
@@ -76,20 +125,7 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
     io.emit('battle:state', battleRoom);
 
     if (winners !== null) {
-      // stopBattleRoom()이 battleRoom을 null로 비우기 전에, 결과를 보낼 대상 목록과 최종
-      // 점수 스냅샷을 먼저 뽑아둔다 — session.js가 결과 저장에 점수를 함께 쓴다.
-      const endedRoom = battleRoom;
-      const scores = {};
-      for (const id of Object.keys(endedRoom.players)) {
-        scores[id] = endedRoom.players[id].score;
-      }
-      const ranks = computeRanks(scores);
-      const total = Object.keys(endedRoom.players).length;
-      stopBattleRoom();
-      for (const id of Object.keys(endedRoom.players)) {
-        io.to(id).emit('battle:result', { win: winners.includes(id), score: scores[id], rank: ranks[id], total });
-      }
-      if (onEnd) onEnd(winners, scores);
+      concludeRound(winners);
     }
   }, TICK_MS);
 }

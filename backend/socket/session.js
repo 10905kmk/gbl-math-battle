@@ -1,4 +1,4 @@
-import { startBattleRoom, stopBattleRoom } from './battle.js';
+import { startBattleRoom, stopBattleRoom, finishBattleRoomNow } from './battle.js';
 import { saveParticipantResults } from '../lib/resultStorage.js';
 import { fallbackDamage, fallbackAttackRange } from '../routes/weaponEvaluate.js';
 import { logError, getErrorLog } from '../lib/errorLog.js';
@@ -61,10 +61,15 @@ function goToStage(io, nextStage) {
       },
     });
   } else {
-    // battle이 아닌 다른 단계로 넘어가면(관리자가 수동으로 건너뛴 경우 포함) 진행 중이던
-    // 대전은 더 이상 의미가 없으니 같이 정지 — 안 그러면 admin:reset 없이도 뒷단계까지
-    // battle:state가 계속 broadcast되고, 나중에 끝났을 때 엉뚱한 단계에서 result로 끌려간다.
-    stopBattleRoom();
+    // battle이 아닌 다른 단계로 넘어가면 진행 중이던 대전은 더 이상 의미가 없으니 같이
+    // 정리해야 한다. stopBattleRoom()으로 그냥 중단시키면 tick interval만 죽고
+    // 결과 저장/battle:result/result:saved 경로 전체가 스킵된다 — create/battle 전환이
+    // 이제 관리자 수동이라(자동 전환 없음), "관리자가 타이머 만료를 기다리지 않고 다음
+    // 단계를 누른다"가 실제로 흔히 일어날 수 있는 정상 경로가 됐다(2026-08-07 Opus
+    // 리뷰). 그래서 finishBattleRoomNow()로 지금 시점 점수를 그대로 정상 종료 처리한다 —
+    // 라운드가 이미 자연 종료돼 battleRoom이 없으면 조용히 아무 일도 안 하므로 항상
+    // 안전하게 호출할 수 있다.
+    finishBattleRoomNow();
   }
 }
 
