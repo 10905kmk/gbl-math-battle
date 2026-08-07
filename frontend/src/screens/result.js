@@ -16,7 +16,7 @@ export function ResultScreen({ state, resultId }) {
   return html`
     <div class="result-card">
       <h2>${weapon?.name ?? '무기'}</h2>
-      <img src=${weapon?.image} alt=${weapon?.name} />
+      ${weapon?.image && html`<img src=${weapon.image} alt=${weapon?.name} />`}
       <p>전투력 ${weapon?.damage ?? '-'}</p>
       <p class="result-rank">${rankLabel}</p>
       ${battleResult?.score != null && html`<p class="result-score">획득 점수 ${battleResult.score}</p>`}

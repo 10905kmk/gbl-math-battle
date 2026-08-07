@@ -14,6 +14,7 @@ import { ThanksScreen } from './screens/thanks.js';
 const html = htm.bind(h);
 
 const SCREENS = {
+  name: NameScreen,
   learn: LearnScreen,
   create: CreateScreen,
   battle: BattleScreen,
@@ -22,16 +23,14 @@ const SCREENS = {
 };
 
 function App() {
-  const [stage, setStage] = useState('learn');
+  const [stage, setStage] = useState('name');
   const [socket] = useState(() => io());
-  // null이면 아직 이름을 안 넣은 상태 — 단계(stage)와 무관하게 이름 입력 화면을 먼저 보여준다.
-  const [name, setName] = useState(null);
-  // socket.io는 재연결 시 새 socket.id를 발급한다 — 서버가 이름을 socket.id 기준으로 들고
-  // 있어서(backend/socket/session.js의 participantNames), 재연결 후 참가자:name을 다시 안
-  // 보내면 와이파이가 잠깐 끊겼다 붙는 것만으로 이름이 영구히 사라진다(Opus 리뷰 Important
-  // I1, 실제로 재현됨). ref로 들고 있다가 매 join()마다 같이 보낸다 — join 이펙트의
-  // [socket] 의존성 배열은 그대로 둬서(이름과 무관하게 유지) 인원수 집계 타이밍에 영향을
-  // 주지 않는다.
+  // socket.io는 재연결 시 새 socket.id를 발급한다 — 서버가 이름을 참가자 엔트리에
+  // socket.id 기준으로 들고 있어서(backend/socket/session.js), 재연결 후
+  // participant:name을 다시 안 보내면 와이파이가 잠깐 끊겼다 붙는 것만으로 이름이
+  // 사라진다. 예전엔 이 값으로 "이름 입력 화면을 아예 건너뛸지"도 결정했지만, 이제
+  // 이름 입력은 서버 stage('name')가 결정하므로 nameRef는 순수하게 재접속 시
+  // 재전송하는 용도로만 쓰인다.
   const nameRef = useRef(null);
   // 결과 저장(Supabase) 완료 후 서버가 알려주는 저장된 행의 id — result-page QR/링크에 쓴다.
   // battle.js가 아니라 여기서 듣는 이유: 저장은 비동기라 stage가 이미 result로 넘어가
@@ -82,16 +81,15 @@ function App() {
     return () => socket.off('connect', join);
   }, [socket]);
 
-  if (name === null) {
-    return html`<${NameScreen} onSubmit=${(n) => {
-      nameRef.current = n;
-      socket.emit('participant:name', n);
-      setName(n);
-    }} />`;
-  }
-
   const Screen = SCREENS[stage] ?? LearnScreen;
-  return html`<${Screen} socket=${socket} state=${state} resultId=${resultId} />`;
+  return html`<${Screen}
+    socket=${socket}
+    state=${state}
+    resultId=${resultId}
+    onNameSubmit=${(n) => {
+      nameRef.current = n;
+    }}
+  />`;
 }
 
 render(html`<${App} />`, document.getElementById('app'));
