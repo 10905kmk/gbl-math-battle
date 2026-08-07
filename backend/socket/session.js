@@ -1,5 +1,7 @@
 import { startBattleRoom, stopBattleRoom } from './battle.js';
 import { saveParticipantResults } from '../lib/resultStorage.js';
+import { fallbackDamage, fallbackAttackRange } from '../routes/weaponEvaluate.js';
+import { logError, getErrorLog } from '../lib/errorLog.js';
 
 // 세션(코호트) 상태 — 부스 참가자들이 공유하는 stage, slideIndex, 참가자 진행도.
 // 목표 인원(expectedParticipants)은 고정값이 아니라 admin:startSession 시점에 그때까지
@@ -7,22 +9,21 @@ import { saveParticipantResults } from '../lib/resultStorage.js';
 const cohort = {
   stage: 'idle',
   slideIndex: 0,
-  participants: [], // { id, name, done }
+  // { id, name, createDone, weapon } — participant:join 시점에 엔트리가 생기고
+  // disconnect로만 제거된다. admin:reset/admin:startSession은 엔트리 자체는 남기고
+  // 이번 라운드 관련 필드(name/createDone/weapon)만 초기화한다 — 기기를 새로고침 없이
+  // 계속 켜두는 운영 방식이라(2026-08-07 설계 문서), "몇 명이 접속해 있는지"와 "이번
+  // 라운드에서 뭘 했는지"를 분리해야 한다. 예전엔 joined(Set) + participantNames(Map) +
+  // cohort.participants(create 완료자만) 세 구조로 흩어져 있었는데, 관리자 대시보드가
+  // "지금 접속한 모두"를 실시간으로 봐야 해서 하나로 합쳤다.
+  participants: [],
   expectedParticipants: 0,
 };
 
-// 현재 접속 중인 "참가자" 소켓 id 집합. 관리자 화면/공용화면도 같은 서버에 소켓으로
-// 접속하므로, 접속 자체만으로는 참가자인지 구분할 수 없다 — 참가자 화면(frontend/src/app.js)이
-// 접속 시 보내는 participant:join 신호로만 구분한다.
-const joined = new Set();
-
-// participant:name으로 받은 이름을 socket.id 기준으로 잠깐 보관해둔다 — 이름이 무기 완성
-// (create:done)보다 먼저 도착하므로, 그때까지 cohort.participants 엔트리가 아직 없어도
-// 저장해둘 곳이 필요하다. create:done 시점에 이 값을 참가자 엔트리에 합쳐 넣는다.
-const participantNames = new Map();
-
 // 관리자가 수동으로 단계를 앞뒤로 넘길 때의 순서. idle은 startSession/reset으로만 드나든다.
-const STAGE_ORDER = ['learn', 'create', 'battle', 'result', 'thanks'];
+// 'name'이 맨 앞에 추가됨(2026-08-07) — 기기를 새로고침 없이 계속 켜두므로 라운드마다
+// 이름을 다시 물어봐야 해서, 전역 화면 게이트가 아니라 실제 stage로 승격시켰다.
+const STAGE_ORDER = ['name', 'learn', 'create', 'battle', 'result', 'thanks'];
 
 function goToStage(io, nextStage) {
   cohort.stage = nextStage;
@@ -54,7 +55,7 @@ function goToStage(io, nextStage) {
             });
           })
           .catch((err) => {
-            console.error('[session] 결과 저장 중 예외:', err);
+            logError('session', err);
           });
         if (cohort.stage === 'battle') goToStage(io, 'result');
       },
@@ -68,49 +69,95 @@ function goToStage(io, nextStage) {
 }
 
 function doneCount() {
-  return cohort.participants.filter((p) => p.done).length;
+  return cohort.participants.filter((p) => p.createDone).length;
 }
 
 function broadcastProgress(io) {
   io.emit('create:progress', { done: doneCount(), total: cohort.expectedParticipants });
 }
 
+function broadcastParticipants(io) {
+  io.emit('admin:participants', cohort.participants);
+}
+
+// admin:reset과 admin:startSession 둘 다 이걸 부른다 — 참가자 엔트리(연결 식별자) 자체는
+// 남기고 "이번 라운드" 관련 필드만 지운다. 안 그러면 admin:reset을 거치지 않고 바로
+// 다음 admin:startSession을 눌러도(실제 운영에서 흔함) 이전 라운드의 이름/완료 상태가
+// 새 라운드로 그대로 넘어온다.
+function resetRoundFields() {
+  cohort.participants.forEach((p) => {
+    p.name = null;
+    p.createDone = false;
+    p.weapon = null;
+  });
+}
+
+function findOrCreateParticipant(id) {
+  let entry = cohort.participants.find((p) => p.id === id);
+  if (!entry) {
+    entry = { id, name: null, createDone: false, weapon: null };
+    cohort.participants.push(entry);
+  }
+  return entry;
+}
+
+// admin:forceFinish가 부여하는 "기본 무기" — AI 평가 자체를 시도하지 않은 참가자용이므로
+// weaponEvaluate.js가 AI 평가 "실패" 시 쓰는 결정론적 폴백을 그대로 재사용한다(빈
+// parts에 대한 값은 항상 DAMAGE_MIN/melee로 고정) — 새 상수를 따로 만들지 않아 두 값이
+// 나중에 어긋날 걱정이 없다.
+function defaultWeapon() {
+  const { attackRange, attackRangeDistance } = fallbackAttackRange({ parts: [] });
+  return {
+    name: '기본 무기',
+    image: null,
+    damage: fallbackDamage({ parts: [] }),
+    attackRange,
+    attackRangeDistance,
+    parts: [],
+  };
+}
+
 export function registerSessionHandlers(io, socket) {
-  // 새로 연결된 소켓(새로고침한 참가자, 나중에 여는 공용화면 등)에게 현재 상태를 바로 알려준다.
-  // 이게 없으면 stage:change/learn:slide는 "그 이후 변경분"만 받기 때문에 계속 idle로 보임.
+  // 새로 연결된 소켓(새로고침한 참가자, 나중에 여는 관리자/공용화면 등)에게 현재 상태를
+  // 바로 알려준다. 이게 없으면 stage:change/learn:slide 등은 "그 이후 변경분"만 받기
+  // 때문에 계속 idle/빈 값으로 보인다.
   socket.emit('stage:change', cohort.stage);
   socket.emit('learn:slide', cohort.slideIndex);
   socket.emit('create:progress', { done: doneCount(), total: cohort.expectedParticipants });
+  socket.emit('admin:participants', cohort.participants);
+  socket.emit('admin:errorLog', getErrorLog());
 
-  // 참가자 화면만 보내는 신호 — 관리자/공용화면은 이 이벤트를 보내지 않으므로 joined에 안 잡힌다.
+  // 참가자 화면만 보내는 신호 — 관리자/공용화면은 이 이벤트를 보내지 않으므로
+  // cohort.participants에 안 잡힌다.
   socket.on('participant:join', () => {
-    joined.add(socket.id);
+    findOrCreateParticipant(socket.id);
+    broadcastParticipants(io);
   });
 
-  // 참가자 이름 — 인원수 집계(participant:join)와 완전히 분리된 별도 신호다. 이름 입력에
-  // 시간이 걸려도 인원수 집계 타이밍에 영향을 주면 안 되므로 절대 합치지 않는다. 클라이언트가
+  // 참가자 이름 — 인원수 집계(participant:join)와 완전히 분리된 별도 신호다. 클라이언트가
   // 보낸 값을 그대로 믿지 않고 문자열인지 확인한 뒤 trim + 20자로 제한한다.
   socket.on('participant:name', (name) => {
     const safeName = typeof name === 'string' ? name.trim().slice(0, 20) : '';
-    participantNames.set(socket.id, safeName);
-    // create:done이 이미 지나간 뒤에(재연결 등으로) 이름이 뒤늦게/다시 도착하면, 이미 만들어진
-    // cohort.participants 엔트리에도 즉시 반영한다 — 안 그러면 다음 create:done(무기 재평가 등)
-    // 전까지 공용화면 리더보드가 옛 이름/"이름 없음" 상태로 남는다(Opus 리뷰 Minor M3).
-    const existing = cohort.participants.find((p) => p.id === socket.id);
-    if (existing) existing.name = safeName || null;
+    // participant:join과 별개 신호라 도착 순서를 100% 보장할 수 없다 — 엔트리가 아직
+    // 없으면(이론상으론 join이 먼저 오지만) findOrCreateParticipant로 만들어서 이름을
+    // 잃어버리지 않는다.
+    const entry = findOrCreateParticipant(socket.id);
+    entry.name = safeName || null;
+    broadcastParticipants(io);
   });
 
   socket.on('admin:startSession', () => {
-    // 이 시점까지 접속해 있던 참가자 수를 이번 세션의 목표 인원으로 고정한다. 하드코딩된
-    // 상수(예전엔 5) 대신, 실제 부스 회차마다 다를 수 있는 인원에 맞춘다.
-    cohort.expectedParticipants = joined.size;
-    // 이 스냅샷은 관리자가 되돌릴 수 없는 단발성 결정이라(운영 중 눈으로 확인할 방법이 없으면
-    // 과소/과다 집계를 그 자리에서 알아챌 수 없다 — Opus 리뷰 Important I1) 서버 로그로
-    // 남기고, 이미 접속해 있던 참가자 화면들에도 즉시 정확한 total을 알려준다(Minor M1 —
-    // 안 그러면 첫 create:done이 올 때까지 옛 total이 그대로 보인다).
+    // 이 시점까지 접속해 있던(=cohort.participants에 엔트리가 있는) 참가자 수를 이번
+    // 세션의 목표 인원으로 고정한다.
+    cohort.expectedParticipants = cohort.participants.length;
+    // 새 라운드가 시작되므로 이전 라운드의 이름/제작 완료 상태를 지운다(resetRoundFields
+    // 주석 참고) — admin:reset을 거치지 않고 바로 다음 세션을 시작하는 경우에도 항상
+    // 여기서 초기화되어야 한다.
+    resetRoundFields();
     console.log(`[session] 세션 시작 — 목표 인원 ${cohort.expectedParticipants}명으로 고정`);
-    goToStage(io, 'learn');
+    goToStage(io, 'name');
     broadcastProgress(io);
+    broadcastParticipants(io);
   });
 
   socket.on('admin:nextSlide', () => {
@@ -139,49 +186,44 @@ export function registerSessionHandlers(io, socket) {
     stopBattleRoom();
     cohort.stage = 'idle';
     cohort.slideIndex = 0;
-    cohort.participants = [];
+    resetRoundFields();
     cohort.expectedParticipants = 0;
     io.emit('stage:change', cohort.stage);
     broadcastProgress(io);
+    broadcastParticipants(io);
   });
 
   socket.on('create:done', (weapon) => {
-    // 빈 문자열(이름을 안 넣었거나 participant:name을 아예 안 보낸 경우 모두)은 null로
-    // 통일한다 — 화면 쪽에서 "이름 없음"을 한 가지 값으로만 처리하면 되게.
-    const name = participantNames.get(socket.id) || null;
-    const existing = cohort.participants.find((p) => p.id === socket.id);
-    if (existing) {
-      existing.done = true;
-      existing.weapon = weapon;
-      existing.name = name;
-    } else {
-      cohort.participants.push({ id: socket.id, done: true, weapon, name });
-    }
+    const entry = findOrCreateParticipant(socket.id);
+    entry.createDone = true;
+    entry.weapon = weapon;
     broadcastProgress(io);
-    // 관리자가 이미 create 단계를 벗어난 뒤에(강제로 다음 단계로 넘긴 경우 등) 뒤늦게 도착한
-    // create:done은 무시한다 — 안 그러면 느린 참가자가 뒤늦게 "AI 평가받기"를 눌렀을 때 이미
-    // battle/result까지 진행된 코호트를 도로 battle로 되돌려버릴 수 있다(Opus 리뷰 Critical #2a).
-    if (cohort.stage !== 'create') return;
-    // expectedParticipants가 0이면(관리자가 아무도 접속하지 않은 상태에서 세션 시작을 누른
-    // 경우) doneCount() >= 0은 첫 완료자만으로 항상 참이 되어 1명짜리 battle room이 열리고
-    // 곧바로 종료돼버린다(Opus 리뷰 Critical C1). 목표 인원이 실제로 1명 이상 고정된 경우에만
-    // 완료 인원과 비교한다.
-    if (cohort.expectedParticipants > 0 && doneCount() >= cohort.expectedParticipants) {
-      goToStage(io, 'battle');
-    }
+    broadcastParticipants(io);
   });
 
-  // 참가자가 새로고침 등으로 끊기면 새 소켓으로 다시 잡을 때 새 id로 등록되므로, 끊긴 옛
-  // id를 지워두지 않으면 명단에 유령 참가자가 계속 쌓인다 — 한 명이 실수로 여러 번
-  // 새로고침하면 실제로는 4명인데 서버는 5명 완료로 잘못 세어서 battle로 조기 전환될 수
-  // 있다(Opus 리뷰 Critical #2b, 실제로 재현됨).
+  // 관리자가 제작 단계에서 시간을 다 채우고도 완료하지 못한 참가자("낙오자")를 강제로
+  // 마감시킬 때 쓴다 — create -> battle 전환이 이제 전원 완료를 기다리지 않고 관리자
+  // 수동으로 일어나므로, 이걸 안 만들면 미완료 참가자는 무기 없이 battle에서 통째로
+  // 빠진다(대전 참여도 결과 저장도 못 함).
+  socket.on('admin:forceFinish', (participantId) => {
+    const entry = cohort.participants.find((p) => p.id === participantId);
+    if (!entry || entry.createDone) return;
+    entry.createDone = true;
+    entry.weapon = defaultWeapon();
+    broadcastProgress(io);
+    broadcastParticipants(io);
+  });
+
+  // 참가자가 완전히 연결을 끊으면(기기를 끄거나 브라우저를 닫는 등) 명단에서 제거한다.
+  // 새로고침만으로는 여기 안 온다고 가정하면 안 된다 — 새로고침도 기존 소켓의
+  // disconnect를 먼저 발생시키고 새 소켓으로 다시 연결되므로, 옛 id를 지워두지 않으면
+  // 유령 참가자가 계속 쌓인다(Opus 리뷰 Critical #2b, 실제로 재현됨).
   socket.on('disconnect', () => {
-    joined.delete(socket.id);
-    participantNames.delete(socket.id);
     const before = cohort.participants.length;
     cohort.participants = cohort.participants.filter((p) => p.id !== socket.id);
     if (cohort.participants.length !== before) {
       broadcastProgress(io);
+      broadcastParticipants(io);
     }
   });
 }

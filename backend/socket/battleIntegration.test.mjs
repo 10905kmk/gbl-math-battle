@@ -29,6 +29,14 @@ for (let i = 1; i <= 5; i += 1) {
   registerSessionHandlers(io, makeSocket(`p${i}`));
 }
 
+// admin:startSession(2026-08-07부터 'name' stage부터 시작)이 매 세션 시작마다
+// participant:name/create:done으로 채워진 필드를 초기화하므로(참가자 모델 통합 —
+// session.js의 resetRoundFields 참고), 이름/무기 입력은 반드시 admin:startSession
+// 이후에 보내야 한다. create 단계까지 미리 넘겨둔다.
+handlers.p1['admin:startSession'](); // -> name
+handlers.p1['admin:nextStage'](); // -> learn
+handlers.p1['admin:nextStage'](); // -> create
+
 // participant:name — 이름을 먼저 보내두면 이후 create:done 때 참가자 엔트리에 반영된다.
 // trim/길이 제한(20자)/비문자열 방어를 함께 확인한다 — 클라이언트 제공값을 그대로 믿지
 // 않는 이 프로젝트의 기존 원칙(weaponDamage clamp 등)과 같은 이유. p4/p5는 아예 안 보내서
@@ -42,8 +50,6 @@ for (let i = 1; i <= 5; i += 1) {
   handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts });
 }
 
-handlers.p1['admin:startSession'](); // -> learn
-handlers.p1['admin:nextStage'](); // -> create
 handlers.p1['admin:nextStage'](); // -> battle (startBattleRoom 트리거되어야 함)
 
 const room = getBattleRoom();
@@ -126,7 +132,7 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   assert.strictEqual(getBattleRoom(), null, '라운드 종료 후 battleRoom은 null이어야 함(stopBattleRoom)');
 
   const stageChanges = emitted.filter(([ev]) => ev === 'stage:change').map(([, s]) => s);
-  assert.deepStrictEqual(stageChanges, ['learn', 'create', 'battle', 'result']);
+  assert.deepStrictEqual(stageChanges, ['name', 'learn', 'create', 'battle', 'result']);
 
   // p1은 앞서 disconnect 처리돼서 connected=false였지만, 아무도 서로 공격하지 않아 전원 점수가
   // 0으로 동점이다 — 탈락 개념이 없으므로 연결이 끊긴 참가자도 자기 점수 그대로 판정에
@@ -152,11 +158,12 @@ console.log('battle room carries weaponParts from participant weapon: OK');
 // (Opus 리뷰 Important #3).
 {
   handlers.p1['admin:reset']();
+  handlers.p1['admin:startSession'](); // -> name
+  handlers.p1['admin:nextStage'](); // -> learn
+  handlers.p1['admin:nextStage'](); // -> create
   for (let i = 1; i <= 5; i += 1) {
     handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
   }
-  handlers.p1['admin:startSession'](); // -> learn
-  handlers.p1['admin:nextStage'](); // -> create
   handlers.p1['admin:nextStage'](); // -> battle
 
   assert.ok(getBattleRoom(), '재시작된 battle room이 있어야 함');
