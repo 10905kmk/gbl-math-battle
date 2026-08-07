@@ -5,6 +5,7 @@ import { statsFromShape } from '../../shapes/stats.js';
 import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
 import { classifyWeaponRangeFallback } from '../../shapes/attackGeometry.js';
 import { validateWeaponState } from '../lib/weaponStateValidation.js';
+import { logError } from '../lib/errorLog.js';
 
 // AI 채점이 전부 실패했을 때 쓰는 결정론적 폴백 — 참가자가 절대 막히지 않게 한다.
 // sqrt로 스케일해서 부품이 5개 안팎만 돼도 바로 최댓값(10000)에 포화되지 않게 한다 —
@@ -50,7 +51,7 @@ router.post('/', async (req, res) => {
     const { damage, attackRange, attackRangeDistance } = await evaluateWeapon(weaponState);
     res.json({ damage, attackRange, attackRangeDistance });
   } catch (err) {
-    console.error('[weaponEvaluate] AI 평가 실패, fallback으로 대체:', err);
+    logError('weaponEvaluate', err);
     const { attackRange, attackRangeDistance } = fallbackAttackRange(weaponState);
     res.json({ damage: fallbackDamage(weaponState), attackRange, attackRangeDistance, fallback: true });
   }

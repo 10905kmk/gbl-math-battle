@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { interpretCommand } from '../lib/aiClient.js';
 import { ALL_SHAPES, isValidShapeId, generatePartId } from '../../shapes/registry.js';
 import { validateWeaponState } from '../lib/weaponStateValidation.js';
+import { logError } from '../lib/errorLog.js';
 
 export const CANVAS_SIZE = { width: 480, height: 480 };
 export const MAX_PARTS = 10;
@@ -71,7 +72,7 @@ router.post('/', async (req, res) => {
     const updated = applyToolCalls(weaponState, toolCalls);
     res.json({ weaponState: updated, reply });
   } catch (err) {
-    console.error('[weaponChat] AI 채팅 처리 실패:', err);
+    logError('weaponChat', err);
     res.status(502).json({ error: 'chat failed' });
   }
 });

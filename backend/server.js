@@ -11,6 +11,7 @@ import weaponChatRoutes from './routes/weaponChat.js';
 import weaponEvaluateRoutes from './routes/weaponEvaluate.js';
 import { registerSessionHandlers } from './socket/session.js';
 import { registerBattleHandlers } from './socket/battle.js';
+import { initErrorLog } from './lib/errorLog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -35,6 +36,7 @@ app.use('/api/weapon/evaluate', weaponEvaluateRoutes);
 
 const server = http.createServer(app);
 const io = new Server(server);
+initErrorLog(io);
 
 io.on('connection', (socket) => {
   registerSessionHandlers(io, socket);

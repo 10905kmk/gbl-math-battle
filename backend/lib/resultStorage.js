@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { saveResult } from './supabaseClient.js';
 import { computeRanks } from './battleSimulation.js';
+import { logError } from './errorLog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FALLBACK_PATH = path.join(__dirname, '../data/results-fallback.jsonl');
@@ -60,7 +61,7 @@ export async function saveParticipantResults(participants, winners, scores, save
   const failedPayloads = [];
   outcomes.forEach((outcome, i) => {
     if (outcome.status === 'rejected') {
-      console.error('[resultStorage] 참가자 결과 저장 실패:', participants[i].id, outcome.reason);
+      logError(`resultStorage:${participants[i].id}`, outcome.reason);
       failedPayloads.push(payloads[i]);
     }
   });
@@ -83,6 +84,6 @@ async function appendFallback(payloads, fallbackPath) {
       .join('\n') + '\n';
     await appendFile(fallbackPath, lines, 'utf8');
   } catch (err) {
-    console.error('[resultStorage] fallback 파일 기록도 실패:', err);
+    logError('resultStorage:fallback', err);
   }
 }
