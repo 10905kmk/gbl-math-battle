@@ -46,7 +46,7 @@ export function ChatPanel({ weaponState, onWeaponChange, disabled }) {
           disabled=${disabled || sending}
           placeholder="어떤 무기를 만들까요?"
         />
-        <button onClick=${send} disabled=${disabled || sending}>${sending ? '전송 중...' : '보내기'}</button>
+        <button class="chat-send-btn" onClick=${send} disabled=${disabled || sending}>${sending ? '전송 중...' : '보내기'}</button>
       </div>
     </div>
   `;

@@ -207,8 +207,8 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
   return html`
     <div class="canvas-editor">
       <div class="shape-palette">
-        ${ALL_SHAPES.map((s) => html`<button onClick=${() => addShape(s.id)} disabled=${disabled}>${s.name}</button>`)}
-        <button onClick=${deleteSelected} disabled=${disabled}>선택 삭제</button>
+        ${ALL_SHAPES.map((s) => html`<button class="chip-btn" onClick=${() => addShape(s.id)} disabled=${disabled}>${s.name}</button>`)}
+        <button class="chip-btn chip-btn--danger" onClick=${deleteSelected} disabled=${disabled}>선택 삭제</button>
       </div>
       <div class="canvas-container" ref=${containerRef}></div>
     </div>

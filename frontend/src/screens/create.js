@@ -59,10 +59,18 @@ export function CreateScreen({ socket, state }) {
   }
 
   if (phase === 'waiting') {
+    const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
     return html`
       <div class="weapon-card">
+        ${state.weapon?.image
+          ? html`<img class="weapon-card-img" src=${state.weapon.image} alt=${state.weapon?.name} />`
+          : null}
         <h3>${state.weapon?.name}</h3>
-        <p>다른 도전자를 기다리는 중... (${progress.done}/${progress.total})</p>
+        <p class="weapon-card-status">다른 도전자를 기다리는 중...</p>
+        <div class="progress-track">
+          <div class="progress-fill" style=${`width:${pct}%`}></div>
+        </div>
+        <p class="progress-label">${progress.done} / ${progress.total}</p>
       </div>
     `;
   }
@@ -83,13 +91,13 @@ export function CreateScreen({ socket, state }) {
         disabled=${phase !== 'editing'}
       />
       <div class="evaluate-panel">
-        ${error ? html`<p class="evaluate-error">${error}</p>` : null}
+        ${error ? html`<p class="evaluate-error">⚠ ${error}</p>` : null}
         <button
-          class="evaluate-btn"
+          class="evaluate-btn ${phase === 'evaluating' ? 'is-loading' : ''}"
           onClick=${evaluate}
           disabled=${phase !== 'editing' || weaponState.parts.length === 0}
         >
-          ${phase === 'evaluating' ? '평가 중...' : 'AI 평가받기'}
+          ${phase === 'evaluating' ? html`<span class="btn-spinner"></span> 평가 중...` : 'AI 평가받기'}
         </button>
       </div>
     </div>

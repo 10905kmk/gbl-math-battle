@@ -1,22 +1,43 @@
 /* frontend/src/screens/create/create.css */
+
+:root {
+  --accent: #8fd3ff;
+  --accent-dim: #1a5f8a;
+  --surface: #1a1a1a;
+  --surface-2: #202020;
+  --border: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.28);
+  --danger: #ff8080;
+}
+
+/* ── 전체 구조: 캔버스(좌) / 채팅(우) 2컬럼 + 하단 평가 바 ────────────── */
 .create-shell {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  grid-template-areas:
+    "canvas chat"
+    "action action";
+  gap: 1.25rem;
+  align-items: start;
   width: 100%;
   max-width: 960px;
 }
 
+/* ── 캔버스 카드 ──────────────────────────────────────────────────── */
 .canvas-editor {
+  grid-area: canvas;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem;
 }
 
 .shape-palette {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
   flex-wrap: wrap;
 }
 
@@ -24,9 +45,10 @@
   width: 480px;
   max-width: 100%;
   aspect-ratio: 1 / 1;
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 /* Konva가 캔버스 엘리먼트뿐 아니라 그걸 감싸는 .konvajs-content 래퍼 div에도
@@ -45,62 +67,259 @@
   height: auto !important;
 }
 
+/* ── 버튼 공통 베이스 ─────────────────────────────────────────────── */
+.create-shell button {
+  font-family: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: #eee;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
+}
+
+.create-shell button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: #262626;
+}
+
+.create-shell button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.create-shell button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 팔레트 chip 버튼 */
+.chip-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+}
+
+.chip-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chip-btn--danger {
+  border-color: rgba(255, 128, 128, 0.3);
+  color: var(--danger);
+}
+
+.chip-btn--danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: rgba(255, 128, 128, 0.08);
+}
+
+/* ── 채팅 패널 ────────────────────────────────────────────────────── */
 .chat-panel {
+  grid-area: chat;
   display: flex;
   flex-direction: column;
-  width: 320px;
+  width: 340px;
   max-width: 100%;
   height: 480px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
   padding: 0.75rem;
 }
 
+.chat-msg {
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  max-width: 85%;
+  line-height: 1.4;
+  font-size: 0.92rem;
+  word-break: break-word;
+}
+
+.chat-msg--user {
+  align-self: flex-end;
+  background: var(--accent-dim);
+  color: #eaf6ff;
+  border-bottom-right-radius: 3px;
+}
+
+.chat-msg--ai {
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 3px;
+}
+
 .chat-msg--error {
-  color: #ff8080;
+  align-self: center;
+  color: var(--danger);
+  background: rgba(255, 128, 128, 0.08);
+  border: 1px solid rgba(255, 128, 128, 0.25);
+  font-size: 0.85rem;
 }
 
 .chat-input-row {
   display: flex;
   gap: 0.5rem;
-  padding: 0.75rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.65rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
 .chat-input-row input {
   flex: 1;
+  min-width: 0;
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #eee;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.9rem;
 }
 
+.chat-input-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-input-row input:disabled {
+  opacity: 0.5;
+}
+
+.chat-send-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: var(--accent);
+  color: #0a2436;
+  border-color: var(--accent);
+}
+
+.chat-send-btn:hover:not(:disabled) {
+  background: #a5ddff;
+}
+
+/* ── 평가 액션 바 ─────────────────────────────────────────────────── */
 .evaluate-panel {
+  grid-area: action;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.6rem;
   align-items: flex-start;
 }
 
 .evaluate-error {
-  color: #ff8080;
+  color: var(--danger);
+  background: rgba(255, 128, 128, 0.08);
+  border: 1px solid rgba(255, 128, 128, 0.25);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
   margin: 0;
+  font-size: 0.9rem;
 }
 
 .evaluate-btn {
-  font-size: 1.1rem;
-  padding: 0.6rem 1.2rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  padding: 0.7rem 1.6rem;
+  background: var(--accent);
+  color: #0a2436;
+  border-color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-/* 좁은 화면에서는 캔버스/채팅/평가버튼을 세로로 쌓아 전부 도달 가능하게 한다. */
+.evaluate-btn:hover:not(:disabled) {
+  background: #a5ddff;
+}
+
+.evaluate-btn.is-loading {
+  background: var(--surface-2);
+  color: #eee;
+  border-color: var(--border-strong);
+}
+
+.btn-spinner {
+  width: 0.85em;
+  height: 0.85em;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #eee;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── 대기 화면 카드 ───────────────────────────────────────────────── */
+.weapon-card {
+  text-align: center;
+  max-width: 22rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+
+.weapon-card-img {
+  max-width: 10rem;
+  max-height: 10rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.weapon-card-status {
+  color: #bbb;
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.progress-label {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: #999;
+}
+
+/* ── 좁은 화면: 세로 스택 ─────────────────────────────────────────── */
 @media (max-width: 900px) {
   .create-shell {
-    flex-direction: column;
-    align-items: stretch;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "canvas"
+      "chat"
+      "action";
   }
 
-  /* flex item은 기본적으로 min-width:auto라 자식(.canvas-container의 width:480px)의
+  /* flex/grid item은 기본적으로 min-width:auto라 자식(.canvas-container의 width:480px)의
      내용 크기보다 좁게 줄어들지 않는다 — max-width:100%를 걸어놔도 그 100%가 계산되는
      기준 컨테이너가 먼저 480px로 못박혀버려서 결국 같이 안 줄어든다. .canvas-editor도
      그 자체가 flex 컨테이너(column)라 .canvas-container까지 내려가는 경로의 모든
@@ -123,5 +342,13 @@
 
   .chat-panel {
     width: 100%;
+  }
+
+  .evaluate-panel {
+    align-items: stretch;
+  }
+
+  .evaluate-btn {
+    justify-content: center;
   }
 }
