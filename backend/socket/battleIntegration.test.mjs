@@ -361,7 +361,7 @@ console.log('battle room carries weaponParts from participant weapon: OK');
 {
   let onEndArgs = null;
   startBattleRoom(io, [{ id: 'sc1', weapon: { damage: 1000 } }, { id: 'sc2', weapon: { damage: 2000 } }], {
-    onEnd: (winners, scores) => { onEndArgs = { winners, scores }; },
+    onEnd: (winners, scores, kda) => { onEndArgs = { winners, scores, kda }; },
   });
   const scoreRoom = getBattleRoom();
   // 점수는 이제 킬/데스/어시스트에서 파생된다(킬 20, 데스 -10, 어시 5).
@@ -371,12 +371,17 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   // 자연 종료는 저장을 안 하므로(여러 판 운영) onEnd를 보려면 부스 종료 경로를 타야 한다.
   await new Promise((resolve) => setTimeout(resolve, 150));
   const { saveLastRoundResults } = await import('./battle.js');
-  saveLastRoundResults((winners, scores) => { onEndArgs = { winners, scores }; });
+  saveLastRoundResults((winners, scores, kda) => { onEndArgs = { winners, scores, kda }; });
 
   assert.ok(onEndArgs, 'onEnd이 호출되어야 함');
   assert.deepStrictEqual(onEndArgs.scores, { sc1: 60, sc2: -10 }, 'onEnd의 scores가 K/D/A로 계산된 최종 점수와 일치해야 함');
   assert.deepStrictEqual(onEndArgs.winners, ['sc1'], 'sc1(60점)이 sc2(-10점)보다 높으므로 단독 승자');
-  console.log('battle.js onEnd callback delivers accurate score snapshot: OK');
+  assert.deepStrictEqual(
+    onEndArgs.kda,
+    { sc1: { kills: 3, deaths: 1, assists: 2 }, sc2: { kills: 1, deaths: 3, assists: 0 } },
+    'onEnd의 kda가 라운드 종료 시점 킬/데스/어시스트 스냅샷과 일치해야 함(2026-08-10)',
+  );
+  console.log('battle.js onEnd callback delivers accurate score + kda snapshot: OK');
 }
 
 // 회귀: startBattleRoom이 weapon.attackRange/attackRangeDistance를 읽어 플레이어 상태에

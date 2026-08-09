@@ -47,13 +47,13 @@ const STAGE_ORDER = ['name', 'learn', 'create', 'battle', 'result', 'thanks'];
 // 한 팀이 여러 판을 도는 운영 방식이라(2026-08-09) 매 판 끝날 때마다 저장하지 않는다 —
 // 판마다 행이 쌓이면 QR이 어느 판의 결과를 가리키는지 알 수 없어진다. 저장은 마지막 한 번.
 function makeSaveResultsCallback(io, roster) {
-  return (winners, scores) => {
+  return (winners, scores, kda) => {
     // 저장이 끝나야 각 참가자 결과 행의 id를 알 수 있다(QR/링크가 그 id로 result-page를
     // 가리켜야 하므로) — outcomes는 roster와 같은 순서라 인덱스로 그대로 짝지을 수 있다.
     // 저장 실패(rejected)한 참가자에게는 보내지 않는다 — 존재하지 않는 id로 QR을 만들면
     // 스캔했을 때 "결과 없음"만 보게 되므로, 아예 안 보내는 쪽이 참가자 화면이 QR 없이
     // 요약만 보여주는 정상적인 폴백으로 이어진다.
-    saveParticipantResults(roster, winners, scores)
+    saveParticipantResults(roster, winners, scores, kda)
       .then((outcomes) => {
         outcomes.forEach((outcome, i) => {
           if (outcome.status === 'fulfilled' && outcome.value?.id) {

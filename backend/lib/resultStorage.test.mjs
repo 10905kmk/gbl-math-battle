@@ -16,13 +16,14 @@ function makeParticipant(id, overrides) {
   const calls = [];
   const fakeSaveFn = async (payload) => { calls.push(payload); return { id: 'saved-' + calls.length }; };
   const participants = [makeParticipant('p1'), makeParticipant('p2')];
-  const outcomes = await saveParticipantResults(participants, ['p1'], { p1: 120, p2: 45 }, fakeSaveFn);
+  const outcomes = await saveParticipantResults(participants, ['p1'], { p1: 120, p2: 45 }, {}, fakeSaveFn);
 
   assert.strictEqual(calls.length, 2, '참가자 수만큼 saveFn이 호출되어야 함');
   assert.deepStrictEqual(calls[0], {
     weapon_name: '무기-p1', weapon_image: 'data:image/png;base64,AAA',
     weapon_damage: 500, win: true, score: 120, rank: 1,
-  }, 'winners에 포함된 p1은 win:true, score는 scores[p1] 값, 점수가 더 높으니 rank 1, parts/stats는 저장 대상에서 제외되어야 함');
+    kills: null, deaths: null, assists: null,
+  }, 'winners에 포함된 p1은 win:true, score는 scores[p1] 값, 점수가 더 높으니 rank 1, parts/stats는 저장 대상에서 제외되어야 함, kda 없으면 null');
   assert.strictEqual(calls[1].win, false, 'winners에 없는 p2는 win:false');
   assert.strictEqual(calls[1].score, 45);
   assert.strictEqual(calls[1].rank, 2, 'p2는 p1보다 점수가 낮으니 rank 2');
@@ -38,7 +39,7 @@ function makeParticipant(id, overrides) {
   };
   const participants = [makeParticipant('p1'), makeParticipant('p2')];
   await assert.doesNotReject(
-    () => saveParticipantResults(participants, [], {}, fakeSaveFn),
+    () => saveParticipantResults(participants, [], {}, {}, fakeSaveFn),
     '일부 저장 실패가 전체를 throw하게 만들면 안 됨',
   );
 }
@@ -46,7 +47,7 @@ console.log('saveParticipantResults tolerates partial failure: OK');
 
 // 참가자가 0명이어도 안전하게 빈 배열 반환
 {
-  const outcomes = await saveParticipantResults([], [], {}, async () => { throw new Error('should not be called'); });
+  const outcomes = await saveParticipantResults([], [], {}, {}, async () => { throw new Error('should not be called'); });
   assert.deepStrictEqual(outcomes, []);
   console.log('saveParticipantResults with no participants: OK');
 }
@@ -57,10 +58,11 @@ console.log('saveParticipantResults tolerates partial failure: OK');
 {
   const calls = [];
   const fakeSaveFn = async (payload) => { calls.push(payload); return { id: 'saved' }; };
-  const outcomes = await saveParticipantResults([makeParticipant('p1')], undefined, undefined, fakeSaveFn);
+  const outcomes = await saveParticipantResults([makeParticipant('p1')], undefined, undefined, undefined, fakeSaveFn);
   assert.strictEqual(calls[0].win, false, 'winners가 배열이 아니면 아무도 승자가 아닌 것으로 취급');
   assert.strictEqual(calls[0].score, null, 'scores가 객체가 아니면 score는 null로 취급');
   assert.strictEqual(calls[0].rank, null, 'score가 없으면 순위도 계산할 수 없으니 null');
+  assert.strictEqual(calls[0].kills, null, 'kda가 객체가 아니면 kills도 null로 취급');
   assert.strictEqual(outcomes[0].status, 'fulfilled');
 }
 console.log('saveParticipantResults tolerates non-array winners and missing scores: OK');
@@ -76,7 +78,7 @@ console.log('saveParticipantResults tolerates non-array winners and missing scor
     return { id: 'saved' };
   };
   const participants = [makeParticipant('p1'), makeParticipant('p2')];
-  await saveParticipantResults(participants, ['p2'], { p1: 10 }, fakeSaveFn, fallbackPath);
+  await saveParticipantResults(participants, ['p2'], { p1: 10 }, {}, fakeSaveFn, fallbackPath);
 
   const content = await readFile(fallbackPath, 'utf8');
   const lines = content.trim().split('\n').map((line) => JSON.parse(line));
@@ -90,5 +92,27 @@ console.log('saveParticipantResults tolerates non-array winners and missing scor
   await rm(path.dirname(fallbackPath), { recursive: true, force: true });
 }
 console.log('saveParticipantResults writes failed saves to fallback file: OK');
+
+// 회귀 테스트(2026-08-10): battle.js가 넘겨주는 킬/데스/어시스트가 저장 payload에도
+// 그대로 실려야 한다 — Vercel 상시 결과 페이지가 이 컬럼으로 K/D/A를 보여준다.
+{
+  const calls = [];
+  const fakeSaveFn = async (payload) => { calls.push(payload); return { id: 'saved' }; };
+  const participants = [makeParticipant('p1'), makeParticipant('p2')];
+  const kda = { p1: { kills: 3, deaths: 1, assists: 2 }, p2: { kills: 0, deaths: 4, assists: 0 } };
+  await saveParticipantResults(participants, ['p1'], { p1: 60, p2: -40 }, kda, fakeSaveFn);
+
+  assert.deepStrictEqual(
+    { kills: calls[0].kills, deaths: calls[0].deaths, assists: calls[0].assists },
+    { kills: 3, deaths: 1, assists: 2 },
+    'p1의 킬/데스/어시스트가 kda 인자 그대로 payload에 실려야 함',
+  );
+  assert.deepStrictEqual(
+    { kills: calls[1].kills, deaths: calls[1].deaths, assists: calls[1].assists },
+    { kills: 0, deaths: 4, assists: 0 },
+    'p2도 마찬가지 — 0 같은 falsy 값이 null로 뭉개지면 안 됨(Number.isFinite로 판정)',
+  );
+  console.log('saveParticipantResults carries kills/deaths/assists into the saved payload: OK');
+}
 
 console.log('resultStorage.test.mjs: OK');

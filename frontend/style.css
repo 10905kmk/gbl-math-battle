@@ -435,6 +435,13 @@ body::after {
 .stat--damage dd { color: var(--accent); }
 .stat--score dd { color: var(--violet); }
 
+/* 킬/데스/어시스트 3칸 — 전투력/점수 그리드와 같은 간격으로 그 아래에 붙는다. */
+.stat-grid--kda {
+  grid-template-columns: 1fr 1fr 1fr;
+  margin-top: 0.6rem;
+}
+.stat-grid--kda dd { font-size: 1.1rem; }
+
 /* QR 패널 — "휴대폰으로 PDF 받기"의 진입점이라 그냥 이미지로 두지 않고 안내를 함께 묶는다. */
 .qr-panel {
   margin-top: 1.4rem;

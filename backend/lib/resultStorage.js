@@ -23,11 +23,14 @@ const DEFAULT_FALLBACK_PATH = path.join(__dirname, '../data/results-fallback.jso
 // winners는 배열이 아닌 값(undefined 등)이 들어와도 여기서 막아야 한다 — 이 함수는 호출자가
 // await 없이 fire-and-forget으로 호출하므로(session.js), map() 콜백 안에서 던지는 예외는
 // Promise.allSettled가 절대 잡아주지 못하고 그대로 unhandled rejection이 되어 서버가 죽는다.
-// scores도 같은 이유로 방어한다 — { [participantId]: number } 형태가 아니면 각 참가자의
-// score를 null로 남긴다.
-export async function saveParticipantResults(participants, winners, scores, saveFn = saveResult, fallbackPath = DEFAULT_FALLBACK_PATH) {
+// scores/kda도 같은 이유로 방어한다 — 형태가 안 맞으면 각 참가자의 score/kills/deaths/
+// assists를 null로 남긴다. kda는 { [participantId]: { kills, deaths, assists } } 형태로
+// battle.js의 concludeRound/saveLastRoundResults가 채워준다(2026-08-10, Vercel 상시
+// 결과 페이지에도 킬/데스/어시스트를 보여주기 위해 추가).
+export async function saveParticipantResults(participants, winners, scores, kda, saveFn = saveResult, fallbackPath = DEFAULT_FALLBACK_PATH) {
   const winnerIds = Array.isArray(winners) ? winners : [];
   const safeScores = scores && typeof scores === 'object' ? scores : {};
+  const safeKda = kda && typeof kda === 'object' ? kda : {};
   // computeRanks는 { [id]: score } 형태만 받으므로 undefined/NaN 참가자는 미리 걸러내고
   // 계산한 뒤, 랭크가 없는(걸러진) 참가자는 저장 시점에 null로 남긴다 — battle:result가
   // 이미 같은 데이터로 참가자 화면에 보낸 등수와 어긋나지 않아야 한다(battle.js와 이
@@ -44,6 +47,11 @@ export async function saveParticipantResults(participants, winners, scores, save
     win: winnerIds.includes(p.id),
     score: Number.isFinite(safeScores[p.id]) ? safeScores[p.id] : null,
     rank: ranks[p.id] ?? null,
+    // Supabase의 results 테이블에 kills/deaths/assists integer 컬럼이 먼저 있어야 한다 —
+    // 없으면 이 insert 자체가 실패해서 아래 실패 경로(로컬 fallback 파일)로 빠진다.
+    kills: Number.isFinite(safeKda[p.id]?.kills) ? safeKda[p.id].kills : null,
+    deaths: Number.isFinite(safeKda[p.id]?.deaths) ? safeKda[p.id].deaths : null,
+    assists: Number.isFinite(safeKda[p.id]?.assists) ? safeKda[p.id].assists : null,
   }));
 
   // Promise.allSettled와 같은 모양({status, value|reason}[], payloads와 같은 순서)을

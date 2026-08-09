@@ -469,8 +469,8 @@ export function BattleScreen({ socket, state }) {
     // result:saved(QR용 id)는 여기서 안 듣는다 — Supabase 저장은 비동기라 stage가 이미
     // result로 넘어가 이 화면이 unmount된 뒤에 도착하는 경우가 흔해서, 화면 전환과 무관하게
     // 항상 떠 있는 app.js에서 듣는다(frontend/src/app.js 참고).
-    function onResult({ win, score, rank, total }) {
-      state.battleResult = { win, score, rank, total };
+    function onResult({ win, score, rank, total, kills, deaths, assists }) {
+      state.battleResult = { win, score, rank, total, kills, deaths, assists };
     }
     socket.on('battle:result', onResult);
     return () => socket.off('battle:result', onResult);

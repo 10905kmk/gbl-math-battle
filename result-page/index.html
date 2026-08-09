@@ -164,6 +164,13 @@
     .stat--damage dd { color: var(--accent); }
     .stat--score dd { color: var(--violet); }
 
+    /* 킬/데스/어시스트 3칸 — 현장 화면(frontend/style.css)과 같은 모티프. */
+    .stat-grid--kda {
+      grid-template-columns: 1fr 1fr 1fr;
+      margin: 0.6rem 0 1.4rem;
+    }
+    .stat-grid--kda dd { font-size: 1.1rem; }
+
     .btn {
       font-family: inherit;
       font-size: 1rem;

@@ -123,6 +123,16 @@ function ResultPage() {
         </div>
       </dl>
 
+      ${result.kills != null
+        ? html`
+            <dl class="stat-grid stat-grid--kda">
+              <div class="stat"><dt>킬</dt><dd>${result.kills}</dd></div>
+              <div class="stat"><dt>데스</dt><dd>${result.deaths}</dd></div>
+              <div class="stat"><dt>어시</dt><dd>${result.assists}</dd></div>
+            </dl>
+          `
+        : null}
+
       <button
         class="btn btn--primary btn--block save-btn"
         onClick=${save}

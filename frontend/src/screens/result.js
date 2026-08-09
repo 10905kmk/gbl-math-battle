@@ -42,6 +42,16 @@ export function ResultScreen({ state, resultId }) {
         </div>
       </dl>
 
+      ${battleResult?.kills != null
+        ? html`
+            <dl class="stat-grid stat-grid--kda">
+              <div class="stat"><dt>킬</dt><dd>${battleResult.kills}</dd></div>
+              <div class="stat"><dt>데스</dt><dd>${battleResult.deaths}</dd></div>
+              <div class="stat"><dt>어시</dt><dd>${battleResult.assists}</dd></div>
+            </dl>
+          `
+        : null}
+
       <${ResultQrPanel} resultId=${resultId} />
     </div>
   `;

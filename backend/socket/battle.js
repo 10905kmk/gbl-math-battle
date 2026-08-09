@@ -155,8 +155,14 @@ function concludeRound(winners, { saveResults }) {
   if (!battleRoom) return;
   const endedRoom = battleRoom;
   const scores = {};
+  // 킬/데스/어시스트도 점수와 같은 스냅샷 시점에 같이 떼어둔다 — Vercel 상시 결과
+  // 페이지/PDF 증서에도 표시하려면 결과 저장(session.js -> resultStorage.js)까지 그대로
+  // 실려가야 한다(2026-08-10).
+  const kda = {};
   for (const id of Object.keys(endedRoom.players)) {
-    scores[id] = computeScore(endedRoom.players[id]);
+    const player = endedRoom.players[id];
+    scores[id] = computeScore(player);
+    kda[id] = { kills: player.kills ?? 0, deaths: player.deaths ?? 0, assists: player.assists ?? 0 };
   }
   const ranks = computeRanks(scores);
   const total = Object.keys(endedRoom.players).length;
@@ -176,10 +182,11 @@ function concludeRound(winners, { saveResults }) {
         score: scores[id],
         rank: ranks[id],
         total,
+        ...kda[id],
       });
     }
   }
-  if (saveResults && onEnd) onEnd(winners, scores);
+  if (saveResults && onEnd) onEnd(winners, scores, kda);
 }
 
 // 진행 중인 라운드가 있으면 "지금 시점 점수"로 즉시 정상 종료 처리한다. session.js의
@@ -199,9 +206,12 @@ export function finishBattleRoomNow({ saveResults = true } = {}) {
 export function saveLastRoundResults(onEnd) {
   if (!lastStandings || !onEnd) return false;
   const scores = Object.fromEntries(lastStandings.standings.map((p) => [p.id, p.score]));
+  const kda = Object.fromEntries(
+    lastStandings.standings.map((p) => [p.id, { kills: p.kills, deaths: p.deaths, assists: p.assists }]),
+  );
   const maxScore = Math.max(...lastStandings.standings.map((p) => p.score));
   const winners = lastStandings.standings.filter((p) => p.score === maxScore).map((p) => p.id);
-  onEnd(winners, scores);
+  onEnd(winners, scores, kda);
   return true;
 }
 
