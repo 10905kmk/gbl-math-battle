@@ -181,9 +181,11 @@ console.log('shield/cloak fully block incoming damage: OK');
   const caster = makePlayer('c', 'warrant', { x: 500, y: 500, aimX: 1, aimY: 0 });
   const front = makePlayer('f', 'lucky', { x: 500 + 5 * METER, y: 500 });
   const behind = makePlayer('b', 'lucky', { x: 500 - 5 * METER, y: 500 });
-  activateSkill(makeRoom([caster, front, behind]), 'c', NOW);
+  const room = makeRoom([caster, front, behind]);
+  activateSkill(room, 'c', NOW);
   assert.ok(front.x < 500 + 2 * METER, '앞쪽 적은 시전자 앞으로 끌려와야 함');
   assert.strictEqual(behind.x, 500 - 5 * METER, '뒤쪽 적은 영향 없음');
+  assert.ok(room.effects.some((fx) => fx.type === 'cone' && fx.skillId === 'warrant' && fx.endsAt === NOW + 500), '연행영장 부채꼴은 현재처럼 0.5초만 표시');
   console.log('warrant pulls only the target inside the forward cone: OK');
 }
 
@@ -195,6 +197,7 @@ console.log('shield/cloak fully block incoming damage: OK');
   const behind = makePlayer('b', 'lucky', { x: 500 - 2 * METER, y: 500 });
   const room = makeRoom([caster, target1, target2, behind]);
   activateSkill(room, 'c', NOW);
+  assert.ok(room.effects.some((fx) => fx.type === 'cone' && fx.skillId === 'coldplay' && fx.endsAt === NOW + 2000), '콜드플레이 부채꼴은 발동시간 2초 동안 표시');
   for (const target of [target1, target2]) {
     assert.strictEqual(target.hp, HP_MAX - getSkill('coldplay').damagePercent);
     assert.strictEqual(isFrozen(target, NOW + 1999), true, '2초 직전까지 움직일 수 없음');
@@ -216,7 +219,10 @@ console.log('shield/cloak fully block incoming damage: OK');
   activateSkill(room, 'c', NOW);
   assert.strictEqual(target.status.markedBy, 'c');
   const markFx = room.effects.find((fx) => fx.type === 'mark' && fx.playerId === target.id);
+  const coneFx = room.effects.find((fx) => fx.type === 'cone' && fx.skillId === 'deathMark');
   assert.ok(markFx, '사형선고 과녕 표식이 공용 효과로 생성돼야 함');
+  assert.strictEqual(coneFx?.endsAt, NOW + 500, '사형선고 부채꼴은 대상 지정 후 0.5초 안에 제거');
+  assert.strictEqual(markFx.endsAt, NOW + 15000, '선택된 대상의 과녁만 15초 유지');
   assert.notStrictEqual(markFx.ownerOnly, true, '사형선고 표식은 모든 참가자에게 보여야 함');
   const bonus = outgoingDamageMultiplier(caster, target, NOW, () => 1).multiplier;
   const none = outgoingDamageMultiplier(other, target, NOW, () => 1).multiplier;

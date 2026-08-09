@@ -1,5 +1,6 @@
 import { meleeHitboxRect, circleOverlapsRotatedRect, PROJECTILE_SPEED, PROJECTILE_RADIUS, RANGE_DISTANCE_MIN } from '../../shapes/attackGeometry.js';
 import { MAX_HP } from '../../shapes/combatRules.js';
+import { circleOverlapsAnyWall, resolveCircleFromWalls } from '../../shapes/collision.js';
 import {
   speedMultiplier,
   isInvulnerable,
@@ -10,6 +11,7 @@ import {
   onWeaponHit,
   setKillHandler,
   resetSkillsOnRespawn,
+  pushEffect,
 } from './skillEngine.js';
 
 export const CHARACTER_RADIUS = 20;
@@ -21,12 +23,16 @@ export const DEFAULT_MOVE_SPEED = 8;
 export const MOVE_SPEED_MIN = 3;
 export const MOVE_SPEED_MAX = 20;
 
-export const ATTACK_COOLDOWN_MS = 500;
+export const RANGED_ATTACK_COOLDOWN_MS = 500;
+export const MELEE_ATTACK_COOLDOWN_MS = 350;
+// 기존 import와의 호환: 공통 쿨타임 상수는 원거리 기본값을 뜻한다.
+export const ATTACK_COOLDOWN_MS = RANGED_ATTACK_COOLDOWN_MS;
 // 한 판 기본 3분. 시작 전 5초 카운트다운은 이 시간에 포함되지 않는다(카운트다운이 끝나는 순간
 // endsAt을 다시 잡는다).
 export const BATTLE_DURATION_MS = 180000;
 export const COUNTDOWN_MS = 5000;
 export const RESPAWN_MS = 10000;
+export const SPAWN_INVULNERABILITY_MS = 5000;
 
 // ── 체력 ───────────────────────────────────────────────────────────────
 // 목숨은 무한이고 죽으면 10초 뒤 부활한다 — 그래서 체력은 "탈락 여부"가 아니라 "얼마나
@@ -124,18 +130,6 @@ export function buildStandings(players) {
     .sort((a, b) => a.rank - b.rank || b.kills - a.kills || (a.name ?? '').localeCompare(b.name ?? ''));
 }
 
-function circleRectOverlap(cx, cy, r, rectX, rectY, rectW, rectH) {
-  const closestX = clamp(cx, rectX, rectX + rectW);
-  const closestY = clamp(cy, rectY, rectY + rectH);
-  const dx = cx - closestX;
-  const dy = cy - closestY;
-  return dx * dx + dy * dy < r * r;
-}
-
-function circleOverlapsAnyWall(cx, cy, r, walls) {
-  return walls.some((w) => circleRectOverlap(cx, cy, r, w.x, w.y, w.width, w.height));
-}
-
 // 벡터 길이가 1을 넘으면 방향은 유지한 채 길이만 1로 줄인다 — 클라이언트가 정규화 안 된
 // 값(버그 또는 조작된 입력)을 보내도 서버가 항상 재검증한다(weaponDamage clamp와 같은 원칙).
 // NaN/Infinity가 섞여 있으면(소켓 레이어에서 이미 걸러지지만, 방어적 이중화 원칙에 따라
@@ -157,11 +151,12 @@ function moveOne(player, walls, arenaSize, moveSpeed, now) {
   const dx = move.x * effective;
   const dy = move.y * effective;
 
-  let x = clamp(player.x + dx, CHARACTER_RADIUS, arenaSize.width - CHARACTER_RADIUS);
-  let y = clamp(player.y + dy, CHARACTER_RADIUS, arenaSize.height - CHARACTER_RADIUS);
+  const safeStart = resolveCircleFromWalls(player.x, player.y, CHARACTER_RADIUS, walls, arenaSize);
+  let x = clamp(safeStart.x + dx, CHARACTER_RADIUS, arenaSize.width - CHARACTER_RADIUS);
+  let y = clamp(safeStart.y + dy, CHARACTER_RADIUS, arenaSize.height - CHARACTER_RADIUS);
 
-  if (circleOverlapsAnyWall(x, player.y, CHARACTER_RADIUS, walls)) x = player.x;
-  if (circleOverlapsAnyWall(x, y, CHARACTER_RADIUS, walls)) y = player.y;
+  if (circleOverlapsAnyWall(x, safeStart.y, CHARACTER_RADIUS, walls)) x = safeStart.x;
+  if (circleOverlapsAnyWall(x, y, CHARACTER_RADIUS, walls)) y = safeStart.y;
 
   return { ...player, x, y };
 }
@@ -319,8 +314,14 @@ export function stepSimulation(room, now) {
       if (now >= p.respawnAt) {
         const spawn = pickRespawnPoint(room.spawnPoints, room.players, id);
         // 부활하면 걸려 있던 버프/디버프를 전부 지우고 특수 스킬도 바로 쓸 수 있게 한다(요구사항).
-        players[id] = resetSkillsOnRespawn({
+        const respawned = resetSkillsOnRespawn({
           ...p, alive: true, hp: HP_MAX, x: spawn.x, y: spawn.y, respawnAt: 0, recentDamagers: {},
+        });
+        respawned.status.invulnUntil = now + SPAWN_INVULNERABILITY_MS;
+        players[id] = respawned;
+        pushEffect(room, {
+          type: 'shield', playerId: id,
+          endsAt: respawned.status.invulnUntil, color: '#7cc4ff',
         });
         events.push({ type: 'respawn', playerId: id, x: spawn.x, y: spawn.y });
       } else {
@@ -371,7 +372,10 @@ export function stepSimulation(room, now) {
     const wantsAttack = attacker.connected && attacker.alive && attacker.attackRequested;
     players[id] = { ...attacker, attackRequested: false };
     if (!wantsAttack) continue;
-    if (now - attacker.lastAttackAt < ATTACK_COOLDOWN_MS) continue;
+    const attackCooldownMs = attacker.isRanged === true
+      ? RANGED_ATTACK_COOLDOWN_MS
+      : MELEE_ATTACK_COOLDOWN_MS;
+    if (now - attacker.lastAttackAt < attackCooldownMs) continue;
 
     if (attacker.isRanged === true) {
       // 원거리 무기는 즉시 판정하지 않고 투사체를 하나 스폰한다 — 이동/충돌은 다음 틱부터

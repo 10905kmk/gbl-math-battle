@@ -3,11 +3,14 @@ import {
   ATTACK_HITBOX_SIZE,
   RANGE_DISTANCE_MIN,
   RANGE_DISTANCE_MAX,
+  RANGED_COMBAT_RANGE_MULTIPLIER,
   ASPECT_RATIO_THRESHOLD,
   meleeHitboxRect,
   circleOverlapsRotatedRect,
   classifyWeaponRangeFallback,
 } from './attackGeometry.js';
+
+assert.strictEqual(RANGED_COMBAT_RANGE_MULTIPLIER, 1.5, '원거리 실전 사거리는 기존 3배의 절반');
 
 // meleeHitboxRect — 캐릭터 중심에서 조준 방향으로 오프셋만큼 떨어진 고정 크기 정사각형,
 // 조준 방향으로 회전(angle)까지 반환

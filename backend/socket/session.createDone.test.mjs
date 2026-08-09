@@ -94,7 +94,18 @@ console.log('name/create stage transitions are manual-only (no auto-transition o
   const participants = latestParticipants();
   const s1 = participants.find((p) => p.id === 's1');
   assert.strictEqual(s1.name, '철수');
-  console.log('participant:name updates admin:participants: OK');
+console.log('participant:name updates admin:participants: OK');
+
+// 새로고침한 참가자는 저장된 닉네임을 participant:join에 함께 보내므로 이름 없는
+// 엔트리가 먼저 노출되지 않고 첫 관리자 브로드캐스트부터 닉네임이 유지되어야 한다.
+{
+  registerSessionHandlers(io, makeSocket('nickname-reconnect'));
+  handlers['nickname-reconnect']['participant:join']({ name: '  유지되는 이름  ' });
+  const participant = latestParticipants().find((p) => p.id === 'nickname-reconnect');
+  assert.strictEqual(participant.name, '유지되는 이름');
+  handlers['nickname-reconnect']['disconnect']();
+}
+console.log('participant:join atomically restores a persisted nickname: OK');
 }
 
 // 무기 이름은 참가자가 직접 입력하는 값이라 서버에서 다시 다듬는다 — Supabase를 거쳐

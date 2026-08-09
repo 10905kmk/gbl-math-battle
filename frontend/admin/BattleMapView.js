@@ -12,6 +12,7 @@ const html = htm.bind(h);
 const DISPLAY_MAP_SIZE = { width: 800, height: 600 };
 const SCALE = DISPLAY_MAP_SIZE.width / DEFAULT_MAP.arenaSize.width;
 const CHARACTER_RADIUS = 6; // 미니맵이라 참가자 화면(20)보다 작게 그린다
+const NETWORK_FRAME_MS = 50;
 
 // frontend/src/screens/battle.js의 CHARACTER_COLORS와 같은 값 — 공유 모듈로 빼지 않고 그대로
 // 복제했다(그 파일이 다른 작업으로 자주 바뀌는 중이라 충돌을 피하려는 목적, 8개 고정값이라
@@ -53,6 +54,9 @@ export function BattleMapView({ socket }) {
   const containerRef = useRef(null);
   const layerRef = useRef(null);
   const nodesRef = useRef({});
+  const motionTargetsRef = useRef(new Map());
+  const leaderboardSignatureRef = useRef('');
+  const serverClockOffsetRef = useRef(0);
   const [players, setPlayers] = useState({});
   const [remainingMs, setRemainingMs] = useState(null);
   const [roundStatus, setRoundStatus] = useState('roulette');
@@ -68,6 +72,18 @@ export function BattleMapView({ socket }) {
     const layer = new Konva.Layer();
     stage.add(layer);
     layerRef.current = layer;
+    const motionAnimation = new Konva.Animation(() => {
+      const now = performance.now();
+      for (const [node, motion] of motionTargetsRef.current) {
+        const t = Math.min(1, Math.max(0, (now - motion.startedAt) / NETWORK_FRAME_MS));
+        node.position({
+          x: motion.fromX + (motion.toX - motion.fromX) * t,
+          y: motion.fromY + (motion.toY - motion.fromY) * t,
+        });
+        if (t >= 1) motionTargetsRef.current.delete(node);
+      }
+    }, layer);
+    motionAnimation.start();
 
     // 배경 이미지 — 참가자 화면과 같은 이유로, 없거나 로드 실패해도 조용히 어두운 배경으로
     // 폴백한다(게임/화면이 깨지면 안 됨).
@@ -88,6 +104,8 @@ export function BattleMapView({ socket }) {
 
     return () => {
       cancelled = true;
+      motionAnimation.stop();
+      motionTargetsRef.current.clear();
       stage.destroy();
     };
   }, []);
@@ -97,22 +115,27 @@ export function BattleMapView({ socket }) {
       const layer = layerRef.current;
       if (!layer || !room?.players) return;
 
+      const receivedAt = Date.now();
+      if (Number.isFinite(room.serverNow)) serverClockOffsetRef.current = room.serverNow - receivedAt;
+      const serverNow = receivedAt + serverClockOffsetRef.current;
       setRoundStatus(room.status);
       setCountdownSec(
         room.status === 'countdown' && Number.isFinite(room.countdownEndsAt)
-          ? Math.max(1, Math.ceil((room.countdownEndsAt - Date.now()) / 1000))
+          ? Math.max(1, Math.ceil((room.countdownEndsAt - serverNow) / 1000))
           : null,
       );
       const connected = Object.values(room.players).filter((p) => p.connected !== false);
       setPickedCount(connected.filter((p) => p.skillSelectionConfirmed === true).length);
 
       if (Number.isFinite(room.endsAt)) {
-        setRemainingMs(Math.max(0, room.endsAt - Date.now()));
+        setRemainingMs(Math.ceil(Math.max(0, room.endsAt - serverNow) / 1000) * 1000);
       }
 
       Object.values(room.players).forEach((p) => {
         let node = nodesRef.current[p.id];
+        let isNew = false;
         if (!node) {
+          isNew = true;
           node = new Konva.Circle({
             radius: CHARACTER_RADIUS,
             fill: CHARACTER_COLORS[p.characterId] ?? '#999',
@@ -120,16 +143,29 @@ export function BattleMapView({ socket }) {
           layer.add(node);
           nodesRef.current[p.id] = node;
         }
-        node.x(p.x * SCALE);
-        node.y(p.y * SCALE);
+        const x = p.x * SCALE;
+        const y = p.y * SCALE;
+        if (isNew) {
+          node.position({ x, y });
+        } else {
+          motionTargetsRef.current.set(node, {
+            fromX: node.x(), fromY: node.y(), toX: x, toY: y, startedAt: performance.now(),
+          });
+        }
         // 연결이 끊겼거나 죽어서 부활 대기 중이면 흐리게 — 참가자 화면(battle.js)과 같은 규칙.
         node.opacity(p.connected === false ? 0.2 : p.alive === false ? 0.28 : 1);
       });
 
-      layer.draw();
+      // Konva.Animation이 브라우저 주사율로 레이어를 그리므로 별도 draw는 하지 않는다.
       // 리더보드는 Konva가 아니라 일반 DOM으로 그린다 — 텍스트 목록이라 캔버스를 쓸 이유가
       // 없고, 정렬된 목록을 매번 다시 그리는 게 DOM이 훨씬 간단하다.
-      setPlayers(room.players);
+      const leaderboardSignature = Object.values(room.players)
+        .map((p) => `${p.id}:${p.name ?? ''}:${p.characterId}:${p.connected}:${p.kills}:${p.deaths}:${p.assists}`)
+        .join('|');
+      if (leaderboardSignature !== leaderboardSignatureRef.current) {
+        leaderboardSignatureRef.current = leaderboardSignature;
+        setPlayers(room.players);
+      }
     }
     socket.on('battle:state', onState);
     socket.emit('battle:requestSync');

@@ -45,6 +45,32 @@ let battleDurationSetting = BATTLE_DURATION_MS;
 // 방금 끝난 판의 최종 순위 — 대시보드 화면이 이걸 본다. 새 판을 시작하면 지워진다.
 let lastStandings = null;
 let roundNumber = 0;
+let lastCountdownBroadcastSecond = null;
+
+// 전투 내부 판정에만 필요한 입력/최근 공격자/쿨타임 원본과 정적 맵 충돌 데이터는 매 50ms
+// 네트워크 패킷에 실어 보낼 필요가 없다. 클라이언트가 실제로 그리는 공개 상태만 전송해
+// 직렬화 비용과 참가자 수만큼 반복되는 송신량을 줄인다.
+export function buildBattleStatePayload(room) {
+  if (!room) return room;
+  const { walls, spawnPoints, ...publicRoom } = room;
+  const players = Object.fromEntries(Object.entries(room.players ?? {}).map(([id, player]) => {
+    const {
+      input,
+      recentDamagers,
+      attackRequested,
+      lastAttackAt,
+      hpDamage,
+      ...publicPlayer
+    } = player;
+    return [id, publicPlayer];
+  }));
+  return { ...publicRoom, players, serverNow: Date.now() };
+}
+
+function emitBattleState(target, room, { volatile = false } = {}) {
+  const emitter = volatile && target?.volatile ? target.volatile : target;
+  emitter?.emit('battle:state', buildBattleStatePayload(room));
+}
 
 export function getBattleRoom() {
   return battleRoom;
@@ -88,7 +114,7 @@ export function addBattleTime(amountMs = BATTLE_TIME_EXTENSION_MS) {
   const safeAmount = Number(amountMs);
   if (!Number.isFinite(safeAmount) || safeAmount <= 0) return false;
   battleRoom = { ...battleRoom, endsAt: battleRoom.endsAt + safeAmount };
-  ioRef?.emit('battle:state', battleRoom);
+  emitBattleState(ioRef, battleRoom);
   return true;
 }
 
@@ -105,6 +131,7 @@ export function stopBattleRoom() {
   battleRoom = null;
   ioRef = null;
   onEndRef = null;
+  lastCountdownBroadcastSecond = null;
 }
 
 // 부스 전체를 초기화할 때(admin:reset) 판 기록까지 지운다.
@@ -270,9 +297,23 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
 
   io.emit('battle:standings', null); // 이전 판의 대시보드를 내린다
   tickInterval = setInterval(() => {
+    const previousStatus = battleRoom.status;
     const { room, winners, events } = stepSimulation(battleRoom, Date.now());
     battleRoom = room;
-    io.emit('battle:state', battleRoom);
+    // roulette은 선택/확정 이벤트 때 이미 즉시 전송하므로 변화 없는 방 전체를 20Hz로
+    // 반복할 필요가 없다. countdown도 화면에 보이는 초가 바뀔 때만 보내고, active에서만
+    // 위치 스냅샷을 20Hz 전송한다. 화면 움직임은 클라이언트가 50~60FPS로 보간한다.
+    const countdownSecond = battleRoom.status === 'countdown'
+      ? Math.max(0, Math.ceil((battleRoom.countdownEndsAt - Date.now()) / 1000))
+      : null;
+    const shouldEmit = battleRoom.status === 'active'
+      || battleRoom.status !== previousStatus
+      || (battleRoom.status === 'countdown' && countdownSecond !== lastCountdownBroadcastSecond);
+    if (shouldEmit) {
+      // 상태는 곧 다음 스냅샷으로 완전히 대체된다. 느린 네트워크에 옛 프레임을 쌓지 않는다.
+      emitBattleState(io, battleRoom, { volatile: battleRoom.status === 'active' });
+    }
+    lastCountdownBroadcastSecond = countdownSecond;
     if (events && events.length > 0) io.emit('battle:events', events);
 
     if (winners !== null) {
@@ -302,7 +343,8 @@ export function startBattleCountdown(now = Date.now()) {
     // 프레임부터 클라이언트가 전체 진행 시간을 예측할 수 있게 하는 초기값이다.
     endsAt: now + COUNTDOWN_MS + battleRoom.durationMs,
   };
-  ioRef?.emit('battle:state', battleRoom);
+  lastCountdownBroadcastSecond = Math.ceil(COUNTDOWN_MS / 1000);
+  emitBattleState(ioRef, battleRoom);
   return true;
 }
 
@@ -329,7 +371,7 @@ export function registerBattleHandlers(io, socket) {
     socket.emit('battle:standings', lastStandings);
     socket.emit('battle:moveSpeed', moveSpeedSetting);
     socket.emit('battle:duration', battleDurationSetting);
-    if (battleRoom) socket.emit('battle:state', battleRoom);
+    if (battleRoom) emitBattleState(socket, battleRoom);
   });
 
   socket.on('battle:input', (input) => {
@@ -364,7 +406,7 @@ export function registerBattleHandlers(io, socket) {
       ? selected.filter((id) => id !== skillId)
       : selected.length < SKILL_PICK_COUNT ? [...selected, skillId] : selected;
     player.skillSelectionConfirmed = false;
-    io.emit('battle:state', battleRoom);
+    emitBattleState(io, battleRoom);
   });
 
   socket.on('battle:confirmSkills', () => {
@@ -372,7 +414,7 @@ export function registerBattleHandlers(io, socket) {
     if (!player || battleRoom.status !== 'roulette') return;
     if (player.skillIds?.length !== SKILL_PICK_COUNT) return;
     player.skillSelectionConfirmed = true;
-    io.emit('battle:state', battleRoom);
+    emitBattleState(io, battleRoom);
   });
 
   // 룰렛은 참가자 한 명의 선택이나 시간 경과로 끝나지 않는다. 전원이 선택한 상태에서
@@ -397,7 +439,7 @@ export function registerBattleHandlers(io, socket) {
     if (battleRoom && battleRoom.status !== 'roulette') return;
     const applied = setBattleDuration(value);
     io.emit('battle:duration', applied);
-    if (battleRoom) io.emit('battle:state', battleRoom);
+    if (battleRoom) emitBattleState(io, battleRoom);
   });
 
   socket.on('admin:addBattleTime', () => {

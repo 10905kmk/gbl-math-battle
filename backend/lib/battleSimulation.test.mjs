@@ -14,6 +14,7 @@ import {
   HP_DAMAGE_MIN,
   HP_DAMAGE_MAX,
   RESPAWN_MS,
+  SPAWN_INVULNERABILITY_MS,
   ASSIST_WINDOW_MS,
   BATTLE_DURATION_MS,
   SCORE_PER_KILL,
@@ -144,7 +145,15 @@ console.log('countdown freezes the round and starts the clock when it ends: OK')
   const wall = { x: 420, y: 280, width: 40, height: 40 };
   const room = makeRoom({ p1: makePlayer({ x: 400, y: 300, input: { ...noInput, moveX: 1 } }) }, { walls: [wall] });
   assert.strictEqual(stepSimulation(room, 1000).room.players.p1.x, 400);
-  console.log('wall collision: OK');
+console.log('wall collision: OK');
+
+{
+  const wall = { x: 420, y: 280, width: 40, height: 40 };
+  const trapped = makePlayer({ x: 430, y: 300, input: { ...noInput, moveX: -1 } });
+  const next = stepSimulation(makeRoom({ p1: trapped }, { walls: [wall] }), 1000).room.players.p1;
+  assert.ok(next.x <= wall.x - CHARACTER_RADIUS, '이미 벽 안에 들어간 캐릭터도 가장 가까운 바깥으로 복구');
+  console.log('wall penetration recovery prevents permanently stuck players: OK');
+}
 }
 
 {
@@ -255,6 +264,24 @@ console.log('attacks respect request/range/connection/alive conditions: OK');
   console.log('attack cooldown drops the request instead of queueing: OK');
 }
 
+{
+  const melee = makePlayer({
+    id: 'p1', x: 400, y: 300, aimX: 1, aimY: 0, hpDamage: 20,
+    lastAttackAt: 600, attackRequested: true,
+  });
+  const target = makePlayer({ id: 'p2', x: 450, y: 300 });
+  const meleeResult = stepSimulation(makeRoom({ p1: melee, p2: target }), 1000).room;
+  assert.strictEqual(meleeResult.players.p2.hp, HP_MAX - 20, '근접은 350ms가 지나면 다시 공격 가능');
+
+  const ranged = makePlayer({
+    id: 'p1', x: 400, y: 300, aimX: 1, aimY: 0, hpDamage: 20,
+    isRanged: true, rangeDistance: 300, lastAttackAt: 600, attackRequested: true,
+  });
+  const rangedResult = stepSimulation(makeRoom({ p1: ranged }), 1000).room;
+  assert.strictEqual(rangedResult.projectiles.length, 0, '같은 400ms 경과 시 원거리는 기존 500ms 쿨다운 유지');
+  console.log('melee attacks faster while ranged cooldown stays unchanged: OK');
+}
+
 // ── 죽음 / 킬 / 데스 / 어시스트 ─────────────────────────────────────────
 {
   const attacker = makePlayer({ id: 'p1', x: 400, y: 300, aimX: 1, aimY: 0, hpDamage: 20, attackRequested: true });
@@ -308,6 +335,8 @@ console.log('attacks respect request/range/connection/alive conditions: OK');
     '살아 있는 상대에게서 먼 스폰을 골라야 함(스폰 캠핑 방지)',
   );
   assert.ok(events.some((e) => e.type === 'respawn' && e.playerId === 'p1'));
+  assert.strictEqual(revived.players.p1.status.invulnUntil, 5000 + SPAWN_INVULNERABILITY_MS, '부활 후 정확히 5초 무적');
+  assert.ok(revived.effects.some((fx) => fx.type === 'shield' && fx.playerId === 'p1' && fx.endsAt === 10_000));
   console.log('respawn restores full HP at the safest spawn point: OK');
 }
 
@@ -469,7 +498,7 @@ console.log('computeScore: kill +20 / death -10 / assist +5: OK');
     isRanged: true, rangeDistance: 300, attackRequested: true,
   });
   assert.strictEqual(stepSimulation(makeRoom({ p1: attacker }), 1000).room.projectiles.length, 0, '쿨다운 중이면 투사체가 안 생김');
-  console.log('ranged attack respects the same cooldown as melee: OK');
+  console.log('ranged attack keeps its 500ms cooldown: OK');
 }
 
 // ── computeRanks ────────────────────────────────────────────────────────

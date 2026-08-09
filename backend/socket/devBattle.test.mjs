@@ -43,6 +43,21 @@ getDevBattleRoom(socket.id).players[targetId].skillReadyAt = Date.now() + 999_99
 handlers.get('devBattle:resetCooldown')();
 assert.strictEqual(getDevBattleRoom(socket.id).players[targetId].skillReadyAt, 0);
 
+// 빠른 연속 테스트에서 이전 스킬 흔적이 누적되지 않아야 한다.
+handlers.get('devBattle:selectSkill')('shield');
+handlers.get('devBattle:skill')();
+room = getDevBattleRoom(socket.id);
+assert.ok(room.effects.length > 0, '테스트 스킬 파티클 생성');
+room.mines.push({ id: 'old-mine', ownerId: targetId, endsAt: Date.now() + 10_000 });
+room.blackholes.push({ id: 'old-blackhole', ownerId: targetId, endsAt: Date.now() + 10_000 });
+room.projectiles.push({ id: 'old-projectile' });
+handlers.get('devBattle:resetCooldown')();
+room = getDevBattleRoom(socket.id);
+assert.deepStrictEqual(room.effects, [], '쿨타임 초기화 시 이전 파티클 정리');
+assert.deepStrictEqual(room.mines, [], '쿨타임 초기화 시 지뢰 정리');
+assert.deepStrictEqual(room.blackholes, [], '쿨타임 초기화 시 블랙홀 정리');
+assert.deepStrictEqual(room.projectiles, [], '쿨타임 초기화 시 투사체 정리');
+
 handlers.get('devBattle:reset')();
 assert.strictEqual(getDevBattleRoom(socket.id).players[socket.id].hp, HP_MAX);
 assert.strictEqual(getDevBattleRoom(socket.id).players[socket.id].skillId, 'heal');

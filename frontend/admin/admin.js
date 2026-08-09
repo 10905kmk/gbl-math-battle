@@ -1,5 +1,5 @@
 import { h, render, Fragment } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import htm from 'htm';
 import { io } from 'socket.io-client';
 import { SKILLS, formatSkillTiming } from '../shapes/skills.js';
@@ -30,6 +30,7 @@ function AdminApp() {
   const [moveSpeed, setMoveSpeed] = useState(8);
   const [battleDuration, setBattleDuration] = useState(180_000);
   const [battleState, setBattleState] = useState(null);
+  const battleUiUpdateRef = useRef({ at: 0, status: null });
 
   useEffect(() => {
     function onNewError(entry) {
@@ -43,7 +44,17 @@ function AdminApp() {
     socket.on('battle:standings', setStandings);
     socket.on('battle:moveSpeed', setMoveSpeed);
     socket.on('battle:duration', setBattleDuration);
-    socket.on('battle:state', setBattleState);
+    function onBattleState(room) {
+      const now = Date.now();
+      const previous = battleUiUpdateRef.current;
+      // 관리자 전체 페이지는 위치 애니메이션을 직접 그리지 않는다(BattleMapView가 별도
+      // 캔버스로 처리). 버튼/선택 현황만 초당 4회 갱신해 전체 관리자 DOM 20Hz 렌더를 막는다.
+      if (room?.status !== previous.status || now - previous.at >= 250) {
+        battleUiUpdateRef.current = { at: now, status: room?.status };
+        setBattleState(room);
+      }
+    }
+    socket.on('battle:state', onBattleState);
     return () => {
       socket.off('stage:change', setStage);
       socket.off('admin:participants', setParticipants);
@@ -53,7 +64,7 @@ function AdminApp() {
       socket.off('battle:standings', setStandings);
       socket.off('battle:moveSpeed', setMoveSpeed);
       socket.off('battle:duration', setBattleDuration);
-      socket.off('battle:state', setBattleState);
+      socket.off('battle:state', onBattleState);
     };
   }, [socket]);
 

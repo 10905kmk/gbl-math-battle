@@ -8,6 +8,7 @@
 // 세 곳뿐이라 서로 간섭하지 않는다.
 import { getSkill, METER } from '../../shapes/skills.js';
 import { MAX_HP } from '../../shapes/combatRules.js';
+import { circleRectOverlap, resolveCircleFromWalls } from '../../shapes/collision.js';
 
 export const CHARACTER_RADIUS = 20;
 
@@ -34,7 +35,7 @@ export function ensureSkillWorld(room) {
   return room;
 }
 
-function pushEffect(room, effect) {
+export function pushEffect(room, effect) {
   ensureSkillWorld(room);
   room.effects.push({ id: `fx${room.effectSeq++}`, ...effect });
 }
@@ -181,25 +182,18 @@ function pickConeTarget(players, self, range, halfAngle, now) {
 // 벽/경계를 뚫지 않는 선에서 (x,y)로 최대한 밀어낸다 — 대쉬/넉백/끌어당김이 공유한다.
 function moveToward(player, targetX, targetY, room) {
   const steps = 8;
-  let lastX = player.x;
-  let lastY = player.y;
+  const safeStart = resolveCircleFromWalls(player.x, player.y, CHARACTER_RADIUS, room.walls, room.arenaSize);
+  let lastX = safeStart.x;
+  let lastY = safeStart.y;
   for (let i = 1; i <= steps; i += 1) {
     const t = i / steps;
-    const nx = clamp(player.x + (targetX - player.x) * t, CHARACTER_RADIUS, room.arenaSize.width - CHARACTER_RADIUS);
-    const ny = clamp(player.y + (targetY - player.y) * t, CHARACTER_RADIUS, room.arenaSize.height - CHARACTER_RADIUS);
-    if (room.walls.some((w) => circleRect(nx, ny, CHARACTER_RADIUS, w))) break;
+    const nx = clamp(safeStart.x + (targetX - safeStart.x) * t, CHARACTER_RADIUS, room.arenaSize.width - CHARACTER_RADIUS);
+    const ny = clamp(safeStart.y + (targetY - safeStart.y) * t, CHARACTER_RADIUS, room.arenaSize.height - CHARACTER_RADIUS);
+    if (room.walls.some((w) => circleRectOverlap(nx, ny, CHARACTER_RADIUS, w))) break;
     lastX = nx;
     lastY = ny;
   }
   return { x: lastX, y: lastY };
-}
-
-function circleRect(cx, cy, r, rect) {
-  const closestX = clamp(cx, rect.x, rect.x + rect.width);
-  const closestY = clamp(cy, rect.y, rect.y + rect.height);
-  const dx = cx - closestX;
-  const dy = cy - closestY;
-  return dx * dx + dy * dy < r * r;
 }
 
 // 스킬이 직접 주는 피해(충격파/콜드플레이/지뢰/독 도트)는 무기 데미지와 별개로 "HP %"다.
@@ -387,11 +381,14 @@ export function activateSkill(room, playerId, now, random = Math.random, request
     case 'deathMark': {
       const targets = coneTargets(room.players, player, skill.range, skill.halfAngle, now);
       const target = pickConeTarget(room.players, player, skill.range, skill.halfAngle, now);
+      // 콜드플레이는 2초 발동 전체가 범위 효과다. 연행영장/사형선고 부채꼴은 대상 지정용
+      // 순간 연출이므로 0.5초만 보이고, 실제 지속 효과(이동/과녁)는 별도 상태가 담당한다.
+      const coneDurationMs = skill.id === 'coldplay' ? skill.activationDurationMs : 500;
       pushEffect(room, {
         type: 'cone', skillId: skill.id, playerId,
         x: player.x, y: player.y, aimX: player.aimX ?? 0, aimY: player.aimY ?? 1,
         range: skill.range, halfAngle: skill.halfAngle,
-        endsAt: now + (skill.id === 'coldplay' ? 500 : skill.activationDurationMs), color: skill.color,
+        endsAt: now + coneDurationMs, color: skill.color,
       });
       if (target) {
         if (skill.id === 'warrant') {
@@ -446,7 +443,7 @@ export function tickSkillWorld(room, now, events) {
     const traveled = pearl.traveled + pearl.speed;
     const owner = room.players[pearl.ownerId];
     const hitWall =
-      room.walls.some((w) => circleRect(nx, ny, 6, w)) ||
+      room.walls.some((w) => circleRectOverlap(nx, ny, 6, w)) ||
       nx <= CHARACTER_RADIUS || ny <= CHARACTER_RADIUS ||
       nx >= room.arenaSize.width - CHARACTER_RADIUS || ny >= room.arenaSize.height - CHARACTER_RADIUS;
 

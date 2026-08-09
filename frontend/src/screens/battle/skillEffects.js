@@ -20,13 +20,20 @@ function nodeStoreFor(layer) {
   return store;
 }
 
-function syncGroup(layer, Konva, liveIds) {
+function syncGroup(layer, liveIds) {
+  const nodes = nodeStoreFor(layer);
   for (const [id, node] of nodes) {
     if (!liveIds.has(id)) {
       node.destroy();
       nodes.delete(id);
     }
   }
+}
+
+// 서버 틱/네트워크가 잠시 멈춰 마지막 room 스냅샷이 남아 있어도, 종료 시각을 지난
+// 파티클을 클라이언트가 계속 그리지 않게 한다. endsAt이 없는 구형 데이터만 활성으로 본다.
+export function isTimedVisualActive(visual, now) {
+  return !Number.isFinite(visual?.endsAt) || visual.endsAt > now;
 }
 
 // 진행도(0~1) — 이펙트가 끝나갈수록 흐려지거나 커지는 데 쓴다.
@@ -45,10 +52,17 @@ export function isMineVisibleToViewer(mine, selfId) {
   return mine?.ownerId === selfId;
 }
 
-export function isEffectVisibleToViewer(effect, selfId) {
+export function isEffectVisibleToViewer(effect, selfId, players = null, now = 0) {
   // 스킬 파티클 중 유일한 본인 전용 예외은 투명망토 상태 안내다.
   if (effect?.type === 'cloakSelf') return effect.ownerId === selfId;
+  // 투명 상태인 상대를 따라다니는 오라/표식까지 보이면 캐릭터 본체를 숨겨도 위치가 그대로
+  // 노출된다. playerId가 있는 부착형 효과만 숨기고, 이미 바닥에 펼쳐진 범위 효과는 유지한다.
+  if (effect?.playerId && isPlayerHiddenByCloak(players?.[effect.playerId], selfId, now)) return false;
   return true;
+}
+
+export function isPlayerHiddenByCloak(player, selfId, now) {
+  return player?.id !== selfId && (player?.status?.cloakUntil ?? 0) > now;
 }
 
 // 사형선고 대상이 현재 카메라 밖에 있으면, 대상 방향의 화면 가장자리로 표식을 옮긴다.
@@ -84,6 +98,7 @@ export function drawSkillEffects(Konva, layer, room, now) {
 
   // ── 설치물: 지뢰(설치자에게만 희미하게 보임) ────────────────────────
   for (const mine of room.mines ?? []) {
+    if (!isTimedVisualActive(mine, now)) continue;
     const id = `mine-${mine.id}`;
     live.add(id);
     let node = nodes.get(id);
@@ -101,6 +116,7 @@ export function drawSkillEffects(Konva, layer, room, now) {
 
   // ── 블랙홀: 검정+보라 소용돌이 ──────────────────────────────────────
   for (const bh of room.blackholes ?? []) {
+    if (!isTimedVisualActive(bh, now)) continue;
     const id = `bh-${bh.id}`;
     live.add(id);
     let node = nodes.get(id);
@@ -121,6 +137,7 @@ export function drawSkillEffects(Konva, layer, room, now) {
 
   // ── 순간이동 진주 ───────────────────────────────────────────────────
   for (const pearl of room.pearls ?? []) {
+    if (!isTimedVisualActive(pearl, now)) continue;
     const id = `pearl-${pearl.id}`;
     live.add(id);
     let node = nodes.get(id);
@@ -136,6 +153,7 @@ export function drawSkillEffects(Konva, layer, room, now) {
 
   // ── 일회성/지속 이펙트 ──────────────────────────────────────────────
   for (const fx of room.effects ?? []) {
+    if (!isTimedVisualActive(fx, now)) continue;
     const id = `fx-${fx.id}`;
     live.add(id);
     let node = nodes.get(id);
@@ -166,13 +184,13 @@ export function drawSkillEffects(Konva, layer, room, now) {
       arrow.rotation((markPosition?.angle ?? 0) + 90);
     }
     // 투명망토 발동 안내는 사용자 본인에게만 보여 은신 위치를 노출하지 않는다.
-    node.visible(isEffectVisibleToViewer(fx, room.selfId));
+    node.visible(isEffectVisibleToViewer(fx, room.selfId, room.players, now));
     // 이후에 생성된 투사체/플레이어 노드 뒤로 파티클이 묻히지 않게 한다.
     node.moveToTop();
     animateEffect(node, fx, t, now);
   }
 
-  syncGroup(layer, Konva, live);
+  syncGroup(layer, live);
 }
 
 function buildEffectNode(Konva, fx) {

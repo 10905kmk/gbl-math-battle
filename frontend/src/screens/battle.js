@@ -8,7 +8,7 @@ import { meleeHitboxRect, ATTACK_HITBOX_SIZE, PROJECTILE_RADIUS } from '../../..
 import { VirtualJoystick } from './VirtualJoystick.js';
 import { SkillRoulette } from './battle/SkillRoulette.js';
 import { SkillButton } from './battle/SkillButton.js';
-import { clearSkillEffects, drawSkillEffects } from './battle/skillEffects.js';
+import { clearSkillEffects, drawSkillEffects, isPlayerHiddenByCloak } from './battle/skillEffects.js';
 import { hasLocalDamage } from './battle/battleFeedback.js';
 
 const html = htm.bind(h);
@@ -52,6 +52,17 @@ const CHARACTER_COLORS = {
 // 정확히 같은지 비교할 수 없어서, 이 값보다 작게 변하면 "그대로"로 본다(마우스 좌표가 1px만
 // 흔들려도 매 프레임 emit되는 걸 방지).
 const INPUT_EPSILON = 0.02;
+const NETWORK_FRAME_MS = 50;
+
+function sameArray(a, b) {
+  return a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, i) => value === b[i]));
+}
+
+function sameNumberRecord(a, b) {
+  const aKeys = Object.keys(a ?? {});
+  const bKeys = Object.keys(b ?? {});
+  return aKeys.length === bKeys.length && aKeys.every((key) => a[key] === b[key]);
+}
 
 // 실시간 대전 화면. docs/초안.md 7-③, 2026-08-06 배틀로얄 점수제/조작방식 재설계 문서 참고.
 export function BattleScreen({ socket, state }) {
@@ -61,6 +72,9 @@ export function BattleScreen({ socket, state }) {
   const nodesRef = useRef({});
   // 투사체는 플레이어와 달리 계속 생겼다 없어지므로 별도로 관리한다(id별 Konva 노드).
   const projectileNodesRef = useRef({});
+  // 서버는 안정적인 20틱 판정을 유지하고, 수신한 두 위치 사이를 브라우저의
+  // requestAnimationFrame(Konva.Animation, 보통 60Hz)으로 보간해 50FPS 이상으로 보인다.
+  const motionTargetsRef = useRef(new Map());
   const hitFlashUntilRef = useRef(0);
   const hitFlashTimerRef = useRef(null);
   // 내 캐릭터의 공격 미리보기(텔레그래프) 노드 — 무기 종류(근접 Rect/원거리 Line)는 대전
@@ -72,6 +86,9 @@ export function BattleScreen({ socket, state }) {
   // 현재 카메라가 월드 좌표계에서 어디를 보고 있는지(뷰포트 왼쪽 위 모서리의 월드 좌표).
   // 마우스 조준 좌표 변환(뷰포트 좌표 -> 월드 좌표)에도 이 값이 필요해서 ref로 공유한다.
   const cameraRef = useRef({ x: 0, y: 0 });
+  // endsAt/쿨타임은 서버 시각이다. 참가자 기기의 시계가 빠르거나 느려도 파티클이 즉시
+  // 사라지지 않도록 매 상태 패킷의 serverNow로 현재 서버 시각을 복원한다.
+  const serverClockOffsetRef = useRef(0);
   // 제한시간 HUD는 Konva 캔버스가 아니라 일반 DOM 텍스트라 useState로 관리 — battle:state가
   // 50ms마다 오므로 이 값도 그 주기로 갱신되어 카운트다운이 매끄럽게 보인다.
   const [remainingMs, setRemainingMs] = useState(null);
@@ -89,6 +106,20 @@ export function BattleScreen({ socket, state }) {
   const [skillsConfirmed, setSkillsConfirmed] = useState(false);
   const [skillReadyAts, setSkillReadyAts] = useState({});
 
+  function moveNodeSmoothly(node, x, y, immediate = false) {
+    if (!node || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (immediate) {
+      motionTargetsRef.current.delete(node);
+      node.position({ x, y });
+      return;
+    }
+    motionTargetsRef.current.set(node, {
+      fromX: node.x(), fromY: node.y(),
+      toX: x, toY: y,
+      startedAt: performance.now(),
+    });
+  }
+
   useEffect(() => {
     // 이전 게임 화면/개발자 조종 아바타의 Konva 레이어에 속했던 파티클 캐시를 비운다.
     // 이걸 남겨두면 새 캔버스에서 같은 id의 파티클을 이미 있다고 착각해 그리지 않는다.
@@ -101,6 +132,18 @@ export function BattleScreen({ socket, state }) {
     stage.add(layer);
     layerRef.current = layer;
     stageRef.current = stage;
+    const motionAnimation = new Konva.Animation(() => {
+      const now = performance.now();
+      for (const [node, motion] of motionTargetsRef.current) {
+        const t = Math.min(1, Math.max(0, (now - motion.startedAt) / NETWORK_FRAME_MS));
+        node.position({
+          x: motion.fromX + (motion.toX - motion.fromX) * t,
+          y: motion.fromY + (motion.toY - motion.fromY) * t,
+        });
+        if (t >= 1) motionTargetsRef.current.delete(node);
+      }
+    }, layer);
+    motionAnimation.start();
 
     // 배경 이미지 — 아직 파일이 없거나 로드에 실패해도(onerror) 아무 것도 하지 않고
     // .battle-arena의 어두운 배경색이 그대로 보이게 조용히 폴백한다(게임이 깨지면 안 됨).
@@ -126,6 +169,8 @@ export function BattleScreen({ socket, state }) {
 
     return () => {
       cancelled = true;
+      motionAnimation.stop();
+      motionTargetsRef.current.clear();
       clearSkillEffects(layer);
       stage.destroy();
     };
@@ -133,29 +178,43 @@ export function BattleScreen({ socket, state }) {
 
   useEffect(() => {
     function onState(room) {
+      const receivedAt = Date.now();
+      if (Number.isFinite(room.serverNow)) {
+        serverClockOffsetRef.current = room.serverNow - receivedAt;
+      }
+      const serverNow = receivedAt + serverClockOffsetRef.current;
       if (Number.isFinite(room.endsAt)) {
-        setRemainingMs(Math.max(0, room.endsAt - Date.now()));
+        setRemainingMs(Math.ceil(Math.max(0, room.endsAt - serverNow) / 1000) * 1000);
       }
       setRoundStatus(room.status);
       // 시작 카운트다운(5,4,3,2,1) — 0 이하가 되면 오버레이를 내린다. Math.ceil이라
       // 4001ms 남은 순간에도 "5"가 보인다(사람이 세는 방식과 같음).
       setCountdownSec(
         room.status === 'countdown' && Number.isFinite(room.countdownEndsAt)
-          ? Math.max(0, Math.ceil((room.countdownEndsAt - Date.now()) / 1000))
+          ? Math.max(0, Math.ceil((room.countdownEndsAt - serverNow) / 1000))
           : null,
       );
       const me = room.players[socket.id];
       setRespawnSec(
         me && me.alive === false && Number.isFinite(me.respawnAt)
-          ? Math.max(0, Math.ceil((me.respawnAt - Date.now()) / 1000))
+          ? Math.max(0, Math.ceil((me.respawnAt - serverNow) / 1000))
           : null,
       );
       if (me) {
-        setSkillChoices(me.skillChoices ?? []);
+        setSkillChoices((previous) => {
+          const next = me.skillChoices ?? [];
+          return sameArray(previous, next) ? previous : next;
+        });
         // 개발자 테스트 방은 한 번에 하나를 바꿔 시험하는 기존 skillId 형식도 계속 받는다.
-        setMySkillIds(me.skillIds ?? (me.skillId ? [me.skillId] : []));
+        setMySkillIds((previous) => {
+          const next = me.skillIds ?? (me.skillId ? [me.skillId] : []);
+          return sameArray(previous, next) ? previous : next;
+        });
         setSkillsConfirmed(me.skillSelectionConfirmed === true);
-        setSkillReadyAts(me.skillReadyAts ?? (me.skillId ? { [me.skillId]: me.skillReadyAt ?? 0 } : {}));
+        setSkillReadyAts((previous) => {
+          const next = me.skillReadyAts ?? (me.skillId ? { [me.skillId]: me.skillReadyAt ?? 0 } : {});
+          return sameNumberRecord(previous, next) ? previous : next;
+        });
       }
       const layer = layerRef.current;
       if (!layer) return;
@@ -208,7 +267,9 @@ export function BattleScreen({ socket, state }) {
           }
         }
         let entry = nodesRef.current[p.id];
+        let isNewEntry = false;
         if (!entry) {
+          isNewEntry = true;
           const isSelf = p.id === socket.id;
           const circle = new Konva.Circle({
             x: p.x, y: p.y, radius: CHARACTER_RADIUS,
@@ -271,23 +332,21 @@ export function BattleScreen({ socket, state }) {
         // 명시적으로 false일 때만 흐리게 — p.score ?? 0과 같은 방어 원칙(Opus 리뷰 Minor M2).
         const isConnected = p.connected !== false;
         const isAlive = p.alive !== false;
-        const cloakActive = (p.status?.cloakUntil ?? 0) > Date.now();
-        const hiddenByCloak = cloakActive && p.id !== socket.id;
+        const cloakActive = (p.status?.cloakUntil ?? 0) > serverNow;
+        const hiddenByCloak = isPlayerHiddenByCloak(p, socket.id, serverNow);
         const selfCloakOpacity = cloakActive && p.id === socket.id ? 0.42 : 1;
         // 연결이 끊겼거나(조작 불가) 죽어서 부활 대기 중이면 흐리게 — 둘 다 "지금은 상호작용
         // 대상이 아니다"라는 같은 뜻이라 같은 표현을 쓴다.
         const opacity = (!isConnected ? 0.2 : isAlive ? 1 : 0.28) * selfCloakOpacity;
 
-        const localHitFlash = p.id === socket.id && hitFlashUntilRef.current > Date.now();
-        entry.circle.x(p.x);
-        entry.circle.y(p.y);
+        const localHitFlash = p.id === socket.id && hitFlashUntilRef.current > receivedAt;
+        moveNodeSmoothly(entry.circle, p.x, p.y, isNewEntry);
         entry.circle.visible(!hiddenByCloak);
         entry.circle.fill(localHitFlash ? '#ff4d4d' : CHARACTER_COLORS[p.characterId] ?? '#999');
         entry.circle.shadowColor(localHitFlash ? '#ff1f1f' : 'transparent');
         entry.circle.shadowBlur(localHitFlash ? 18 : 0);
         entry.circle.opacity(opacity);
-        entry.label.x(p.x - CHARACTER_RADIUS);
-        entry.label.y(p.y - 7);
+        moveNodeSmoothly(entry.label, p.x - CHARACTER_RADIUS, p.y - 7, isNewEntry);
         entry.label.visible(!hiddenByCloak);
         entry.label.opacity(opacity);
 
@@ -295,19 +354,16 @@ export function BattleScreen({ socket, state }) {
         const hpRatio = Math.max(0, Math.min(1, (p.hp ?? HP_MAX_CLIENT) / HP_MAX_CLIENT));
         const barX = p.x - HP_BAR_WIDTH / 2;
         const barY = Math.max(0, p.y - CHARACTER_RADIUS - 22);
-        entry.hpBarBg.x(barX);
-        entry.hpBarBg.y(barY);
+        moveNodeSmoothly(entry.hpBarBg, barX, barY, isNewEntry);
         entry.hpBarBg.visible(isAlive && !hiddenByCloak);
-        entry.hpBarFill.x(barX);
-        entry.hpBarFill.y(barY);
+        moveNodeSmoothly(entry.hpBarFill, barX, barY, isNewEntry);
         entry.hpBarFill.width(HP_BAR_WIDTH * hpRatio);
         entry.hpBarFill.fill(hpRatio > 0.5 ? HP_COLOR_FULL : hpRatio > 0.25 ? HP_COLOR_MID : HP_COLOR_LOW);
         entry.hpBarFill.visible(isAlive && hpRatio > 0 && !hiddenByCloak);
         entry.hpBarBg.opacity(isConnected ? 1 : 0.2);
         entry.hpBarFill.opacity(isConnected ? 1 : 0.2);
 
-        entry.nameLabel.x(p.x - 60);
-        entry.nameLabel.y(barY - 15);
+        moveNodeSmoothly(entry.nameLabel, p.x - 60, barY - 15, isNewEntry);
         entry.nameLabel.text(p.name ?? `캐릭터 ${(p.characterId ?? '').replace('char', '')}`);
         entry.nameLabel.visible(!hiddenByCloak);
         entry.nameLabel.opacity(opacity);
@@ -316,9 +372,8 @@ export function BattleScreen({ socket, state }) {
         const showRespawn = !isAlive && Number.isFinite(p.respawnAt);
         entry.respawnLabel.visible(showRespawn && !hiddenByCloak);
         if (showRespawn) {
-          entry.respawnLabel.x(p.x - 60);
-          entry.respawnLabel.y(barY - 2);
-          entry.respawnLabel.text(`부활 ${Math.max(0, Math.ceil((p.respawnAt - Date.now()) / 1000))}`);
+          moveNodeSmoothly(entry.respawnLabel, p.x - 60, barY - 2, isNewEntry);
+          entry.respawnLabel.text(`부활 ${Math.max(0, Math.ceil((p.respawnAt - serverNow) / 1000))}`);
         }
 
         // 무기 아이콘 위치/방향 — 조준 벡터(aimX/aimY)를 기준으로 캐릭터 중심에서 연속적으로
@@ -338,12 +393,10 @@ export function BattleScreen({ socket, state }) {
           DEFAULT_MAP.arenaSize.height,
           Math.max(0, p.y + aimY * handForward + aimX * handSide),
         );
-        entry.rightHand.x(handX);
-        entry.rightHand.y(handY);
+        moveNodeSmoothly(entry.rightHand, handX, handY, isNewEntry);
         entry.rightHand.visible(!hiddenByCloak);
         entry.rightHand.opacity(opacity);
-        entry.weaponGroup.x(handX);
-        entry.weaponGroup.y(handY);
+        moveNodeSmoothly(entry.weaponGroup, handX, handY, isNewEntry);
         entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
         entry.weaponGroup.visible(!hiddenByCloak);
         entry.weaponGroup.opacity(opacity);
@@ -360,13 +413,14 @@ export function BattleScreen({ socket, state }) {
       });
       (room.projectiles ?? []).forEach((proj) => {
         let node = projectileNodesRef.current[proj.id];
+        let isNewProjectile = false;
         if (!node) {
+          isNewProjectile = true;
           node = new Konva.Circle({ radius: PROJECTILE_RADIUS, fill: '#f1c40f' });
           layer.add(node);
           projectileNodesRef.current[proj.id] = node;
         }
-        node.x(proj.x);
-        node.y(proj.y);
+        moveNodeSmoothly(node, proj.x, proj.y, isNewProjectile);
       });
 
       // 특수 스킬 이펙트(지뢰/블랙홀/진주/오라/부채꼴 등) — 서버가 보낸 것을 그대로 그린다.
@@ -376,9 +430,10 @@ export function BattleScreen({ socket, state }) {
         selfId: socket.id,
         camera: cameraRef.current,
         viewport: VIEWPORT_SIZE,
-      }, Date.now());
+      }, serverNow);
 
-      layer.draw();
+      // 위치와 속성 변경은 위 Konva.Animation이 브라우저 주사율로 그린다. 여기서 매
+      // 네트워크 패킷마다 별도로 draw하면 같은 프레임을 중복 렌더링하게 된다.
     }
     socket.on('battle:state', onState);
     return () => socket.off('battle:state', onState);
@@ -512,8 +567,7 @@ export function BattleScreen({ socket, state }) {
     const cameraX = clamp(myX - VIEWPORT_SIZE.width / 2, 0, maxX);
     const cameraY = clamp(myY - VIEWPORT_SIZE.height / 2, 0, maxY);
     cameraRef.current = { x: cameraX, y: cameraY };
-    layer.x(-cameraX);
-    layer.y(-cameraY);
+    moveNodeSmoothly(layer, -cameraX, -cameraY);
   }
 
   // PC 조준 — 아레나 위 마지막 마우스 위치와 내 캐릭터 위치(selfPosRef)의 차이를 방향벡터로

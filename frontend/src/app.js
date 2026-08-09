@@ -12,6 +12,27 @@ import { ResultScreen } from './screens/result.js';
 import { ThanksScreen } from './screens/thanks.js';
 
 const html = htm.bind(h);
+const NICKNAME_STORAGE_KEY = 'gbl-participant-nickname';
+
+function loadSavedNickname() {
+  try {
+    const saved = localStorage.getItem(NICKNAME_STORAGE_KEY);
+    return typeof saved === 'string' && saved.trim() ? saved.trim().slice(0, 20) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveNickname(name) {
+  const safeName = typeof name === 'string' ? name.trim().slice(0, 20) : '';
+  try {
+    if (safeName) localStorage.setItem(NICKNAME_STORAGE_KEY, safeName);
+    else localStorage.removeItem(NICKNAME_STORAGE_KEY);
+  } catch {
+    // 저장소가 차단된 환경에서도 현재 접속 중 메모리 값은 계속 사용한다.
+  }
+  return safeName || null;
+}
 
 const SCREENS = {
   name: NameScreen,
@@ -31,7 +52,7 @@ function App() {
   // 사라진다. 예전엔 이 값으로 "이름 입력 화면을 아예 건너뛸지"도 결정했지만, 이제
   // 이름 입력은 서버 stage('name')가 결정하므로 nameRef는 순수하게 재접속 시
   // 재전송하는 용도로만 쓰인다.
-  const nameRef = useRef(null);
+  const nameRef = useRef(loadSavedNickname());
   // 결과 저장(Supabase) 완료 후 서버가 알려주는 저장된 행의 id — result-page QR/링크에 쓴다.
   // battle.js가 아니라 여기서 듣는 이유: 저장은 비동기라 stage가 이미 result로 넘어가
   // BattleScreen이 unmount된 뒤에 이 이벤트가 도착하는 경우가 흔한데, App은 화면 전환과
@@ -68,13 +89,9 @@ function App() {
     // 신호가 늦어지면 인원수 집계가 어긋나는 사고로 이어질 수 있다(예전에 실제로 겪은
     // 문제와 같은 부류).
     function join() {
-      socket.emit('participant:join');
-      // 재연결로 socket.id가 바뀌었을 수 있으니, 이미 입력된 이름이 있으면 새 id에도
-      // 다시 등록해준다 — participant:join과 같은 타이밍(지연 없이 즉시)이라 인원수
-      // 집계에는 영향이 없다.
-      if (nameRef.current !== null) {
-        socket.emit('participant:name', nameRef.current);
-      }
+      // 닉네임을 참가 등록 payload에 함께 보내야 관리자 화면에 name=null 엔트리가 먼저
+      // 나타났다 다음 이벤트에서 이름으로 바뀌는 깜빡임도 막을 수 있다.
+      socket.emit('participant:join', { name: nameRef.current });
     }
     socket.on('connect', join);
     if (socket.connected) join();
@@ -87,7 +104,7 @@ function App() {
     state=${state}
     resultId=${resultId}
     onNameSubmit=${(n) => {
-      nameRef.current = n;
+      nameRef.current = saveNickname(n);
     }}
   />`;
 }

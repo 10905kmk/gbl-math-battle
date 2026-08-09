@@ -5,9 +5,8 @@
 export const ATTACK_HITBOX_SIZE = 30;
 export const RANGE_DISTANCE_MIN = 150;
 export const RANGE_DISTANCE_MAX = 600;
-// AI가 평가한 원거리 사거리 값을 실제 전투 맵에서는 3배로 확장한다.
-// 평가/저장 값의 호환성은 유지하면서 기존에 만든 무기도 똑같이 길어지게 한다.
-export const RANGED_COMBAT_RANGE_MULTIPLIER = 3;
+// AI 평가/저장 값은 유지하되, 원거리 우세를 줄이기 위해 실전 배율을 기존 3배의 절반으로 조정.
+export const RANGED_COMBAT_RANGE_MULTIPLIER = 1.5;
 export const ASPECT_RATIO_THRESHOLD = 2.5;
 export const PROJECTILE_SPEED = 12;
 export const PROJECTILE_RADIUS = 8;

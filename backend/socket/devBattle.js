@@ -7,6 +7,7 @@ import {
 import { activateSkill, newPlayerSkillState } from '../lib/skillEngine.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 import { isValidSkillId } from '../../shapes/skills.js';
+import { buildBattleStatePayload } from './battle.js';
 
 const TICK_MS = 50;
 const DEV_DURATION_MS = 60 * 60_000;
@@ -92,8 +93,9 @@ function stopDevRoom(socketId) {
   devRooms.delete(socketId);
 }
 
-function emitState(socket, room) {
-  socket.emit('devBattle:state', room);
+function emitState(socket, room, { volatile = false } = {}) {
+  const emitter = volatile && socket.volatile ? socket.volatile : socket;
+  emitter.emit('devBattle:state', buildBattleStatePayload(room));
 }
 
 function startDevRoom(socket) {
@@ -104,7 +106,7 @@ function startDevRoom(socket) {
     entry.room = stepped.room;
     // 한 시간 제한에 닿더라도 개발자가 창을 열어 둔 동안에는 새 테스트 상태로 계속한다.
     if (entry.room.status === 'ended') entry.room = createDevBattleRoom(socket.id);
-    emitState(socket, entry.room);
+    emitState(socket, entry.room, { volatile: true });
     if (stepped.events?.length) socket.emit('devBattle:events', stepped.events);
   }, TICK_MS);
   devRooms.set(socket.id, entry);
@@ -124,6 +126,20 @@ function controlledPlayer(socketId) {
   const entry = devRooms.get(socketId);
   if (!entry) return null;
   return entry.room.players[entry.controlledId] ?? null;
+}
+
+function clearDevCombatArtifacts(room) {
+  room.effects = [];
+  room.mines = [];
+  room.blackholes = [];
+  room.pearls = [];
+  room.projectiles = [];
+  for (const player of Object.values(room.players)) {
+    const fresh = newPlayerSkillState(player.skillId);
+    player.status = fresh.status;
+    player.skillReadyAt = 0;
+    player.skillReadyAts = {};
+  }
 }
 
 export function registerDevBattleHandlers(socket) {
@@ -165,6 +181,8 @@ export function registerDevBattleHandlers(socket) {
     const room = entry?.room;
     const player = entry ? room.players[entry.controlledId] : null;
     if (!player) return;
+    // 여러 스킬을 빠르게 시험할 때 이전 테스트의 긴 지속효과가 화면에 겹쳐 남지 않게 한다.
+    clearDevCombatArtifacts(room);
     room.players[entry.controlledId] = { ...player, ...newPlayerSkillState(skillId) };
     emitState(socket, room);
   });
@@ -173,6 +191,7 @@ export function registerDevBattleHandlers(socket) {
     const room = entry?.room;
     const player = entry ? room.players[entry.controlledId] : null;
     if (!player) return;
+    clearDevCombatArtifacts(room);
     room.players[entry.controlledId] = { ...player, ...newPlayerSkillState(player.skillId) };
     emitState(socket, room);
   });

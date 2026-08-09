@@ -120,6 +120,11 @@ function findOrCreateParticipant(id) {
   return entry;
 }
 
+function sanitizeParticipantName(name) {
+  const safeName = typeof name === 'string' ? name.trim().slice(0, 20) : '';
+  return safeName || null;
+}
+
 // admin:forceFinish가 부여하는 "기본 무기" — AI 평가 자체를 시도하지 않은 참가자용이므로
 // weaponEvaluate.js가 AI 평가 "실패" 시 쓰는 결정론적 폴백을 그대로 재사용한다(빈
 // parts에 대한 값은 항상 DAMAGE_MIN/melee로 고정) — 새 상수를 따로 만들지 않아 두 값이
@@ -160,20 +165,24 @@ export function registerSessionHandlers(io, socket) {
 
   // 참가자 화면만 보내는 신호 — 관리자/공용화면은 이 이벤트를 보내지 않으므로
   // cohort.participants에 안 잡힌다.
-  socket.on('participant:join', () => {
-    findOrCreateParticipant(socket.id);
+  socket.on('participant:join', (payload) => {
+    const entry = findOrCreateParticipant(socket.id);
+    // 새로고침/네트워크 재연결 때 브라우저가 보존한 이름을 참가 등록과 동시에 복원한다.
+    // payload가 없는 기존 클라이언트는 현재 이름을 덮어쓰지 않아 하위 호환된다.
+    if (payload && Object.prototype.hasOwnProperty.call(payload, 'name')) {
+      entry.name = sanitizeParticipantName(payload.name);
+    }
     broadcastParticipants(io);
   });
 
   // 참가자 이름 — 인원수 집계(participant:join)와 완전히 분리된 별도 신호다. 클라이언트가
   // 보낸 값을 그대로 믿지 않고 문자열인지 확인한 뒤 trim + 20자로 제한한다.
   socket.on('participant:name', (name) => {
-    const safeName = typeof name === 'string' ? name.trim().slice(0, 20) : '';
     // participant:join과 별개 신호라 도착 순서를 100% 보장할 수 없다 — 엔트리가 아직
     // 없으면(이론상으론 join이 먼저 오지만) findOrCreateParticipant로 만들어서 이름을
     // 잃어버리지 않는다.
     const entry = findOrCreateParticipant(socket.id);
-    entry.name = safeName || null;
+    entry.name = sanitizeParticipantName(name);
     broadcastParticipants(io);
   });
 

@@ -3,6 +3,7 @@ import { registerSessionHandlers } from './session.js';
 import {
   addBattleTime,
   BATTLE_TIME_EXTENSION_MS,
+  buildBattleStatePayload,
   getBattleRoom,
   getBattleDuration,
   stopBattleRoom,
@@ -86,6 +87,19 @@ assert.strictEqual(room.players.p1.skillChoices.length, 9, '룰렛 9칸에 후�
 assert.strictEqual(new Set(room.players.p1.skillChoices).size, 9, '9칸의 후보는 서로 달라야 함');
 assert.deepStrictEqual(room.players.p1.skillIds, [], '아직 고르기 전');
 console.log('battle room initialized from participants (HP model + countdown): OK');
+
+{
+  const payload = buildBattleStatePayload(room);
+  assert.ok(Number.isFinite(payload.serverNow), '기기 시계와 무관한 파티클 만료 계산용 서버 시각 포함');
+  assert.strictEqual(payload.walls, undefined, '정적 충돌벽은 20Hz 패킷에서 제외');
+  assert.strictEqual(payload.spawnPoints, undefined, '정적 스폰 좌표는 20Hz 패킷에서 제외');
+  assert.strictEqual(payload.players.p1.input, undefined, '서버 전용 입력은 패킷에서 제외');
+  assert.strictEqual(payload.players.p1.recentDamagers, undefined, '서버 전용 어시스트 기록은 패킷에서 제외');
+  assert.strictEqual(payload.players.p1.attackRequested, undefined, '서버 전용 공격 요청은 패킷에서 제외');
+  assert.ok(payload.players.p1.weaponParts, '렌더링에 필요한 무기 정보는 유지');
+  assert.ok(JSON.stringify(payload).length < JSON.stringify(room).length, '공개 상태 패킷이 내부 room보다 작아야 함');
+}
+console.log('battle state payload omits server-only and static data: OK');
 
 assert.strictEqual(setBattleDuration(90_000), 90_000, '게임 시간은 30초 단위로 설정 가능');
 assert.strictEqual(getBattleDuration(), 90_000);
@@ -395,8 +409,8 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   ]);
   const room2 = getBattleRoom();
   assert.strictEqual(room2.players.x1.isRanged, false, '알 수 없는 attackRange 값은 근접으로 취급');
-  assert.strictEqual(room2.players.x2.rangeDistance, RANGE_DISTANCE_MAX * RANGED_COMBAT_RANGE_MULTIPLIER, '범위를 넘는 사거리는 전투 상한으로 clamp 후 3배 적용');
-  assert.strictEqual(room2.players.x3.rangeDistance, RANGE_DISTANCE_MIN * RANGED_COMBAT_RANGE_MULTIPLIER, '숫자가 아닌 사거리는 전투 하한으로 대체 후 3배 적용');
+  assert.strictEqual(room2.players.x2.rangeDistance, RANGE_DISTANCE_MAX * RANGED_COMBAT_RANGE_MULTIPLIER, '범위를 넘는 사거리는 전투 상한으로 clamp 후 실전 배율 적용');
+  assert.strictEqual(room2.players.x3.rangeDistance, RANGE_DISTANCE_MIN * RANGED_COMBAT_RANGE_MULTIPLIER, '숫자가 아닌 사거리는 전투 하한으로 대체 후 실전 배율 적용');
   console.log('startBattleRoom defends against malformed attackRange/attackRangeDistance: OK');
 }
 
