@@ -381,15 +381,19 @@ export function activateSkill(room, playerId, now, random = Math.random, request
     case 'deathMark': {
       const targets = coneTargets(room.players, player, skill.range, skill.halfAngle, now);
       const target = pickConeTarget(room.players, player, skill.range, skill.halfAngle, now);
-      // 콜드플레이는 2초 발동 전체가 범위 효과다. 연행영장/사형선고 부채꼴은 대상 지정용
-      // 순간 연출이므로 0.5초만 보이고, 실제 지속 효과(이동/과녁)는 별도 상태가 담당한다.
-      const coneDurationMs = skill.id === 'coldplay' ? skill.activationDurationMs : 500;
-      pushEffect(room, {
-        type: 'cone', skillId: skill.id, playerId,
-        x: player.x, y: player.y, aimX: player.aimX ?? 0, aimY: player.aimY ?? 1,
-        range: skill.range, halfAngle: skill.halfAngle,
-        endsAt: now + coneDurationMs, color: skill.color,
-      });
+      // 사형선고는 사용 순간 대상이 확정되고 과녁만 남아야 한다. 이전 프레임의 부채꼴도
+      // 즉시 지운 뒤 새 부채꼴을 만들지 않는다. 연행영장은 0.5초, 콜드플레이는 2초 유지.
+      if (skill.id === 'deathMark') {
+        room.effects = room.effects.filter((fx) => !(fx.type === 'cone' && fx.skillId === 'deathMark' && fx.playerId === playerId));
+      } else {
+        const coneDurationMs = skill.id === 'coldplay' ? skill.activationDurationMs : 500;
+        pushEffect(room, {
+          type: 'cone', skillId: skill.id, playerId,
+          x: player.x, y: player.y, aimX: player.aimX ?? 0, aimY: player.aimY ?? 1,
+          range: skill.range, halfAngle: skill.halfAngle,
+          endsAt: now + coneDurationMs, color: skill.color,
+        });
+      }
       if (target) {
         if (skill.id === 'warrant') {
           // 자신 앞 한 칸(캐릭터 지름)에 끌어다 놓는다.

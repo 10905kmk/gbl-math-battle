@@ -221,7 +221,7 @@ console.log('shield/cloak fully block incoming damage: OK');
   const markFx = room.effects.find((fx) => fx.type === 'mark' && fx.playerId === target.id);
   const coneFx = room.effects.find((fx) => fx.type === 'cone' && fx.skillId === 'deathMark');
   assert.ok(markFx, '사형선고 과녕 표식이 공용 효과로 생성돼야 함');
-  assert.strictEqual(coneFx?.endsAt, NOW + 500, '사형선고 부채꼴은 대상 지정 후 0.5초 안에 제거');
+  assert.strictEqual(coneFx, undefined, '사형선고는 사용 즉시 대상 과녁만 남고 시전자 부채꼴은 생성하지 않음');
   assert.strictEqual(markFx.endsAt, NOW + 15000, '선택된 대상의 과녁만 15초 유지');
   assert.notStrictEqual(markFx.ownerOnly, true, '사형선고 표식은 모든 참가자에게 보여야 함');
   const bonus = outgoingDamageMultiplier(caster, target, NOW, () => 1).multiplier;
