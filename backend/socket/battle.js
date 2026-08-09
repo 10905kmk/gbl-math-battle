@@ -324,16 +324,24 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
   }, TICK_MS);
 }
 
-// 참가자 전원이 특수 스킬을 고른 뒤 관리자가 누르는 최종 시작 게이트. 프론트 버튼만
-// disabled하는 것으로는 조작된 소켓 이벤트를 막을 수 없으므로 서버에서도 다시 검사한다.
+// 관리자가 누르는 최종 시작 게이트. 선택을 끝내지 않은 참가자는 이미 고른 스킬을 유지하고
+// 남은 칸을 자신의 9개 후보에서 자동 배정한다. 부스 진행이 한 기기 때문에 막히지 않게 한다.
 export function startBattleCountdown(now = Date.now()) {
   if (!battleRoom || battleRoom.status !== 'roulette') return false;
 
   const connectedPlayers = Object.values(battleRoom.players).filter((p) => p.connected !== false);
-  if (
-    connectedPlayers.length === 0
-    || connectedPlayers.some((p) => p.skillIds?.length !== SKILL_PICK_COUNT || p.skillSelectionConfirmed !== true)
-  ) return false;
+  if (connectedPlayers.length === 0) return false;
+
+  for (const player of connectedPlayers) {
+    const choices = Array.isArray(player.skillChoices) ? player.skillChoices : [];
+    const selected = [...new Set(Array.isArray(player.skillIds) ? player.skillIds : [])]
+      .filter((skillId) => choices.includes(skillId))
+      .slice(0, SKILL_PICK_COUNT);
+    const autoAssigned = choices.filter((skillId) => !selected.includes(skillId));
+    player.skillIds = [...selected, ...autoAssigned].slice(0, SKILL_PICK_COUNT);
+    if (player.skillIds.length !== SKILL_PICK_COUNT) return false;
+    player.skillSelectionConfirmed = true;
+  }
 
   battleRoom = {
     ...battleRoom,

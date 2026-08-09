@@ -247,6 +247,16 @@ console.log('participant:join atomically restores a persisted nickname: OK');
   handlers.t2['create:done']({ damage: 100 });
   const progressEvents = emitted.filter(([ev]) => ev === 'create:progress').map(([, p]) => p);
   assert.ok(progressEvents.every((p) => p.total === 3), '3명 세션에서 total은 3이어야 함(5명 고정 아님)');
+
+  registerSessionHandlers(io, makeSocket('t4'));
+  handlers.t4['participant:join']();
+  const lateJoinProgress = emitted.filter(([ev]) => ev === 'create:progress').at(-1)?.[1];
+  assert.deepStrictEqual(
+    lateJoinProgress,
+    { done: 2, total: 4 },
+    '제작 단계에 늦게 들어온 참가자는 완료 수뿐 아니라 세션 전체 참가자 수에도 즉시 반영되어야 함',
+  );
+  handlers.t4['disconnect']();
   console.log('session locks expected participant count to join-time headcount, not a fixed 5: OK');
 }
 

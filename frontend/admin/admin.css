@@ -249,15 +249,18 @@ button.rescue:hover {
 .participant-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
 .participant-name {
+  flex: none;
+  max-width: 100%;
   font-weight: 700;
   font-size: 0.98rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .badge {

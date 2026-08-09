@@ -108,20 +108,20 @@ assert.strictEqual(setBattleDuration(180_000), 180_000, '테스트 뒤 기본 3�
 assert.strictEqual(getBattleRoom().durationMs, 180_000);
 console.log('admin configures battle duration in 30-second steps: OK');
 
-// 한 명이라도 특수 스킬을 고르지 않았으면 관리자 시작 요청도 거절된다. 전원이 선택한 뒤에만
-// 정확히 5초 카운트다운으로 넘어가야 한다.
-assert.strictEqual(startBattleCountdown(1000), false, '선택 미완료 상태에서는 관리자도 시작할 수 없음');
-Object.values(room.players).forEach((p) => {
-  p.skillIds = p.skillChoices.slice(0, 4);
+// 일부 참가자가 선택을 끝내지 않아도 관리자가 시작할 수 있다. 이미 고른 스킬은 유지하고
+// 부족한 칸만 각 참가자의 후보에서 자동 배정한 뒤 정확히 5초 카운트다운으로 넘어간다.
+room.players.p1.skillIds = room.players.p1.skillChoices.slice(0, 2);
+const p1ManualPicks = [...room.players.p1.skillIds];
+assert.strictEqual(startBattleCountdown(1000), true, '선택 미완료 참가자가 있어도 관리자가 시작할 수 있음');
+Object.values(getBattleRoom().players).forEach((p) => {
+  assert.strictEqual(p.skillIds.length, 4, '모든 참가자에게 정확히 4개 스킬이 장착되어야 함');
+  assert.strictEqual(new Set(p.skillIds).size, 4, '자동 배정된 스킬은 중복되면 안 됨');
+  assert.strictEqual(p.skillSelectionConfirmed, true, '카운트다운 시작 시 모든 선택이 확정되어야 함');
 });
-assert.strictEqual(startBattleCountdown(1000), false, '4개를 골라도 확정 전에는 시작할 수 없음');
-Object.values(room.players).forEach((p) => {
-  p.skillSelectionConfirmed = true;
-});
-assert.strictEqual(startBattleCountdown(1000), true, '전원 선택 후 관리자 시작 승인');
+assert.deepStrictEqual(getBattleRoom().players.p1.skillIds.slice(0, 2), p1ManualPicks, '참가자가 직접 고른 스킬은 유지');
 assert.strictEqual(getBattleRoom().status, 'countdown', '관리자 승인 뒤 카운트다운 상태');
 assert.strictEqual(getBattleRoom().countdownEndsAt, 6000, '5초 카운트다운 종료 시각');
-console.log('admin starts the 5-second countdown only after every player picks 4 skills: OK');
+console.log('admin can start the 5-second countdown and incomplete selections are auto-filled: OK');
 
 {
   const currentRoom = getBattleRoom();

@@ -92,7 +92,9 @@ function doneCount() {
 }
 
 function broadcastProgress(io) {
-  io.emit('create:progress', { done: doneCount(), total: cohort.expectedParticipants });
+  // 오른쪽 값은 고정 목표 인원이 아니라 현재 세션에 실제 연결된 참가자 수다.
+  // disconnect에서 참가자 엔트리를 제거하므로 새로고침/이탈 뒤 유령 인원이 남지 않는다.
+  io.emit('create:progress', { done: doneCount(), total: cohort.participants.length });
 }
 
 function broadcastParticipants(io) {
@@ -159,7 +161,7 @@ export function registerSessionHandlers(io, socket) {
   // 때문에 계속 idle/빈 값으로 보인다.
   socket.emit('stage:change', cohort.stage);
   socket.emit('learn:slide', cohort.slideIndex);
-  socket.emit('create:progress', { done: doneCount(), total: cohort.expectedParticipants });
+  socket.emit('create:progress', { done: doneCount(), total: cohort.participants.length });
   socket.emit('admin:participants', cohort.participants);
   socket.emit('admin:errorLog', getErrorLog());
 
@@ -172,6 +174,7 @@ export function registerSessionHandlers(io, socket) {
     if (payload && Object.prototype.hasOwnProperty.call(payload, 'name')) {
       entry.name = sanitizeParticipantName(payload.name);
     }
+    if (cohort.stage !== 'idle') broadcastProgress(io);
     broadcastParticipants(io);
   });
 
@@ -183,6 +186,7 @@ export function registerSessionHandlers(io, socket) {
     // 잃어버리지 않는다.
     const entry = findOrCreateParticipant(socket.id);
     entry.name = sanitizeParticipantName(name);
+    if (cohort.stage !== 'idle') broadcastProgress(io);
     broadcastParticipants(io);
   });
 

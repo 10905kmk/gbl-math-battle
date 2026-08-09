@@ -372,7 +372,7 @@ function BattlePanel({ socket, standings, moveSpeed, battleDuration, battleState
   const pickedCount = livePlayers.filter((p) => p.skillSelectionConfirmed === true).length;
   const playerCount = livePlayers.length;
   const battleStatus = battleState?.status ?? null;
-  const canStartCountdown = battleStatus === 'roulette' && playerCount > 0 && pickedCount === playerCount;
+  const canStartCountdown = battleStatus === 'roulette' && playerCount > 0;
   const canSetDuration = battleStatus !== 'active' && battleStatus !== 'countdown';
   const remainingSeconds = battleStatus === 'active' && Number.isFinite(battleState?.endsAt)
     ? Math.max(0, Math.ceil((battleState.endsAt - Date.now()) / 1000))
@@ -403,7 +403,9 @@ function BattlePanel({ socket, standings, moveSpeed, battleDuration, battleState
             <div class="battle-start-gate ${canStartCountdown ? 'is-ready' : ''}">
               <div>
                 <strong>특수 스킬 선택 ${pickedCount}/${playerCount}</strong>
-                <p>${canStartCountdown ? '전원이 선택했습니다. 준비되면 게임을 시작하세요.' : '모든 참가자의 선택을 기다리는 중입니다.'}</p>
+                <p>${pickedCount === playerCount
+                  ? '전원이 선택했습니다. 준비되면 게임을 시작하세요.'
+                  : '지금 시작하면 선택을 끝내지 않은 참가자의 남은 스킬은 자동 배정됩니다.'}</p>
               </div>
               <button
                 class="primary"
