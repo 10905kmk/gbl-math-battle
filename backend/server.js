@@ -11,6 +11,7 @@ import weaponChatRoutes from './routes/weaponChat.js';
 import weaponEvaluateRoutes from './routes/weaponEvaluate.js';
 import { registerSessionHandlers } from './socket/session.js';
 import { registerBattleHandlers } from './socket/battle.js';
+import { registerDevBattleHandlers } from './socket/devBattle.js';
 import { initErrorLog } from './lib/errorLog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,7 @@ initErrorLog(io);
 io.on('connection', (socket) => {
   registerSessionHandlers(io, socket);
   registerBattleHandlers(io, socket);
+  registerDevBattleHandlers(socket);
 });
 
 server.listen(PORT, () => {

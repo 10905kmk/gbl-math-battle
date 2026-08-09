@@ -4,7 +4,7 @@ import { SAMPLES } from './weaponEvaluationSamples.js';
 import { getApiKeys } from './apiKeys.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX, classifyWeaponRangeFallback } from '../../shapes/attackGeometry.js';
 import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
-import { getShapeById } from '../../shapes/registry.js';
+import { getShapeById, partScale, SCALE_MIN, SCALE_MAX } from '../../shapes/registry.js';
 
 export const DAMAGE_MIN = 1;
 export const DAMAGE_MAX = 10000;
@@ -13,6 +13,7 @@ export const DAMAGE_MAX = 10000;
 // generateContent 엔드포인트/요청 형식을 쓰므로 다른 코드는 안 바뀐다.
 const GEMINI_MODEL = 'gemini-flash-latest';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+export const AI_REQUEST_TIMEOUT_MS = 15_000;
 
 seedCache(SAMPLES);
 
@@ -35,11 +36,14 @@ export async function callGeminiWithRotation(requestFn, pool = getApiKeys('gemin
   if (pool.length === 0) {
     throw new Error('gemini API 키가 없습니다 — backend/config/apiKeys.json의 "gemini" 배열을 채워주세요');
   }
+  // 키를 바꿔 재시도하더라도 참가자가 기다리는 전체 시간은 하나의 제한시간 안에 둔다.
+  // 각 키마다 새 타이머를 만들면 키가 3개일 때 대기시간도 세 배가 되기 때문이다.
+  const signal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);
   let lastError;
   for (let attempt = 0; attempt < pool.length; attempt += 1) {
     const key = nextKey(pool);
     try {
-      return await requestFn(key);
+      return await requestFn(key, signal);
     } catch (err) {
       lastError = err;
       if (err.status !== 429 && err.status !== 503) throw err;
@@ -50,7 +54,13 @@ export async function callGeminiWithRotation(requestFn, pool = getApiKeys('gemin
 
 function summarizeParts(parts) {
   return parts
-    .map((p) => `${p.shapeId}(x:${p.x},y:${p.y},rotation:${p.rotation},scale:${p.scale})`)
+    .map((p) => {
+      const { sx, sy } = partScale(p);
+      // 가로/세로가 같으면 굳이 두 값을 다 적지 않는다 — few-shot 예시가 짧을수록 모델이
+      // 형식을 헷갈리지 않고, 등비 샘플과 자유 변형 무기를 같은 문장 형식으로 비교하게 된다.
+      const scaleText = sx === sy ? `scale:${sx}` : `scaleX:${sx},scaleY:${sy}`;
+      return `${p.shapeId}(x:${p.x},y:${p.y},rotation:${p.rotation},${scaleText})`;
+    })
     .join(', ');
 }
 
@@ -79,13 +89,15 @@ function buildEvaluationPrompt(weaponState) {
 }
 
 // 완성된 무기 하나를 Gemini에게 채점받아 데미지 범위(min,max)와 근접/원거리 판정을 받아온다.
-export async function requestWeaponEvaluation(apiKey, weaponState) {
+export async function requestWeaponEvaluation(apiKey, weaponState, signal) {
   const res = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: buildEvaluationPrompt(weaponState) }] }],
       generationConfig: {
+        maxOutputTokens: 256,
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'OBJECT',
@@ -135,8 +147,8 @@ export async function evaluateWeapon(weaponState) {
     return { ...result, cached: false };
   }
 
-  const { min, max, attackRange, attackRangeDistance } = await callGeminiWithRotation((apiKey) =>
-    requestWeaponEvaluation(apiKey, weaponState),
+  const { min, max, attackRange, attackRangeDistance } = await callGeminiWithRotation((apiKey, signal) =>
+    requestWeaponEvaluation(apiKey, weaponState, signal),
   );
   const damage = seededPick(key, Math.max(DAMAGE_MIN, min), Math.min(DAMAGE_MAX, max));
   const result = { damage, attackRange, attackRangeDistance };
@@ -155,7 +167,8 @@ const TOOL_DECLARATIONS = [
         x: { type: 'NUMBER' },
         y: { type: 'NUMBER' },
         rotation: { type: 'NUMBER' },
-        scale: { type: 'NUMBER' },
+        scaleX: { type: 'NUMBER', description: '가로 배율 (1이 기본 크기)' },
+        scaleY: { type: 'NUMBER', description: '세로 배율 (1이 기본 크기)' },
       },
       required: ['shapeId', 'x', 'y'],
     },
@@ -187,14 +200,16 @@ const TOOL_DECLARATIONS = [
   },
   {
     name: 'scalePart',
-    description: '기존 부품의 크기를 바꾼다.',
+    description:
+      '기존 부품의 크기를 바꾼다. 가로(scaleX)와 세로(scaleY)를 따로 줄 수 있다 — 한쪽만 크게 하면 길쭉하게 늘어난다.',
     parameters: {
       type: 'OBJECT',
       properties: {
         partId: { type: 'STRING' },
-        scale: { type: 'NUMBER' },
+        scaleX: { type: 'NUMBER', description: '가로 배율 (1이 기본 크기)' },
+        scaleY: { type: 'NUMBER', description: '세로 배율 (1이 기본 크기)' },
       },
-      required: ['partId', 'scale'],
+      required: ['partId'],
     },
   },
   {
@@ -210,19 +225,25 @@ const TOOL_DECLARATIONS = [
   },
 ];
 
+function summarizeEditableParts(parts) {
+  if (!Array.isArray(parts) || parts.length === 0) return '없음';
+  return parts.map((part) => {
+    const { sx, sy } = partScale(part);
+    return `${part.id}|${part.shapeId}|${part.x}|${part.y}|${part.rotation ?? 0}|${sx}|${sy}`;
+  }).join(';');
+}
+
 function buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) {
   return [
-    '너는 수학 도형 무기 제작을 도와주는 도우미다. 사용자의 자연어 명령을 아래 함수 호출로 변환하라.',
-    `사용 가능한 shapeId: ${availableShapeIds.join(', ')}`,
-    `캔버스 크기: ${canvasSize.width}x${canvasSize.height} (x/y는 이 범위 안)`,
-    `현재 부품 목록: ${JSON.stringify(weaponState.parts)}`,
-    '부품은 최대 10개까지만 추가할 수 있다.',
-    '',
-    '응답은 항상 다음 두 가지를 "함께" 포함해야 한다 — 함수 호출만 하고 아래 2번을 생략하는 것은',
-    '틀린 응답이다:',
-    '1. 필요한 함수 호출(들)',
-    '2. 무엇을 했는지 알려주는 한 문장짜리 한국어 텍스트 (예: "오른쪽에 삼각형을 추가했어요.",',
-    '   "죄송해요, 그건 지금 못 해요.") — 함수 호출이 없는 경우에도 이 텍스트는 반드시 있어야 한다.',
+    '역할: 자연어를 수학 도형 무기 편집 함수로 변환하는 도우미.',
+    `shapeId=${availableShapeIds.join(',')}`,
+    `캔버스=${canvasSize.width}x${canvasSize.height}; 부품 최대=25; scaleX/scaleY=${SCALE_MIN}~${SCALE_MAX}(기본 1).`,
+    '현재 부품 형식=id|shapeId|x|y|rotation|scaleX|scaleY; 항목 구분=;',
+    `현재 부품=${summarizeEditableParts(weaponState.parts)}`,
+    '규칙: 필요한 모든 함수 호출과 짧은 한국어 설명(함수 없음/불가 시에도)을 한 응답에 함께 제공.',
+    '복합 명령도 호출을 한꺼번에 제공. 새 부품은 addPart에 최종 위치·회전·크기를 직접 지정.',
+    '길쭉한 칼날·자루·손잡이는 새 도형 대신 scaleX/scaleY 비율을 활용(예: bar scaleY=2.5).',
+    '기본 설명은 1~2문장. 수학 질문에는 짧게 설명하고 수식은 인라인 $...$, 블록 $$...$$ LaTeX 사용.',
   ].join('\n');
 }
 
@@ -247,14 +268,16 @@ function describeToolCalls(toolCalls) {
 
 // generateContent 한 번 호출 — contents를 그대로 넘기고 candidates[0]의 parts를 돌려준다.
 // 첫 턴/왕복 턴 둘 다 이 함수 하나로 처리한다(요청 바디 구성이 똑같고 contents만 다름).
-async function callGeminiChat(apiKey, contents, weaponState, availableShapeIds, canvasSize) {
+async function callGeminiChat(apiKey, contents, weaponState, availableShapeIds, canvasSize, signal) {
   const res = await fetch(`${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`, {
     method: 'POST',
+    signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) }] },
       contents,
       tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+      generationConfig: { maxOutputTokens: 2048, temperature: 0.2 },
     }),
   });
   if (!res.ok) {
@@ -279,69 +302,20 @@ function extractToolCallsAndText(parts) {
   return { toolCalls, text };
 }
 
-// 한 번의 요청-실행-응답 왕복으로 끝내지 않고, 모델이 텍스트만 있는(함수 호출 없는) 턴을
-// 낼 때까지 계속 돈다 — "삼각형 추가하고 오른쪽으로 옮겨줘"처럼 모델이 한 번에 하나씩만
-// 함수를 부르는 스타일이어도 전부 반영되게 한다. 모델이 비정상적으로 함수 호출만 계속
-// 반복하는 경우(버그/루프)에도 API 호출이 무한정 나가지 않도록 상한을 둔다 — 이 앱의
-// 명령은 "삼각형 추가해줘" 수준으로 단순해서 실제로는 1~2턴이면 끝나므로 5는 넉넉한 여유.
-const MAX_TOOL_CALL_TURNS = 5;
-
 // 사용자의 자연어 명령을 Gemini function calling으로 해석해 toolCalls로 변환한다.
-//
-// 함수 호출이 있는 턴마다 표준 function calling 왕복 패턴을 따른다: 그 턴의 functionCall들을
-// 모델 턴으로 그대로 돌려주고, "실행 결과"를 user 턴(functionResponse)으로 보내 다음 턴을
-// 받는다 — 실제 결과를 모르는 채로(함수 호출 시점에) 설명 텍스트까지 한번에 쓰라고 프롬프트로
-// 강요하는 것보다 모델 입장에서도 더 자연스럽고, 실전에서 텍스트가 자주 빠지던 문제(요청
-// 몇 개를 실제로 보내서 확인함: "방금 만든 거 지워줘" -> functionCall만 오고 텍스트 없음)도
-// 이 왕복이 근본적으로 줄여준다. 실제 반영/좌표 clamp는 이 함수의 호출자(weaponChat.js의
-// applyToolCalls)가 하므로, 여기서 모델에게 돌려주는 "결과"는 좌표까지 정확할 필요 없이
-// "성공적으로 반영했다"는 확인이면 된다.
-export async function requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize) {
-  let contents = [{ role: 'user', parts: [{ text: message }] }];
-  const allToolCalls = [];
-
-  for (let turn = 0; turn < MAX_TOOL_CALL_TURNS; turn += 1) {
-    let parts;
-    try {
-      parts = await callGeminiChat(apiKey, contents, weaponState, availableShapeIds, canvasSize);
-    } catch (err) {
-      // 첫 턴 실패는 그대로 던진다 — callGeminiWithRotation이 이 함수 전체를 다른 키로
-      // 재시도한다(기존 동작과 동일). 이미 함수 호출을 하나 이상 확정한 뒤(왕복 중) 실패하면
-      // 그 결과를 버리지 않고 지금까지 모은 toolCalls를 그대로 살려 반환한다 — 사용자가
-      // 명령한 도형 조작 자체가 텍스트 생성 실패 때문에 무효화되면 안 된다.
-      if (turn === 0) throw err;
-      return { toolCalls: allToolCalls, reply: describeToolCalls(allToolCalls) || '(응답 텍스트가 없어요)' };
-    }
-
-    const { toolCalls, text } = extractToolCallsAndText(parts);
-    if (toolCalls.length === 0) {
-      // 함수 호출이 없는 턴 — 최종 응답으로 보고 루프를 끝낸다.
-      return { toolCalls: allToolCalls, reply: text || describeToolCalls(allToolCalls) || '(응답 텍스트가 없어요)' };
-    }
-
-    allToolCalls.push(...toolCalls);
-    contents = [
-      ...contents,
-      { role: 'model', parts },
-      {
-        // Gemini REST API는 role:'function'을 거부한다(실측: "Role 'function' is not
-        // supported... valid role: ...USER...") — functionResponse도 그냥 user 턴으로 보낸다.
-        role: 'user',
-        parts: toolCalls.map((call) => ({
-          functionResponse: { name: call.op, response: { status: 'ok' } },
-        })),
-      },
-    ];
-  }
-
-  // MAX_TOOL_CALL_TURNS를 넘도록 계속 함수만 호출하면(비정상) 더 왕복하지 않고 안전하게
-  // 종료한다 — 지금까지 모은 toolCalls는 전부 살리고 텍스트만 설명으로 대체한다.
-  return { toolCalls: allToolCalls, reply: describeToolCalls(allToolCalls) || '(응답 텍스트가 없어요)' };
+// 현재 상태와 모든 제작 규칙은 그대로 전달하되 한 응답에서 필요한 호출을 전부 받는다.
+// 설명 텍스트를 빼먹어도 실제 호출 목록으로 정확한 짧은 안내를 만들 수 있으므로, 설명만
+// 받으려고 Gemini를 다시 호출하지 않는다.
+export async function requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize, signal) {
+  const contents = [{ role: 'user', parts: [{ text: message }] }];
+  const parts = await callGeminiChat(apiKey, contents, weaponState, availableShapeIds, canvasSize, signal);
+  const { toolCalls, text } = extractToolCallsAndText(parts);
+  return { toolCalls, reply: text || describeToolCalls(toolCalls) || '(응답 텍스트가 없어요)' };
 }
 
 function mockInterpretCommand(message) {
   return {
-    toolCalls: [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100, rotation: 0, scale: 1 }],
+    toolCalls: [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100, rotation: 0, scaleX: 1, scaleY: 1 }],
     reply: `(MOCK) "${message}" 명령을 반영했어요.`,
   };
 }
@@ -350,7 +324,7 @@ export async function interpretCommand({ weaponState, message, availableShapeIds
   if (process.env.MOCK_AI === 'true') {
     return mockInterpretCommand(message);
   }
-  return callGeminiWithRotation((apiKey) =>
-    requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize),
+  return callGeminiWithRotation((apiKey, signal) =>
+    requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize, signal),
   );
 }

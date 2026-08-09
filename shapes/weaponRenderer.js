@@ -1,4 +1,4 @@
-import { getShapeGeometry } from './registry.js';
+import { getShapeGeometry, partScale } from './registry.js';
 
 function shapeLocalPoints(geometry) {
   return geometry.type === 'polygon' ? geometry.points : geometry.triangles.flat();
@@ -26,11 +26,13 @@ function shapeCenter(geometry) {
 // box가 일치한다. `point`는 이미 도형 자신의 bbox 중심이 빠진(centered) 좌표여야 한다 —
 // 호출부(computeWeaponBounds/drawWeaponGroup)가 shapeCenter()로 미리 빼고 넘겨준다.
 function transformPoint(point, part) {
-  const scale = Number.isFinite(part.scale) ? part.scale : 1;
+  // 가로/세로 배율이 다를 수 있으므로(그림판식 자유 변형) 축별로 따로 곱한다 — Konva도
+  // scaleX/scaleY를 회전보다 먼저 적용하므로 순서는 그대로 유지된다.
+  const { sx: scaleX, sy: scaleY } = partScale(part);
   const rotation = Number.isFinite(part.rotation) ? part.rotation : 0;
   const rad = (rotation * Math.PI) / 180;
-  const sx = point.x * scale;
-  const sy = point.y * scale;
+  const sx = point.x * scaleX;
+  const sy = point.y * scaleY;
   const rx = sx * Math.cos(rad) - sy * Math.sin(rad);
   const ry = sx * Math.sin(rad) + sy * Math.cos(rad);
   return { x: rx + (Number.isFinite(part.x) ? part.x : 0), y: ry + (Number.isFinite(part.y) ? part.y : 0) };
@@ -103,13 +105,13 @@ export function drawWeaponGroup(Konva, parts, { targetSize = 20 } = {}) {
     const resolved = resolvePart(part);
     if (!resolved) return;
     const { geometry, center } = resolved;
-    const partScale = Number.isFinite(part.scale) ? part.scale : 1;
+    const { sx, sy } = partScale(part);
     const node = new Konva.Shape({
       x: ((Number.isFinite(part.x) ? part.x : 0) - bounds.minX) * scale,
       y: ((Number.isFinite(part.y) ? part.y : 0) - bounds.minY) * scale,
       rotation: Number.isFinite(part.rotation) ? part.rotation : 0,
-      scaleX: partScale * scale,
-      scaleY: partScale * scale,
+      scaleX: sx * scale,
+      scaleY: sy * scale,
       fill: '#8fd3ff',
       stroke: '#1a5f8a',
       strokeWidth: 1,

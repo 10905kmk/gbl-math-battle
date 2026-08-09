@@ -6,24 +6,75 @@ import { BattleMapView } from './BattleMapView.js';
 
 const html = htm.bind(h);
 
-// 전자칠판 등에 팝업으로 띄워두는 공용 화면. admin.js의 "공용 화면 열기" 버튼으로 연다.
-// learn 단계는 슬라이드를 크게 보여주고, battle 단계는 미니맵+리더보드, 그 외는 안내 문구만 표시한다.
-const STAGE_MESSAGES = {
-  idle: '세션 시작을 기다리는 중입니다',
-  create: '각자 화면에서 무기를 제작 중입니다',
-  result: '결과를 확인하는 중입니다',
-  thanks: '체험을 마쳐주셔서 감사합니다',
+const STAGE_GUIDES = {
+  idle: {
+    step: '체험 준비',
+    title: '수학 도형 무기 배틀에 오신 것을 환영합니다',
+    description: '참가자 기기를 같은 와이파이에 연결하고 안내받은 주소로 접속해 주세요.',
+    actions: ['참가자 화면에 접속하기', '진행자의 세션 시작 안내 기다리기'],
+  },
+  name: {
+    step: '1 · 참가 등록',
+    title: '내 화면에서 이름을 입력해 주세요',
+    description: '입력한 이름은 전투 순위표에 표시됩니다. 이름 없이도 참여할 수 있습니다.',
+    actions: ['이름 입력하기', '시작하기 누르기', '진행자의 다음 단계 기다리기'],
+  },
+  create: {
+    step: '3 · 무기 제작',
+    title: 'AI와 함께 나만의 기하학 무기를 만드세요',
+    description: '채팅으로 모양을 설명하거나 도형을 직접 추가·이동·회전·복사할 수 있습니다.',
+    actions: ['도형으로 무기 설계하기', '근접 또는 원거리 선택하기', '이름을 짓고 AI 평가받기'],
+  },
+  result: {
+    step: '5 · 결과 확인',
+    title: '내 무기와 전투 결과를 확인해 주세요',
+    description: '참가자 화면에서 무기 점수와 순위를 확인하고 QR 또는 PDF로 저장할 수 있습니다.',
+    actions: ['무기와 점수 확인하기', 'QR·PDF 저장하기', '진행자의 안내 기다리기'],
+  },
+  thanks: {
+    step: '체험 완료',
+    title: '참여해 주셔서 감사합니다!',
+    description: '기하학과 AI로 만든 나만의 무기를 소중히 간직해 주세요.',
+    actions: ['저장한 결과 확인하기', '다음 참가자를 위해 자리를 정리하기'],
+  },
 };
+
+function StageGuide({ guide, progress }) {
+  return html`
+    <main class="stage-guide">
+      <div class="guide-shape guide-shape--square"></div>
+      <div class="guide-shape guide-shape--circle"></div>
+      <section class="guide-card">
+        <p class="guide-step">${guide.step}</p>
+        <h1>${guide.title}</h1>
+        <p class="guide-description">${guide.description}</p>
+        <ol class="guide-actions">
+          ${guide.actions.map((action, index) => html`<li><span>${index + 1}</span>${action}</li>`)}
+        </ol>
+        ${progress
+          ? html`
+              <div class="guide-progress">
+                <div><span style=${`width:${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%`}></span></div>
+                <strong>제작 완료 ${progress.done} / ${progress.total}</strong>
+              </div>
+            `
+          : null}
+      </section>
+    </main>
+  `;
+}
 
 function DisplayApp() {
   const [stage, setStage] = useState('idle');
   const [slides, setSlides] = useState([]);
   const [slideIndex, setSlideIndex] = useState(0);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [socket] = useState(() => io());
 
   useEffect(() => {
     socket.on('stage:change', setStage);
     socket.on('learn:slide', setSlideIndex);
+    socket.on('create:progress', setProgress);
     return () => socket.disconnect();
   }, [socket]);
 
@@ -49,7 +100,8 @@ function DisplayApp() {
     return html`<${BattleMapView} socket=${socket} />`;
   }
 
-  return html`<div class="display-wait">${STAGE_MESSAGES[stage] ?? stage}</div>`;
+  const guide = STAGE_GUIDES[stage] ?? STAGE_GUIDES.idle;
+  return html`<${StageGuide} guide=${guide} progress=${stage === 'create' ? progress : null} />`;
 }
 
 render(html`<${DisplayApp} />`, document.getElementById('display-app'));

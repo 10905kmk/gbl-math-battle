@@ -6,6 +6,9 @@ import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
 import { DEFAULT_MAP } from '../../../shapes/battleMap.js';
 import { meleeHitboxRect, ATTACK_HITBOX_SIZE, PROJECTILE_RADIUS } from '../../../shapes/attackGeometry.js';
 import { VirtualJoystick } from './VirtualJoystick.js';
+import { SkillRoulette } from './battle/SkillRoulette.js';
+import { SkillButton } from './battle/SkillButton.js';
+import { drawSkillEffects } from './battle/skillEffects.js';
 
 const html = htm.bind(h);
 
@@ -30,6 +33,15 @@ function formatTimeRemaining(ms) {
 // CHARACTER_RADIUS(20)과 똑같이 하면 시에르핀스키/코흐눈꽃처럼 점이 많은 프랙탈은 뭉개져서
 // 거의 안 보인다(Opus 리뷰에서 실측: 20px 아이콘에 43픽셀만 칠해짐) — 조금 더 키운다.
 const WEAPON_ICON_SIZE = 28;
+// 머리 위 체력바 — 서버의 HP_MAX와 같은 값(90)을 기준으로 비율을 그린다. shapes/가 아니라
+// backend/lib에 있는 상수라 프론트가 직접 import할 수 없어(브라우저가 backend/를 서빙하지
+// 않음) 여기 같은 값을 둔다.
+const HP_MAX_CLIENT = 90;
+const HP_BAR_WIDTH = 42;
+const HP_BAR_HEIGHT = 6;
+const HP_COLOR_FULL = '#5fe3a1';
+const HP_COLOR_MID = '#ffd66e';
+const HP_COLOR_LOW = '#ff6b6b';
 const CHARACTER_COLORS = {
   char1: '#e74c3c', char2: '#3498db', char3: '#2ecc71',
   char4: '#f1c40f', char5: '#9b59b6', char6: '#e67e22',
@@ -60,6 +72,17 @@ export function BattleScreen({ socket, state }) {
   // 제한시간 HUD는 Konva 캔버스가 아니라 일반 DOM 텍스트라 useState로 관리 — battle:state가
   // 50ms마다 오므로 이 값도 그 주기로 갱신되어 카운트다운이 매끄럽게 보인다.
   const [remainingMs, setRemainingMs] = useState(null);
+  // 라운드 상태(countdown | active | ended)와 시작 카운트다운 남은 초 — 둘 다 DOM 오버레이용.
+  const [roundStatus, setRoundStatus] = useState('countdown');
+  const [countdownSec, setCountdownSec] = useState(null);
+  // 내 캐릭터가 죽어 있을 때 남은 부활 시간(초). 살아 있으면 null.
+  const [respawnSec, setRespawnSec] = useState(null);
+  // 판이 끝나면 서버가 보내주는 최종 순위표. null이면 대시보드를 안 그린다.
+  const [standings, setStandings] = useState(null);
+  // 특수 스킬 — 룰렛 후보 3개, 내가 고른 것, 쿨타임이 풀리는 시각.
+  const [skillChoices, setSkillChoices] = useState([]);
+  const [mySkillId, setMySkillId] = useState(null);
+  const [skillReadyAt, setSkillReadyAt] = useState(0);
 
   useEffect(() => {
     const stage = new Konva.Stage({
@@ -104,6 +127,25 @@ export function BattleScreen({ socket, state }) {
     function onState(room) {
       if (Number.isFinite(room.endsAt)) {
         setRemainingMs(Math.max(0, room.endsAt - Date.now()));
+      }
+      setRoundStatus(room.status);
+      // 시작 카운트다운(5,4,3,2,1) — 0 이하가 되면 오버레이를 내린다. Math.ceil이라
+      // 4001ms 남은 순간에도 "5"가 보인다(사람이 세는 방식과 같음).
+      setCountdownSec(
+        room.status === 'countdown' && Number.isFinite(room.countdownEndsAt)
+          ? Math.max(0, Math.ceil((room.countdownEndsAt - Date.now()) / 1000))
+          : null,
+      );
+      const me = room.players[socket.id];
+      setRespawnSec(
+        me && me.alive === false && Number.isFinite(me.respawnAt)
+          ? Math.max(0, Math.ceil((me.respawnAt - Date.now()) / 1000))
+          : null,
+      );
+      if (me) {
+        setSkillChoices(me.skillChoices ?? []);
+        setMySkillId(me.skillId ?? null);
+        setSkillReadyAt(me.skillReadyAt ?? 0);
       }
       const layer = layerRef.current;
       if (!layer) return;
@@ -166,14 +208,28 @@ export function BattleScreen({ socket, state }) {
             stroke: isSelf ? '#ffffff' : undefined,
             strokeWidth: isSelf ? 3 : 0,
           });
-          // 탈락이 없는 점수제라 체력바 대신 현재 누적 점수를 숫자로 보여준다. moveOne이
-          // 캐릭터를 y=CHARACTER_RADIUS까지 위로 붙게 허용하므로, 라벨을 그 위 18px에 그대로
-          // 두면 위쪽 벽 근처에서 stage 밖(y<0)으로 잘려나간다 — 0으로 clamp(Opus 리뷰 Important I2).
-          const scoreLabel = new Konva.Text({
-            x: p.x - CHARACTER_RADIUS, y: Math.max(0, p.y - CHARACTER_RADIUS - 18),
-            width: CHARACTER_RADIUS * 2,
-            text: String(p.score ?? 0),
-            fontSize: 12, fontStyle: 'bold', fill: '#fff', align: 'center',
+          // 머리 위 체력바. moveOne이 캐릭터를 y=CHARACTER_RADIUS까지 위로 붙게 허용하므로,
+          // 바를 그 위에 그대로 두면 위쪽 벽 근처에서 stage 밖(y<0)으로 잘려나간다 — 0으로
+          // clamp한다(Opus 리뷰 Important I2와 같은 이유).
+          const hpBarBg = new Konva.Rect({
+            width: HP_BAR_WIDTH, height: HP_BAR_HEIGHT,
+            fill: 'rgba(0,0,0,0.55)', stroke: 'rgba(255,255,255,0.35)', strokeWidth: 1,
+            cornerRadius: HP_BAR_HEIGHT / 2,
+          });
+          const hpBarFill = new Konva.Rect({
+            width: HP_BAR_WIDTH, height: HP_BAR_HEIGHT,
+            fill: HP_COLOR_FULL, cornerRadius: HP_BAR_HEIGHT / 2,
+          });
+          // 이름표 — 리더보드와 같은 이름을 캐릭터 위에도 띄워야 누가 누군지 알 수 있다.
+          const nameLabel = new Konva.Text({
+            width: 120, text: p.name ?? `캐릭터 ${(p.characterId ?? '').replace('char', '')}`,
+            fontSize: 11, fontStyle: 'bold', fill: '#fff', align: 'center',
+            shadowColor: '#000', shadowBlur: 3, shadowOpacity: 0.9,
+          });
+          // 죽어 있는 동안 머리 위에 남은 부활 시간을 띄운다.
+          const respawnLabel = new Konva.Text({
+            width: 120, text: '', fontSize: 13, fontStyle: 'bold', fill: '#ff8080', align: 'center',
+            shadowColor: '#000', shadowBlur: 3, shadowOpacity: 0.9, visible: false,
           });
           const label = new Konva.Text({
             x: p.x - CHARACTER_RADIUS, y: p.y - 7,
@@ -184,27 +240,66 @@ export function BattleScreen({ socket, state }) {
           // 참가자가 제작 화면에서 만든 무기를 작게 그려서 캐릭터 옆에 붙인다 — 무기는 대전 중
           // 안 바뀌므로(제작 단계에서 확정) 여기서 한 번만 그리고 이후엔 위치/회전만 옮긴다.
           const weaponGroup = drawWeaponGroup(Konva, p.weaponParts, { targetSize: WEAPON_ICON_SIZE });
+          const rightHand = new Konva.Circle({
+            radius: 5,
+            fill: CHARACTER_COLORS[p.characterId] ?? '#999',
+            stroke: '#ffffff',
+            strokeWidth: 1.5,
+          });
           layer.add(circle);
-          layer.add(scoreLabel);
-          layer.add(label);
+          layer.add(rightHand);
           layer.add(weaponGroup);
-          entry = { circle, scoreLabel, label, weaponGroup };
+          layer.add(hpBarBg);
+          layer.add(hpBarFill);
+          layer.add(nameLabel);
+          layer.add(label);
+          layer.add(respawnLabel);
+          entry = { circle, rightHand, hpBarBg, hpBarFill, nameLabel, respawnLabel, label, weaponGroup };
           nodesRef.current[p.id] = entry;
         }
         // p.connected가 없는(구버전 상태 등 예상 밖) 프레임이 와도 전원이 흐려지지 않도록
         // 명시적으로 false일 때만 흐리게 — p.score ?? 0과 같은 방어 원칙(Opus 리뷰 Minor M2).
         const isConnected = p.connected !== false;
+        const isAlive = p.alive !== false;
+        // 연결이 끊겼거나(조작 불가) 죽어서 부활 대기 중이면 흐리게 — 둘 다 "지금은 상호작용
+        // 대상이 아니다"라는 같은 뜻이라 같은 표현을 쓴다.
+        const opacity = !isConnected ? 0.2 : isAlive ? 1 : 0.28;
+
         entry.circle.x(p.x);
         entry.circle.y(p.y);
-        // 탈락이 없으므로 이 흐림 처리는 "죽음"이 아니라 "연결 끊김"만 의미한다.
-        entry.circle.opacity(isConnected ? 1 : 0.2);
-        entry.scoreLabel.x(p.x - CHARACTER_RADIUS);
-        entry.scoreLabel.y(Math.max(0, p.y - CHARACTER_RADIUS - 18));
-        entry.scoreLabel.text(String(p.score ?? 0));
-        entry.scoreLabel.opacity(isConnected ? 1 : 0.2);
+        entry.circle.opacity(opacity);
         entry.label.x(p.x - CHARACTER_RADIUS);
         entry.label.y(p.y - 7);
-        entry.label.opacity(isConnected ? 1 : 0.2);
+        entry.label.opacity(opacity);
+
+        // 체력바 — 남은 비율만큼 채우고, 색으로도 위험도를 알린다(초록 → 노랑 → 빨강).
+        const hpRatio = Math.max(0, Math.min(1, (p.hp ?? HP_MAX_CLIENT) / HP_MAX_CLIENT));
+        const barX = p.x - HP_BAR_WIDTH / 2;
+        const barY = Math.max(0, p.y - CHARACTER_RADIUS - 22);
+        entry.hpBarBg.x(barX);
+        entry.hpBarBg.y(barY);
+        entry.hpBarBg.visible(isAlive);
+        entry.hpBarFill.x(barX);
+        entry.hpBarFill.y(barY);
+        entry.hpBarFill.width(HP_BAR_WIDTH * hpRatio);
+        entry.hpBarFill.fill(hpRatio > 0.5 ? HP_COLOR_FULL : hpRatio > 0.25 ? HP_COLOR_MID : HP_COLOR_LOW);
+        entry.hpBarFill.visible(isAlive && hpRatio > 0);
+        entry.hpBarBg.opacity(isConnected ? 1 : 0.2);
+        entry.hpBarFill.opacity(isConnected ? 1 : 0.2);
+
+        entry.nameLabel.x(p.x - 60);
+        entry.nameLabel.y(barY - 15);
+        entry.nameLabel.text(p.name ?? `캐릭터 ${(p.characterId ?? '').replace('char', '')}`);
+        entry.nameLabel.opacity(opacity);
+
+        // 부활 카운트 — 죽어 있을 때만.
+        const showRespawn = !isAlive && Number.isFinite(p.respawnAt);
+        entry.respawnLabel.visible(showRespawn);
+        if (showRespawn) {
+          entry.respawnLabel.x(p.x - 60);
+          entry.respawnLabel.y(barY - 2);
+          entry.respawnLabel.text(`부활 ${Math.max(0, Math.ceil((p.respawnAt - Date.now()) / 1000))}`);
+        }
 
         // 무기 아이콘 위치/방향 — 조준 벡터(aimX/aimY)를 기준으로 캐릭터 중심에서 연속적으로
         // 오프셋되고, 그 각도만큼 회전한다(예전 4방향 스냅 대신 브롤스타즈처럼 자유 조준).
@@ -212,11 +307,24 @@ export function BattleScreen({ socket, state }) {
         // dragBoundFunc(CanvasEditor.js)/moveOne(battleSimulation.js)과 같은 패턴.
         const aimX = p.aimX ?? 0;
         const aimY = p.aimY ?? 1;
-        const WEAPON_OFFSET = CHARACTER_RADIUS;
-        entry.weaponGroup.x(Math.min(DEFAULT_MAP.arenaSize.width, Math.max(0, p.x + aimX * WEAPON_OFFSET)));
-        entry.weaponGroup.y(Math.min(DEFAULT_MAP.arenaSize.height, Math.max(0, p.y + aimY * WEAPON_OFFSET)));
+        // 바라보는 방향의 오른쪽 수직 벡터(-aimY, aimX)에 손을 놓고, 살짝 앞으로 내민다.
+        const handForward = CHARACTER_RADIUS * 0.45;
+        const handSide = CHARACTER_RADIUS * 0.78;
+        const handX = Math.min(
+          DEFAULT_MAP.arenaSize.width,
+          Math.max(0, p.x + aimX * handForward - aimY * handSide),
+        );
+        const handY = Math.min(
+          DEFAULT_MAP.arenaSize.height,
+          Math.max(0, p.y + aimY * handForward + aimX * handSide),
+        );
+        entry.rightHand.x(handX);
+        entry.rightHand.y(handY);
+        entry.rightHand.opacity(opacity);
+        entry.weaponGroup.x(handX);
+        entry.weaponGroup.y(handY);
         entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
-        entry.weaponGroup.opacity(isConnected ? 1 : 0.2);
+        entry.weaponGroup.opacity(opacity);
       });
 
       // 투사체 렌더링 — 플레이어 노드와 달리 계속 생겼다 없어지므로, 이번 프레임에 없는
@@ -239,6 +347,10 @@ export function BattleScreen({ socket, state }) {
         node.y(proj.y);
       });
 
+      // 특수 스킬 이펙트(지뢰/블랙홀/진주/오라/부채꼴 등) — 서버가 보낸 것을 그대로 그린다.
+      // 지뢰는 설치자 본인에게만 보여야 해서 내 소켓 id를 같이 넘긴다.
+      drawSkillEffects(Konva, layer, { ...room, selfId: socket.id }, Date.now());
+
       layer.draw();
     }
     socket.on('battle:state', onState);
@@ -257,6 +369,16 @@ export function BattleScreen({ socket, state }) {
     socket.on('battle:result', onResult);
     return () => socket.off('battle:result', onResult);
   }, [socket, state]);
+
+  useEffect(() => {
+    // 판이 끝나면 최종 순위 대시보드, 새 판이 시작되면 null이 와서 자동으로 내려간다.
+    socket.on('battle:standings', setStandings);
+    // 이 화면은 stage가 battle이 될 때 비로소 마운트되므로, 그 전에 서버가 한 번 보낸
+    // 대시보드/상태를 놓칠 수 있다(대시보드 도중 새로고침한 경우도 마찬가지) — 마운트
+    // 시점에 현재 상태를 한 번 더 달라고 요청한다.
+    socket.emit('battle:requestSync');
+    return () => socket.off('battle:standings', setStandings);
+  }, [socket]);
 
   const inputRef = useRef({ moveX: 0, moveY: 0, aimX: 0, aimY: 0 });
   const keysRef = useRef({ up: false, down: false, left: false, right: false });
@@ -297,6 +419,12 @@ export function BattleScreen({ socket, state }) {
       return null;
     }
     function onKeyDown(e) {
+      // 특수 스킬 — PC는 Z키. 모바일 버튼(SkillButton)과 같은 이벤트를 보낸다.
+      if (e.key === 'z' || e.key === 'Z' || e.key === 'ㅋ') {
+        e.preventDefault();
+        if (!e.repeat) socket.emit('battle:skill');
+        return;
+      }
       const dir = keyToDirection(e.key);
       if (!dir) return;
       e.preventDefault(); // 방향키/WASD로 페이지가 스크롤/타이핑되는 것 방지
@@ -317,7 +445,8 @@ export function BattleScreen({ socket, state }) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, []);
+    // onKeyDown이 socket.emit('battle:skill')을 쓰므로 socket이 의존성에 들어가야 한다.
+  }, [socket]);
 
   // 카메라 — 내 캐릭터(월드 좌표 myX, myY)가 화면 중앙에 오도록 레이어를 이동시키되, 맵
   // 가장자리에서는 그 이상 못 밀리게 clamp한다. cameraRef에 저장해두는 이유는
@@ -390,16 +519,120 @@ export function BattleScreen({ socket, state }) {
     socket.emit('battle:attack');
   }
 
+  // Konva Stage가 붙은 .battle-arena는 BattleScreen이 살아 있는 동안 절대 DOM에서 빼지
+  // 않는다. 예전에는 룰렛/순위표에서 early return으로 캔버스를 제거했다가 카운트다운 때
+  // 새 div를 만들었기 때문에, Konva는 이미 제거된 옛 div를 계속 바라보고 새 화면에는 맵이
+  // 안 나타났다. 준비 화면과 순위표는 영구 캔버스 위 DOM 오버레이로만 교체한다.
+  const controlsEnabled = roundStatus === 'active' && !standings;
   return html`
     <div class="battle-shell" style=${{ '--arena-width': `${VIEWPORT_SIZE.width}px` }}>
       <div class="battle-viewport">
         <div class="battle-arena" ref=${containerRef}></div>
-        ${remainingMs !== null && html`<div class="battle-timer">${formatTimeRemaining(remainingMs)}</div>`}
+        ${roundStatus === 'active' && remainingMs !== null
+          ? html`<div class="battle-timer">${formatTimeRemaining(remainingMs)}</div>`
+          : null}
+
+        ${countdownSec !== null && countdownSec > 0
+          ? html`
+              <div class="battle-overlay battle-overlay--countdown">
+                <p class="countdown-label">잠시 후 시작합니다</p>
+                <p class="countdown-number" key=${countdownSec}>${countdownSec}</p>
+              </div>
+            `
+          : null}
+
+        ${respawnSec !== null
+          ? html`
+              <div class="battle-overlay battle-overlay--dead">
+                <p class="dead-label">쓰러졌습니다</p>
+                <p class="dead-timer">${respawnSec}초 후 부활</p>
+              </div>
+            `
+          : null}
+
+        ${roundStatus === 'roulette' && skillChoices.length > 0 && !standings
+          ? html`
+              <div class="battle-phase-overlay battle-phase-overlay--roulette">
+                <${SkillRoulette}
+                  choices=${skillChoices}
+                  picked=${mySkillId}
+                  onPick=${(id) => {
+                    setMySkillId(id);
+                    socket.emit('battle:pickSkill', id);
+                  }}
+                />
+              </div>
+            `
+          : null}
+
+        ${standings
+          ? html`
+              <div class="battle-phase-overlay battle-phase-overlay--standings">
+                <${StandingsBoard} standings=${standings} selfId=${socket.id} />
+              </div>
+            `
+          : null}
       </div>
-      <div class="battle-controls">
+      <div class="battle-controls ${controlsEnabled ? '' : 'is-hidden'}" aria-hidden=${!controlsEnabled}>
         <${VirtualJoystick} onChange=${onMoveStick} />
+        <div class="battle-skill-slot">
+          <${SkillButton}
+            skillId=${mySkillId}
+            readyAt=${skillReadyAt}
+            onUse=${() => socket.emit('battle:skill')}
+          />
+        </div>
         <${VirtualJoystick} onChange=${onAimStick} onRelease=${onAimRelease} className="aim" />
       </div>
+    </div>
+  `;
+}
+
+// 한 판이 끝난 뒤의 최종 순위표 — 1등부터 꼴등까지 킬/데스/어시스트/종합 점수.
+// 참가자 화면과 공용화면(admin/display)이 같은 데이터를 보므로 컴포넌트를 export한다.
+export function StandingsBoard({ standings, selfId }) {
+  const rows = standings?.standings ?? [];
+  return html`
+    <div class="card standings-card">
+      <p class="eyebrow">${standings?.round ? `${standings.round}판 결과` : '결과'}</p>
+      <h2 class="title">최종 순위</h2>
+      <p class="subtitle standings-formula">킬 +20 · 데스 −10 · 어시스트 +5</p>
+
+      <div class="standings-scroll">
+        <table class="standings-table">
+          <thead>
+            <tr>
+              <th class="col-rank">순위</th>
+              <th class="col-name">이름</th>
+              <th>킬</th>
+              <th>데스</th>
+              <th>어시</th>
+              <th class="col-score">종합</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(
+              (p) => html`
+                <tr class=${`${p.id === selfId ? 'is-self' : ''} ${p.rank === 1 ? 'is-top' : ''}`}>
+                  <td class="col-rank">${p.rank}</td>
+                  <td class="col-name">
+                    ${p.name ?? `캐릭터 ${(p.characterId ?? '').replace('char', '')}`}
+                    ${p.id === selfId ? html`<span class="self-tag">나</span>` : null}
+                  </td>
+                  <td>${p.kills}</td>
+                  <td>${p.deaths}</td>
+                  <td>${p.assists}</td>
+                  <td class="col-score">${p.score}</td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="standings-wait">
+        진행자를 기다리는 중<span class="dots"><i></i><i></i><i></i></span>
+      </p>
     </div>
   `;
 }

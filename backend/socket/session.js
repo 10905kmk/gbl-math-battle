@@ -1,4 +1,11 @@
-import { startBattleRoom, stopBattleRoom, finishBattleRoomNow } from './battle.js';
+import {
+  startBattleRoom,
+  finishBattleRoomNow,
+  startNextRound,
+  saveLastRoundResults,
+  resetBattleHistory,
+  getBattleRoom,
+} from './battle.js';
 import { saveParticipantResults } from '../lib/resultStorage.js';
 import { fallbackDamage, fallbackAttackRange } from '../routes/weaponEvaluate.js';
 import { logError, getErrorLog } from '../lib/errorLog.js';
@@ -18,12 +25,41 @@ const cohort = {
   // "지금 접속한 모두"를 실시간으로 봐야 해서 하나로 합쳤다.
   participants: [],
   expectedParticipants: 0,
+  // battle 단계에 들어간 시점의 참가자 스냅샷 — 여러 판을 도는 동안 이 목록을 계속 쓰고,
+  // 마지막에 결과를 저장할 때도 이걸 기준으로 한다(대전 도중 나간 참가자도 결과에 남아야 함).
+  battleRoster: [],
 };
 
 // 관리자가 수동으로 단계를 앞뒤로 넘길 때의 순서. idle은 startSession/reset으로만 드나든다.
 // 'name'이 맨 앞에 추가됨(2026-08-07) — 기기를 새로고침 없이 계속 켜두므로 라운드마다
 // 이름을 다시 물어봐야 해서, 전역 화면 게이트가 아니라 실제 stage로 승격시켰다.
 const STAGE_ORDER = ['name', 'learn', 'create', 'battle', 'result', 'thanks'];
+
+// 라운드가 최종적으로 마무리될 때(= 관리자가 "부스 종료"를 누르거나 battle 단계를 벗어날
+// 때) 결과를 Supabase에 저장하고 각 참가자에게 자기 결과 행의 id를 보내준다.
+//
+// 한 팀이 여러 판을 도는 운영 방식이라(2026-08-09) 매 판 끝날 때마다 저장하지 않는다 —
+// 판마다 행이 쌓이면 QR이 어느 판의 결과를 가리키는지 알 수 없어진다. 저장은 마지막 한 번.
+function makeSaveResultsCallback(io, roster) {
+  return (winners, scores) => {
+    // 저장이 끝나야 각 참가자 결과 행의 id를 알 수 있다(QR/링크가 그 id로 result-page를
+    // 가리켜야 하므로) — outcomes는 roster와 같은 순서라 인덱스로 그대로 짝지을 수 있다.
+    // 저장 실패(rejected)한 참가자에게는 보내지 않는다 — 존재하지 않는 id로 QR을 만들면
+    // 스캔했을 때 "결과 없음"만 보게 되므로, 아예 안 보내는 쪽이 참가자 화면이 QR 없이
+    // 요약만 보여주는 정상적인 폴백으로 이어진다.
+    saveParticipantResults(roster, winners, scores)
+      .then((outcomes) => {
+        outcomes.forEach((outcome, i) => {
+          if (outcome.status === 'fulfilled' && outcome.value?.id) {
+            io.to(roster[i].id).emit('result:saved', { id: outcome.value.id });
+          }
+        });
+      })
+      .catch((err) => {
+        logError('session', err);
+      });
+  };
+}
 
 function goToStage(io, nextStage) {
   cohort.stage = nextStage;
@@ -34,31 +70,9 @@ function goToStage(io, nextStage) {
     // 참가자가 연결을 끊으면 disconnect 핸들러가 그 참가자를 걸러낸 "새 배열"로 재할당해버려서,
     // 라운드가 끝난 뒤 결과 저장 시점엔 이미 그 참가자가 사라지고 없다(연결이 끊겼어도 대전
     // 결과 자체는 저장돼야 하므로, 대전 중 필터링과 결과 저장은 서로 다른 참가자 목록을 봐야 함).
-    const participantsAtBattleStart = [...cohort.participants];
-    startBattleRoom(io, participantsAtBattleStart, {
-      // 관리자가 대전 도중 다른 단계로 수동 이동한 뒤에 뒤늦게 라운드가 끝나면(타이머 만료 등)
-      // 이 콜백이 그때 가서 엉뚱하게 result로 되돌려버릴 수 있다 — 그 사이 stage가 이미
-      // battle이 아니게 됐으면 무시한다. (아래 else 분기가 stopBattleRoom도 호출하므로
-      // 정상 경로에서는 이 콜백 자체가 그 뒤로 불릴 일이 없다 — 이건 이중 방어.)
-      onEnd: (winners, scores) => {
-        // 저장이 끝나야 각 참가자 결과 행의 id를 알 수 있다(QR/링크가 그 id로 result-page를
-        // 가리켜야 하므로) — outcomes는 participantsAtBattleStart와 같은 순서라 인덱스로
-        // 그대로 짝지을 수 있다. 저장 실패(rejected)한 참가자에게는 보내지 않는다 — 존재하지
-        // 않는 id로 QR을 만들면 스캔했을 때 "결과 없음"만 보게 되므로, 아예 안 보내는 쪽이
-        // 참가자 화면이 QR 없이 요약만 보여주는 정상적인 폴백으로 이어진다.
-        saveParticipantResults(participantsAtBattleStart, winners, scores)
-          .then((outcomes) => {
-            outcomes.forEach((outcome, i) => {
-              if (outcome.status === 'fulfilled' && outcome.value?.id) {
-                io.to(participantsAtBattleStart[i].id).emit('result:saved', { id: outcome.value.id });
-              }
-            });
-          })
-          .catch((err) => {
-            logError('session', err);
-          });
-        if (cohort.stage === 'battle') goToStage(io, 'result');
-      },
+    cohort.battleRoster = [...cohort.participants];
+    startBattleRoom(io, cohort.battleRoster, {
+      onEnd: makeSaveResultsCallback(io, cohort.battleRoster),
     });
   } else {
     // battle이 아닌 다른 단계로 넘어가면 진행 중이던 대전은 더 이상 의미가 없으니 같이
@@ -110,6 +124,18 @@ function findOrCreateParticipant(id) {
 // weaponEvaluate.js가 AI 평가 "실패" 시 쓰는 결정론적 폴백을 그대로 재사용한다(빈
 // parts에 대한 값은 항상 DAMAGE_MIN/melee로 고정) — 새 상수를 따로 만들지 않아 두 값이
 // 나중에 어긋날 걱정이 없다.
+// 무기 이름은 참가자가 직접 입력한 값이라(frontend/src/screens/create.js) 그대로 믿지
+// 않는다 — 이 값은 Supabase에 저장돼서 결과 상시 페이지와 PDF 증서의 제목으로 다시
+// 렌더링되므로, participant:name과 같은 수준(문자열 확인 + trim + 길이 제한)으로 막는다.
+// 클라이언트도 같은 대체 이름을 쓰지만, create:done을 직접 쏘는 경로가 있을 수 있으니
+// 서버에서도 빈 이름을 대체해둔다.
+const WEAPON_NAME_MAX = 24;
+
+export function sanitizeWeaponName(name) {
+  const safe = typeof name === 'string' ? name.trim().slice(0, WEAPON_NAME_MAX) : '';
+  return safe || '이름 없는 무기';
+}
+
 function defaultWeapon() {
   const { attackRange, attackRangeDistance } = fallbackAttackRange({ parts: [] });
   return {
@@ -187,8 +213,33 @@ export function registerSessionHandlers(io, socket) {
     goToStage(io, STAGE_ORDER[idx - 1]);
   });
 
+  // 순위 대시보드에서 "새로운 판" — 같은 참가자/무기로 다음 라운드를 바로 시작한다.
+  // 제작 단계로 되돌아가지 않으므로 한 시간대에 여러 판을 빠르게 돌릴 수 있다.
+  socket.on('admin:newRound', () => {
+    if (cohort.stage !== 'battle') return;
+    // 대전 중 완전히 나간 기기는 새 판에서 빼고, 그 사이 새로 들어온 기기는 넣는다 —
+    // 다만 결과 저장은 battleRoster(첫 판 기준)로 하므로 그쪽은 건드리지 않는다.
+    const roster = cohort.battleRoster.filter((p) => cohort.participants.some((c) => c.id === p.id));
+    startNextRound(io, roster.length > 0 ? roster : cohort.battleRoster, {
+      onEnd: makeSaveResultsCallback(io, cohort.battleRoster),
+    });
+  });
+
+  // "부스 종료" — 마지막 판의 점수로 결과를 저장하고 결과(QR/PDF) 단계로 넘긴다.
+  // 진행 중인 판이 있으면 그 시점 점수로 정상 종료시키고, 이미 대시보드가 떠 있으면
+  // 저장해둔 마지막 순위표로 저장만 한다.
+  socket.on('admin:endBooth', () => {
+    if (getBattleRoom()) {
+      finishBattleRoomNow({ saveResults: true });
+    } else {
+      saveLastRoundResults(makeSaveResultsCallback(io, cohort.battleRoster));
+    }
+    goToStage(io, 'result');
+  });
+
   socket.on('admin:reset', () => {
-    stopBattleRoom();
+    resetBattleHistory();
+    cohort.battleRoster = [];
     cohort.stage = 'idle';
     cohort.slideIndex = 0;
     resetRoundFields();
@@ -201,7 +252,10 @@ export function registerSessionHandlers(io, socket) {
   socket.on('create:done', (weapon) => {
     const entry = findOrCreateParticipant(socket.id);
     entry.createDone = true;
-    entry.weapon = weapon;
+    entry.weapon =
+      weapon && typeof weapon === 'object'
+        ? { ...weapon, name: sanitizeWeaponName(weapon.name) }
+        : defaultWeapon();
     broadcastProgress(io);
     broadcastParticipants(io);
   });
@@ -215,6 +269,28 @@ export function registerSessionHandlers(io, socket) {
     if (!entry || entry.createDone) return;
     entry.createDone = true;
     entry.weapon = defaultWeapon();
+    broadcastProgress(io);
+    broadcastParticipants(io);
+  });
+
+  // 참가자가 실수로 "AI 평가받기"를 눌러 제작이 확정돼버린 경우, 관리자가 그 참가자만
+  // 편집 화면으로 되돌려준다. 평가 자체가 "되돌릴 수 없음"인 건 참가자에게 신중하게
+  // 만들라고 거는 제약이지 운영 사고까지 감수하겠다는 뜻은 아니다 — 되돌리는 권한은
+  // 관리자에게만 둔다.
+  //
+  // create 단계에서만 허용한다: battle로 넘어간 뒤엔 이미 대전 시작 시점의 참가자
+  // 스냅샷(goToStage의 participantsAtBattleStart)이 떠 있어서, 여기서 무기를 지워봐야
+  // 진행 중인 대전에는 반영되지 않고 결과 저장만 어긋난다.
+  socket.on('admin:reopenCreate', (participantId) => {
+    if (cohort.stage !== 'create') return;
+    const entry = cohort.participants.find((p) => p.id === participantId);
+    if (!entry || !entry.createDone) return;
+    entry.createDone = false;
+    entry.weapon = null;
+    // 해당 참가자 기기만 편집 화면으로 되돌린다. 캔버스에 올려둔 도형과 무기 이름은
+    // 클라이언트가 계속 들고 있으므로(CreateScreen이 계속 마운트된 채 phase만 바뀜)
+    // 참가자는 만들던 그대로에서 이어서 고칠 수 있다.
+    io.to(entry.id).emit('create:reopen');
     broadcastProgress(io);
     broadcastParticipants(io);
   });

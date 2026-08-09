@@ -3,7 +3,11 @@ import { evaluateWeapon, DAMAGE_MIN, DAMAGE_MAX } from '../lib/aiClient.js';
 import { getShapeById } from '../../shapes/registry.js';
 import { statsFromShape } from '../../shapes/stats.js';
 import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
-import { classifyWeaponRangeFallback } from '../../shapes/attackGeometry.js';
+import {
+  classifyWeaponRangeFallback,
+  RANGE_DISTANCE_MIN,
+  RANGE_DISTANCE_MAX,
+} from '../../shapes/attackGeometry.js';
 import { validateWeaponState } from '../lib/weaponStateValidation.js';
 import { logError } from '../lib/errorLog.js';
 
@@ -39,21 +43,41 @@ export function fallbackAttackRange(weaponState) {
   return classifyWeaponRangeFallback(bounds);
 }
 
+export function resolveAttackRangeSelection(selection, evaluatedRange, evaluatedDistance) {
+  const attackRange = selection === 'melee' || selection === 'ranged'
+    ? selection
+    : evaluatedRange === 'ranged' ? 'ranged' : 'melee';
+  if (attackRange !== 'ranged') {
+    return { attackRange: 'melee', attackRangeDistance: null };
+  }
+  const rawDistance = Number(evaluatedDistance);
+  const attackRangeDistance = Number.isFinite(rawDistance)
+    ? Math.min(RANGE_DISTANCE_MAX, Math.max(RANGE_DISTANCE_MIN, rawDistance))
+    : RANGE_DISTANCE_MIN;
+  return { attackRange: 'ranged', attackRangeDistance };
+}
+
 const router = Router();
 
 router.post('/', async (req, res) => {
-  const { weaponState } = req.body ?? {};
+  const { weaponState, attackRange: selectedAttackRange } = req.body ?? {};
   const validation = validateWeaponState(weaponState);
   if (!validation.ok) {
     return res.status(400).json({ error: validation.error });
   }
   try {
     const { damage, attackRange, attackRangeDistance } = await evaluateWeapon(weaponState);
-    res.json({ damage, attackRange, attackRangeDistance });
+    const selected = resolveAttackRangeSelection(selectedAttackRange, attackRange, attackRangeDistance);
+    res.json({ damage, ...selected });
   } catch (err) {
     logError('weaponEvaluate', err);
-    const { attackRange, attackRangeDistance } = fallbackAttackRange(weaponState);
-    res.json({ damage: fallbackDamage(weaponState), attackRange, attackRangeDistance, fallback: true });
+    const fallback = fallbackAttackRange(weaponState);
+    const selected = resolveAttackRangeSelection(
+      selectedAttackRange,
+      fallback.attackRange,
+      fallback.attackRangeDistance,
+    );
+    res.json({ damage: fallbackDamage(weaponState), ...selected, fallback: true });
   }
 });
 

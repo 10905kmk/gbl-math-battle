@@ -1,6 +1,6 @@
 import { isValidShapeId } from '../../shapes/registry.js';
 
-export const MAX_PARTS = 10;
+export const MAX_PARTS = 25;
 
 // 클라이언트가 보낸 weaponState는 지금까지 전혀 검증 없이 캐시 키 생성(normalize)이나 AI
 // 프롬프트 구성에 그대로 들어갔다 — 빈 요청 본문({}), null parts, 500개 부품 같은 입력이
@@ -25,8 +25,17 @@ export function validateWeaponState(weaponState) {
     if (!isValidShapeId(part.shapeId)) {
       return { ok: false, error: `invalid shapeId: ${part.shapeId}` };
     }
-    for (const field of ['x', 'y', 'rotation', 'scale']) {
+    for (const field of ['x', 'y', 'rotation']) {
       if (!Number.isFinite(Number(part[field]))) {
+        return { ok: false, error: `part.${field} must be a finite number` };
+      }
+    }
+    // 크기는 scaleX/scaleY(자유 변형) 또는 예전 형식인 등비 scale로 올 수 있다 — 셋 다
+    // 선택 항목으로 두되(없으면 partScale()이 1로 흡수), 값이 있다면 숫자여야 한다.
+    // 예전엔 scale을 필수로 요구했는데, 이제 클라이언트는 scaleX/scaleY만 보내므로
+    // 그대로 두면 모든 제작 요청이 400으로 막힌다.
+    for (const field of ['scale', 'scaleX', 'scaleY']) {
+      if (part[field] !== undefined && part[field] !== null && !Number.isFinite(Number(part[field]))) {
         return { ok: false, error: `part.${field} must be a finite number` };
       }
     }

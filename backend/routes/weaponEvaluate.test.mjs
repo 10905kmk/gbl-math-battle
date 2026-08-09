@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { fallbackDamage, fallbackAttackRange } from './weaponEvaluate.js';
+import { fallbackDamage, fallbackAttackRange, resolveAttackRangeSelection } from './weaponEvaluate.js';
 
 const weapon = { parts: [{ id: 'p1', shapeId: 'triangle', x: 0, y: 0, rotation: 0, scale: 1 }] };
 const damage = fallbackDamage(weapon);
@@ -39,6 +39,22 @@ assert.ok(damage1 < damage5, '부품이 많을수록 점수가 더 높아야 함
 assert.ok(damage5 < damage10, '5개 < 10개 — 예전엔 5개부터 이미 최댓값이라 여기서 실패했음');
 assert.ok(damage10 <= 10000);
 console.log('fallbackDamage no longer saturates by 5 parts: OK');
+
+assert.deepStrictEqual(
+  resolveAttackRangeSelection('melee', 'ranged', 500),
+  { attackRange: 'melee', attackRangeDistance: null },
+  '사용자가 고른 근접 모드는 AI의 원거리 판정보다 우선해야 함',
+);
+assert.deepStrictEqual(
+  resolveAttackRangeSelection('ranged', 'melee', null),
+  { attackRange: 'ranged', attackRangeDistance: 150 },
+  '사용자가 고른 원거리 모드는 AI의 근접 판정보다 우선하고 최소 사거리를 가져야 함',
+);
+assert.deepStrictEqual(
+  resolveAttackRangeSelection(undefined, 'ranged', 9999),
+  { attackRange: 'ranged', attackRangeDistance: 600 },
+  '구버전 요청은 AI 판정을 유지하고 사거리를 안전하게 제한해야 함',
+);
 
 // fallbackAttackRange — 크래시 없이 항상 melee/ranged 중 하나를 반환
 {

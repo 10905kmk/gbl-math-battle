@@ -1,0 +1,71 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 1180px;
+  background: #0c1320;
+  color: #eef3fb;
+  font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
+}
+
+.dev-shell { padding: 18px; }
+
+.dev-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 14px;
+  padding: 15px 18px;
+  border: 1px solid #2a3a51;
+  background: #141f30;
+  border-radius: 10px;
+}
+
+.dev-header h1 { margin: 4px 0 3px; font-size: 22px; }
+.dev-header p { margin: 0; color: #9fb0c7; font-size: 13px; }
+.dev-badge { color: #ffbd59; font-size: 11px; font-weight: 800; letter-spacing: 1.2px; }
+.dev-connection { color: #9fb0c7; font-size: 13px; }
+.dev-connection.is-online { color: #5fe3a1; }
+
+.dev-layout { display: grid; grid-template-columns: 820px minmax(320px, 1fr); gap: 16px; align-items: start; }
+.dev-game-column { min-width: 0; }
+.dev-help { display: flex; gap: 15px; align-items: center; margin-bottom: 9px; color: #b8c5d8; font-size: 12px; }
+.dev-help kbd { border: 1px solid #52647d; border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; background: #202d40; color: #fff; }
+.dev-help strong { color: #fff; }
+
+.dev-game-column .battle-shell { margin: 0; }
+.dev-game-column .battle-viewport { border: 2px solid #354963; border-radius: 8px; overflow: hidden; }
+.dev-game-column .battle-controls { min-height: 120px; }
+
+.dev-sidebar {
+  max-height: 744px;
+  overflow: auto;
+  padding: 13px;
+  border: 1px solid #2a3a51;
+  background: #141f30;
+  border-radius: 10px;
+}
+
+.dev-selected { display: flex; gap: 12px; padding: 12px; border-left: 4px solid var(--skill-color); background: #0f1826; }
+.dev-selected > span { font-size: 29px; }
+.dev-selected small { display: block; color: #91a3ba; }
+.dev-selected strong { display: block; margin-top: 1px; color: var(--skill-color); font-size: 18px; }
+.dev-selected p { margin: 4px 0 0; color: #bdc9d9; font-size: 12px; line-height: 1.45; }
+
+.dev-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 11px 0 14px; }
+.dev-actions button { padding: 9px 7px; border: 1px solid #41536b; border-radius: 6px; background: #202d40; color: #eef3fb; font-weight: 700; cursor: pointer; }
+.dev-actions button:hover { background: #293a52; }
+.dev-actions .dev-reset { grid-column: 1 / -1; color: #ff9e97; }
+
+.dev-skill-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.dev-skill-head span { color: #91a3ba; font-size: 12px; }
+.dev-skill-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.dev-skill { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 6px; min-height: 42px; padding: 6px 8px; border: 1px solid #314158; border-radius: 6px; background: #101a29; color: #eef3fb; text-align: left; cursor: pointer; }
+.dev-skill:hover { border-color: var(--skill-color); background: #19263a; }
+.dev-skill.is-selected { border-color: var(--skill-color); box-shadow: inset 3px 0 var(--skill-color); }
+.dev-skill > span { font-size: 19px; text-align: center; }
+.dev-skill strong { font-size: 12px; }
+.dev-skill small { color: #8294aa; font-size: 10px; }
+.dev-passive-note { margin: 10px 0 0; color: #91a3ba; font-size: 11px; line-height: 1.45; }
+.dev-passive-note b { color: #eef3fb; }

@@ -3,14 +3,59 @@ import { h } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import htm from 'htm';
 import Konva from 'konva';
-import { ALL_SHAPES, getShapeGeometry, generatePartId } from '../../../../shapes/registry.js';
+import {
+  ALL_SHAPES,
+  getShapeGeometry,
+  generatePartId,
+  partScale,
+  clampScale,
+  SCALE_MIN,
+  SCALE_MAX,
+} from '../../../../shapes/registry.js';
 
 const html = htm.bind(h);
 
 export const CANVAS_SIZE = { width: 480, height: 480 };
-// 서버(backend/routes/weaponChat.js)의 MAX_PARTS와 같은 값 — 부품 상한 10개(Global Constraints)를
-// 수동 편집(팔레트 클릭) 경로에도 동일하게 적용한다.
-const MAX_PARTS = 10;
+// 서버(backend/routes/weaponChat.js)의 MAX_PARTS와 같은 값 — 부품 상한 25개(Global Constraints)를
+// 수동 편집(팔레트 클릭) 경로에도 동일하게 적용한다. create.js의 부품 카운터도 이 값을 쓴다.
+export const MAX_PARTS = 25;
+
+// 팔레트 버튼 안에 들어가는 도형 미리보기. 이름만 적힌 버튼은 "코흐 눈꽃"이 뭔지 모르는
+// 참가자에게 아무 정보도 주지 않는다 — 실제 렌더링에 쓰는 geometry를 그대로 축소해서
+// 보여주므로 캔버스에 추가됐을 때의 모양과 항상 일치한다.
+function ShapeIcon({ shapeId }) {
+  const geometry = getShapeGeometry(shapeId);
+  if (!geometry) return null;
+  const polys = geometry.type === 'polygon' ? [geometry.points] : geometry.triangles;
+  const all = polys.flat();
+  const minX = Math.min(...all.map((p) => p.x));
+  const minY = Math.min(...all.map((p) => p.y));
+  const w = Math.max(...all.map((p) => p.x)) - minX;
+  const hgt = Math.max(...all.map((p) => p.y)) - minY;
+  const pad = Math.max(w, hgt) * 0.06;
+  // 시에르핀스키는 깊이 4라 삼각형이 81개다 — 20px짜리 아이콘에 테두리까지 그리면 선이
+  // 전부 뭉쳐서 그냥 회색 삼각형으로 보인다. 조각이 많으면 채움만으로 실루엣을 만든다.
+  const dense = polys.length > 12;
+  return html`
+    <svg
+      class="shape-icon"
+      viewBox=${`${minX - pad} ${minY - pad} ${w + pad * 2} ${hgt + pad * 2}`}
+      aria-hidden="true"
+    >
+      ${polys.map(
+        (points) => html`
+          <polygon
+            points=${points.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill=${dense ? 'currentColor' : 'rgba(124,196,255,0.22)'}
+            stroke=${dense ? 'none' : 'currentColor'}
+            stroke-width=${dense ? 0 : Math.max(w, hgt) * 0.03}
+            stroke-linejoin="round"
+          />
+        `,
+      )}
+    </svg>
+  `;
+}
 
 function drawShapeNode(part, disabled) {
   const geometry = getShapeGeometry(part.shapeId);
@@ -35,8 +80,8 @@ function drawShapeNode(part, disabled) {
     offsetX: width / 2,
     offsetY: height / 2,
     rotation: part.rotation,
-    scaleX: part.scale,
-    scaleY: part.scale,
+    scaleX: partScale(part).sx,
+    scaleY: partScale(part).sy,
     draggable: !disabled,
     id: part.id,
     name: 'part',
@@ -94,12 +139,24 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
       height: CANVAS_SIZE.height,
     });
     const layer = new Konva.Layer();
-    // 옆(가운데) 앵커는 기본적으로 keepRatio 대상이 아니라서 세로/가로만 늘어나는 스트레치가
-    // 가능한데, 데이터 모델엔 scale이 하나뿐이라 transformend에서 scaleY를 scaleX로 강제로
-    // 맞춰버린다 — 그래서 옆으로 늘렸다가 손을 떼는 순간 도형이 (scaleX 기준으로) 갑자기
-    // 등비로 확 튀어 보인다(Opus 리뷰 Important #10, 실측: 옆으로 +100px 드래그 후 놓으면
-    // sx=sy=2.804로 스냅됨). 모서리 4개만 남겨서 처음부터 등비로만 조절되게 한다.
-    const tr = new Konva.Transformer({ enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'] });
+    // 8개 앵커 전부 + keepRatio:false — 가로/세로를 따로 늘려 원을 타원으로, 사각형을
+    // 임의 비율의 판때기로 만들 수 있다(그림판식 자유 변형). 예전엔 데이터 모델에 등비
+    // scale 하나뿐이라 옆 앵커로 늘렸다가 손을 떼는 순간 등비로 튀어버려서, 어쩔 수 없이
+    // 모서리 4개만 남겨뒀었다 — 이제 part가 scaleX/scaleY를 따로 들고 있으므로 그 제약이
+    // 사라졌다. rotateEnabled는 Konva 기본값(true)이라 회전도 각도 제한 없이 자유롭다.
+    const tr = new Konva.Transformer({
+      keepRatio: false,
+      // 앵커를 손가락으로도 잡을 수 있게 키운다 — 부스에서 태블릿/폰으로 쓴다.
+      anchorSize: 12,
+      rotateAnchorOffset: 28,
+      borderStroke: '#7cc4ff',
+      anchorStroke: '#7cc4ff',
+      anchorFill: '#0f1729',
+      // 뒤집기(음수 scale)까지 허용하면 회전과 구분이 안 돼서 참가자가 혼란스러워한다 —
+      // 반대편으로 끌고 가도 최소 크기에서 멈추게 한다.
+      boundBoxFunc: (oldBox, newBox) =>
+        newBox.width < 6 || newBox.height < 6 ? oldBox : newBox,
+    });
     layer.add(tr);
     stage.add(layer);
     stage.on('click tap', (e) => {
@@ -142,20 +199,24 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
         onChange(parts.map((p) => (p.id === part.id ? { ...p, x: node.x(), y: node.y() } : p)));
       });
       node.on('transformend', () => {
-        // scale 범위 0.2~3.0 (Global Constraints) — 서버 쪽 clamp(applyToolCalls)와 동일 범위를
-        // 수동 드래그 편집에도 적용. 노드 자체의 scale도 되돌려서 화면이 clamp된 값과 어긋나지 않게 한다.
-        const rawScale = node.scaleX();
-        const wasClamped = rawScale < 0.2 || rawScale > 3;
-        const clampedScale = Math.min(3, Math.max(0.2, rawScale));
-        node.scaleX(clampedScale);
-        node.scaleY(clampedScale);
-        // 모서리를 드래그해서 리사이즈하면 Konva가 반대쪽 모서리를 고정점으로 삼아 x/y도
-        // 같이 옮기는데, 그 값은 "clamp 전" scale 기준으로 계산된 것이다. scale만 사후에
-        // clamp하고 그 x/y를 그대로 쓰면 실제 그려지는 도형과 안 맞아서, 최대/최소 크기에
-        // 걸릴 때마다 도형이 옆으로 슬쩍 밀리는 것처럼 보인다(Opus 리뷰 Important #9, 최댓값
-        // 근처에서 반복 리사이즈하면 y가 계속 밀리는 것으로 실측됨). scale이 clamp된
-        // 경우엔 이번 조작 시작 전 위치(part.x/part.y)로 되돌리고, 정상 범위 안에서 끝난
-        // 경우에도 캔버스 범위(dragBoundFunc와 동일 규칙)로 한 번 더 clamp한다.
+        // 가로/세로를 따로 clamp한다(SCALE_MIN~SCALE_MAX) — 서버 쪽 clamp(applyToolCalls)와
+        // 동일 범위를 수동 드래그 편집에도 적용. 노드 자체의 scale도 되돌려서 화면이
+        // clamp된 값과 어긋나지 않게 한다. 음수(뒤집기)는 Transformer의 boundBoxFunc가
+        // 이미 막지만, 혹시 새어 들어와도 절댓값으로 흡수한다.
+        const rawX = Math.abs(node.scaleX());
+        const rawY = Math.abs(node.scaleY());
+        const wasClamped = rawX < SCALE_MIN || rawX > SCALE_MAX || rawY < SCALE_MIN || rawY > SCALE_MAX;
+        const nextScaleX = clampScale(rawX);
+        const nextScaleY = clampScale(rawY);
+        node.scaleX(nextScaleX);
+        node.scaleY(nextScaleY);
+        // 앵커를 드래그해서 리사이즈하면 Konva가 반대쪽을 고정점으로 삼아 x/y도 같이
+        // 옮기는데, 그 값은 "clamp 전" scale 기준으로 계산된 것이다. scale만 사후에 clamp하고
+        // 그 x/y를 그대로 쓰면 실제 그려지는 도형과 안 맞아서, 최대/최소 크기에 걸릴 때마다
+        // 도형이 옆으로 슬쩍 밀리는 것처럼 보인다(Opus 리뷰 Important #9, 최댓값 근처에서
+        // 반복 리사이즈하면 y가 계속 밀리는 것으로 실측됨). clamp된 경우엔 이번 조작 시작 전
+        // 위치(part.x/part.y)로 되돌리고, 정상 범위 안에서 끝난 경우에도 캔버스 범위
+        // (dragBoundFunc와 동일 규칙)로 한 번 더 clamp한다.
         const nextX = wasClamped ? part.x : Math.min(CANVAS_SIZE.width, Math.max(0, node.x()));
         const nextY = wasClamped ? part.y : Math.min(CANVAS_SIZE.height, Math.max(0, node.y()));
         node.x(nextX);
@@ -163,7 +224,18 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
         onChange(
           parts.map((p) =>
             p.id === part.id
-              ? { ...p, x: nextX, y: nextY, rotation: node.rotation(), scale: clampedScale }
+              ? {
+                  ...p,
+                  x: nextX,
+                  y: nextY,
+                  rotation: node.rotation(),
+                  scaleX: nextScaleX,
+                  scaleY: nextScaleY,
+                  // 등비 scale만 알던 예전 형식과 섞이지 않게 확실히 지운다 — 남아 있으면
+                  // partScale()이 우선순위상 무시하긴 하지만, 캐시 키/AI 프롬프트에 죽은
+                  // 필드가 실려 나간다.
+                  scale: undefined,
+                }
               : p,
           ),
         );
@@ -188,7 +260,8 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
         x: CANVAS_SIZE.width / 2,
         y: CANVAS_SIZE.height / 2,
         rotation: 0,
-        scale: 1,
+        scaleX: 1,
+        scaleY: 1,
       },
     ]);
   }
@@ -204,13 +277,61 @@ export function CanvasEditor({ parts, onChange, onStageReady, disabled }) {
     onChange(parts.filter((p) => !ids.includes(p.id)));
   }
 
+  function duplicateSelected() {
+    if (disabled || parts.length >= MAX_PARTS) return;
+    const selectedId = selectedIdRef.current;
+    const source = parts.find((p) => p.id === selectedId);
+    if (!source) return;
+
+    const offset = 20;
+    const nextX = source.x <= CANVAS_SIZE.width - offset ? source.x + offset : source.x - offset;
+    const nextY = source.y <= CANVAS_SIZE.height - offset ? source.y + offset : source.y - offset;
+    const copy = {
+      ...source,
+      id: generatePartId(),
+      x: Math.min(CANVAS_SIZE.width, Math.max(0, nextX)),
+      y: Math.min(CANVAS_SIZE.height, Math.max(0, nextY)),
+    };
+
+    selectedIdRef.current = copy.id;
+    trRef.current?.nodes([]);
+    onChange([...parts, copy]);
+  }
+
+  const paletteFull = parts.length >= MAX_PARTS;
+
   return html`
     <div class="canvas-editor">
       <div class="shape-palette">
-        ${ALL_SHAPES.map((s) => html`<button class="chip-btn" onClick=${() => addShape(s.id)} disabled=${disabled}>${s.name}</button>`)}
-        <button class="chip-btn chip-btn--danger" onClick=${deleteSelected} disabled=${disabled}>선택 삭제</button>
+        ${ALL_SHAPES.map(
+          (s) => html`
+            <button
+              class="chip-btn"
+              onClick=${() => addShape(s.id)}
+              disabled=${disabled || paletteFull}
+              title=${paletteFull ? `부품은 최대 ${MAX_PARTS}개까지예요` : `${s.name} 추가`}
+            >
+              <${ShapeIcon} shapeId=${s.id} />
+              ${s.name}
+            </button>
+          `,
+        )}
+        <button
+          class="chip-btn chip-btn--copy"
+          onClick=${duplicateSelected}
+          disabled=${disabled || paletteFull}
+          title=${paletteFull ? `부품은 최대 ${MAX_PARTS}개까지예요` : '선택한 블록 복사'}
+        >
+          선택 복사
+        </button>
+        <button class="chip-btn chip-btn--danger" onClick=${deleteSelected} disabled=${disabled}>
+          선택 삭제
+        </button>
       </div>
       <div class="canvas-container" ref=${containerRef}></div>
+      <p class="canvas-hint">
+        도형을 눌러 선택 → 끌어서 이동 · 모서리로 크기 · 옆면으로 가로세로 늘이기 · 위쪽 핸들로 회전
+      </p>
     </div>
   `;
 }

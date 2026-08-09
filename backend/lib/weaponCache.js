@@ -1,19 +1,36 @@
+import { partScale } from '../../shapes/registry.js';
+
 const cache = new Map();
 
 // x/y는 10px 단위, rotation은 15도 단위로 반올림해서 "거의 같은 무기"를 같은 키로 수렴시킨다.
+// 크기는 가로/세로가 따로 놀 수 있으므로(자유 변형) 둘 다 0.1 단위로 반올림해서 키에 넣는다 —
+// partScale()이 예전 형식(등비 scale 하나)도 같은 (sx, sy) 쌍으로 바꿔주므로, 옛 few-shot
+// 샘플과 새로 만든 같은 모양의 무기가 같은 키로 수렴한다.
 export function normalize(weaponState) {
   return [...weaponState.parts]
-    .map((p) => ({
-      shapeId: p.shapeId,
-      x: Math.round(p.x / 10) * 10,
-      y: Math.round(p.y / 10) * 10,
-      // JS의 %는 음수 부호를 그대로 보존하므로(-30 % 360 === -30), +360 후 다시 %로 [0,360) 범위로 감는다.
-      // Konva 드래그로 반시계 방향 회전하면 rotation이 자연스럽게 음수가 되므로 이 처리가 없으면
-      // -30도와 330도(시각적으로 동일)가 다른 캐시 키로 갈라진다.
-      rotation: (((Math.round(p.rotation / 15) * 15) % 360) + 360) % 360,
-      scale: Math.round(p.scale * 10) / 10,
-    }))
-    .sort((a, b) => a.shapeId.localeCompare(b.shapeId) || a.x - b.x || a.y - b.y || a.rotation - b.rotation || a.scale - b.scale);
+    .map((p) => {
+      const { sx, sy } = partScale(p);
+      return {
+        shapeId: p.shapeId,
+        x: Math.round(p.x / 10) * 10,
+        y: Math.round(p.y / 10) * 10,
+        // JS의 %는 음수 부호를 그대로 보존하므로(-30 % 360 === -30), +360 후 다시 %로 [0,360) 범위로 감는다.
+        // Konva 드래그로 반시계 방향 회전하면 rotation이 자연스럽게 음수가 되므로 이 처리가 없으면
+        // -30도와 330도(시각적으로 동일)가 다른 캐시 키로 갈라진다.
+        rotation: (((Math.round(p.rotation / 15) * 15) % 360) + 360) % 360,
+        scaleX: Math.round(sx * 10) / 10,
+        scaleY: Math.round(sy * 10) / 10,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.shapeId.localeCompare(b.shapeId) ||
+        a.x - b.x ||
+        a.y - b.y ||
+        a.rotation - b.rotation ||
+        a.scaleX - b.scaleX ||
+        a.scaleY - b.scaleY,
+    );
 }
 
 export function cacheKey(weaponState) {

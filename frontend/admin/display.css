@@ -5,8 +5,9 @@
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
-  background: #111;
-  color: #eee;
+  background: #09111f;
+  color: #eef5ff;
+  overflow: hidden;
 }
 
 #display-app {
@@ -14,22 +15,164 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 3rem;
+  padding: 1rem 1.5rem;
   text-align: center;
 }
 
+.stage-guide {
+  position: relative;
+  width: min(1080px, 100%);
+  min-height: min(620px, calc(100vh - 2rem));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2px solid #304b69;
+  border-radius: 22px;
+  background: #0d1829;
+  box-shadow: 10px 10px 0 #050b14;
+}
+
+.guide-card {
+  position: relative;
+  z-index: 1;
+  width: min(820px, calc(100% - 4rem));
+  padding: clamp(2rem, 5vw, 4rem);
+  border: 2px solid #304b69;
+  border-radius: 18px;
+  background: #14243a;
+  box-shadow: 8px 8px 0 #050b14;
+  text-align: left;
+}
+
+.guide-step {
+  margin: 0;
+  color: #55d6be;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.guide-card h1 {
+  margin: 0.65rem 0 0;
+  font-size: clamp(2.3rem, 5vw, 4.2rem);
+  line-height: 1.13;
+  letter-spacing: -0.04em;
+  word-break: keep-all;
+}
+
+.guide-description {
+  margin: 1.1rem 0 0;
+  color: #aebdd2;
+  font-size: clamp(1.15rem, 2.2vw, 1.65rem);
+  line-height: 1.55;
+  word-break: keep-all;
+}
+
+.guide-actions {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1.8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-actions li {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #304b69;
+  border-radius: 10px;
+  background: #0b1728;
+  font-size: clamp(1rem, 1.8vw, 1.3rem);
+  font-weight: 700;
+}
+
+.guide-actions li span {
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 7px;
+  background: #55d6be;
+  color: #061d1c;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.guide-progress {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.4rem;
+}
+
+.guide-progress > div {
+  flex: 1;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #09111f;
+}
+
+.guide-progress > div span {
+  display: block;
+  height: 100%;
+  background: #55d6be;
+}
+
+.guide-progress strong {
+  color: #55d6be;
+  font-variant-numeric: tabular-nums;
+}
+
+.guide-shape {
+  position: absolute;
+  border: 2rem solid #173346;
+  pointer-events: none;
+}
+
+.guide-shape--square {
+  width: 17rem;
+  height: 17rem;
+  top: -8rem;
+  left: -7rem;
+  transform: rotate(24deg);
+}
+
+.guide-shape--circle {
+  width: 20rem;
+  height: 20rem;
+  right: -9rem;
+  bottom: -10rem;
+  border-color: #123a3e;
+  border-radius: 50%;
+}
+
+.display-slide {
+  width: min(1050px, 100%);
+  padding: 1.5rem 2rem;
+  border: 2px solid #304b69;
+  border-radius: 18px;
+  background: #14243a;
+  box-shadow: 8px 8px 0 #050b14;
+}
+
 .display-slide h1 {
-  font-size: 4rem;
-  margin-bottom: 1.5rem;
+  font-size: clamp(2.5rem, 5vw, 4rem);
+  margin: 0 0 1rem;
 }
 
 .display-slide img {
   max-width: 60vw;
-  max-height: 50vh;
+  max-height: 44vh;
 }
 
 .display-slide p {
-  font-size: 2rem;
+  font-size: clamp(1.2rem, 2.5vw, 2rem);
   max-width: 70vw;
   margin: 1.5rem auto 0;
 }
@@ -44,6 +187,41 @@ body {
   gap: 2rem;
 }
 
+.battle-display {
+  width: min(1180px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.battle-guide-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 3.6rem;
+  padding: 0.65rem 1rem;
+  border: 2px solid #304b69;
+  border-radius: 12px;
+  background: #14243a;
+  text-align: left;
+}
+
+.battle-guide-bar strong,
+.battle-guide-bar span {
+  display: block;
+}
+
+.battle-guide-bar strong {
+  color: #55d6be;
+  font-size: 1.15rem;
+}
+
+.battle-guide-bar span {
+  margin-top: 0.15rem;
+  color: #aebdd2;
+  font-size: 0.82rem;
+}
+
 /* battle-map-canvas는 순수 Konva 마운트 지점(BattleMapView.js가 ref로만 씀) — 타이머 HUD는
    그 바깥 wrap에 형제로 둬서 Preact/Konva가 같은 DOM 노드를 두고 충돌하지 않게 한다
    (frontend/src/screens/battle.css의 .battle-viewport와 같은 이유). */
@@ -54,8 +232,38 @@ body {
 
 .battle-map-canvas {
   background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  border: 2px solid #304b69;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.battle-map-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border-radius: 10px;
+  background: rgba(9, 17, 31, 0.9);
+  pointer-events: none;
+}
+
+.battle-map-overlay strong {
+  color: #55d6be;
+  font-size: 3.2rem;
+}
+
+.battle-map-overlay span {
+  color: #d7e2f0;
+  font-size: 1.35rem;
+}
+
+.battle-map-overlay--countdown strong {
+  color: #fff;
+  font-size: 7rem;
+  text-shadow: 6px 6px 0 #123a3e;
 }
 
 .battle-map-timer {
@@ -78,6 +286,12 @@ body {
   margin: 0;
   padding: 0;
   min-width: 300px;
+  max-height: 600px;
+  overflow-y: auto;
+  padding: 0.75rem;
+  border: 2px solid #304b69;
+  border-radius: 10px;
+  background: #14243a;
   text-align: left;
 }
 
@@ -112,6 +326,17 @@ body {
   flex: 1;
 }
 
+/* 킬/데스/어시스트 — 종합 점수 왼쪽에 작게. 어떤 판인지 한눈에 읽히도록 고정폭 숫자. */
+.leaderboard-kda {
+  margin-right: 0.6rem;
+  font-size: 0.8em;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
 .leaderboard-score {
   font-weight: bold;
+  min-width: 2.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

@@ -97,6 +97,31 @@ console.log('name/create stage transitions are manual-only (no auto-transition o
   console.log('participant:name updates admin:participants: OK');
 }
 
+// 무기 이름은 참가자가 직접 입력하는 값이라 서버에서 다시 다듬는다 — Supabase를 거쳐
+// 결과 상시 페이지와 PDF 증서의 제목으로 그대로 렌더링되기 때문(session.js sanitizeWeaponName).
+{
+  const weaponOf = (id) => latestParticipants().find((p) => p.id === id).weapon;
+
+  handlers.s1['create:done']({ damage: 500, name: '   ' });
+  assert.strictEqual(weaponOf('s1').name, '이름 없는 무기', '공백뿐인 이름은 대체 이름으로 바뀌어야 함');
+
+  handlers.s1['create:done']({ damage: 500, name: `  창${'가'.repeat(40)}  ` });
+  const trimmed = weaponOf('s1').name;
+  assert.strictEqual(trimmed.length, 24, '무기 이름은 24자로 잘려야 함');
+  assert.ok(trimmed.startsWith('창'), '앞뒤 공백은 제거되어야 함');
+
+  handlers.s1['create:done']({ damage: 500, name: { evil: true } });
+  assert.strictEqual(weaponOf('s1').name, '이름 없는 무기', '문자열이 아닌 이름은 대체 이름으로 바뀌어야 함');
+
+  handlers.s1['create:done']('무기가 아닌 값');
+  assert.strictEqual(weaponOf('s1').name, '기본 무기', '객체가 아닌 페이로드는 기본 무기로 대체되어야 함');
+
+  // 뒤 블록들이 깨끗한 상태에서 시작하도록 정상 무기로 되돌려 놓는다.
+  handlers.s1['create:done']({ damage: 1000, name: '시에르핀스키 창' });
+  assert.strictEqual(weaponOf('s1').name, '시에르핀스키 창');
+  console.log('create:done sanitizes participant-supplied weapon names: OK');
+}
+
 // 회귀 테스트: 참가자가 새로고침해서 소켓이 바뀌어도(옛 소켓 disconnect + 새 소켓으로
 // 재등록) 중복으로 카운트되면 안 된다(Opus 리뷰 Critical #2b, 실제로 재현됨) — 통합된
 // cohort.participants 모델에서도 그대로 성립해야 한다.

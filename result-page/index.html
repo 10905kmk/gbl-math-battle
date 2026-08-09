@@ -2,33 +2,213 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>결과 - 수학 도형 무기 온라인 베틀</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#060a15" />
+  <title>내 무기 결과 - 수학 도형 무기 온라인 베틀</title>
   <style>
+    /* 현장 화면(frontend/style.css)과 같은 토큰/모티프를 쓴다 — QR을 찍고 넘어온 참가자가
+       "같은 서비스"로 인식하도록. 이 페이지는 Vercel에 따로 배포돼서 CSS를 공유할 수 없어
+       필요한 만큼만 복제한다. */
+    :root {
+      color-scheme: dark;
+      --ink-900: #060a15;
+      --ink-800: #0a1020;
+      --surface: rgba(255, 255, 255, 0.045);
+      --surface-2: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.1);
+      --border-strong: rgba(255, 255, 255, 0.24);
+      --accent: #7cc4ff;
+      --accent-strong: #3d9dff;
+      --accent-ink: #04182b;
+      --violet: #a98bff;
+      --gold: #ffd66e;
+      --danger: #ff8080;
+      --text: #eaf0ff;
+      --text-dim: #9fb0cf;
+      --text-faint: #6b7c9b;
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 22px;
+      --shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+      --font: system-ui, -apple-system, "Malgun Gothic", "맑은 고딕", sans-serif;
+    }
+
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       min-height: 100vh;
+      min-height: 100dvh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1.5rem;
-      font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
-      background: #111;
-      color: #eee;
+      padding: clamp(1rem, 4vw, 2rem);
+      font-family: var(--font);
+      background: var(--ink-900);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
     }
-    .result-card { text-align: center; max-width: 24rem; }
-    .result-card img { max-width: 12rem; max-height: 12rem; }
-    .result-rank { font-size: 1.5rem; font-weight: bold; }
-    .result-score { color: #ccc; }
-    .result-error { color: #e74c3c; }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(900px 560px at 12% -10%, rgba(61, 157, 255, 0.16), transparent 65%),
+        radial-gradient(760px 520px at 92% 108%, rgba(169, 139, 255, 0.14), transparent 62%),
+        linear-gradient(180deg, var(--ink-800) 0%, var(--ink-900) 100%);
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      opacity: 0.45;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+      background-size: 44px 44px;
+      -webkit-mask-image: radial-gradient(120% 90% at 50% 40%, #000 35%, transparent 100%);
+      mask-image: radial-gradient(120% 90% at 50% 40%, #000 35%, transparent 100%);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+      padding: clamp(1.4rem, 5vw, 2rem);
+      width: min(24rem, 100%);
+      text-align: center;
+    }
+
+    .state-card { padding-top: 2.5rem; padding-bottom: 2.5rem; }
+    .state-emoji { font-size: 2.2rem; margin: 0 0 0.6rem; }
+
+    .eyebrow {
+      margin: 0 0 1.1rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .subtitle { margin: 0; color: var(--text-dim); font-size: 0.94rem; }
+    .result-error { margin: 0; color: var(--danger); font-size: 0.95rem; line-height: 1.6; }
+
+    .rank-badge {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 5.2rem;
+      height: 5.2rem;
+      margin: 0 auto 1rem;
+      border-radius: 50%;
+      border: 2px solid var(--border-strong);
+      background: var(--surface-2);
+      line-height: 1;
+    }
+    .rank-badge strong { font-size: 1.9rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .rank-badge small { margin-top: 0.25rem; font-size: 0.7rem; color: var(--text-dim); }
+    .rank-badge--top {
+      border-color: var(--gold);
+      background: rgba(255, 214, 110, 0.12);
+      color: var(--gold);
+      box-shadow: 0 0 30px rgba(255, 214, 110, 0.22);
+    }
+    .rank-badge--top small { color: rgba(255, 214, 110, 0.75); }
+
+    .weapon-frame {
+      width: 11rem;
+      height: 11rem;
+      margin: 0 auto 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+    .weapon-frame img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .weapon-frame--empty { color: var(--text-faint); font-size: 0.85rem; }
+
+    .weapon-name {
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      word-break: keep-all;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.6rem;
+      margin: 1.2rem 0 1.4rem;
+    }
+    .stat {
+      padding: 0.7rem 0.5rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, 0.22);
+    }
+    .stat dt { margin: 0; font-size: 0.72rem; color: var(--text-faint); }
+    .stat dd { margin: 0.3rem 0 0; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .stat--damage dd { color: var(--accent); }
+    .stat--score dd { color: var(--violet); }
+
+    .btn {
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 700;
+      padding: 0.85rem 1.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: transform 0.06s ease, background-color 0.15s ease, opacity 0.15s ease;
+    }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn--block { width: 100%; }
+    .btn--primary {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+      border-color: transparent;
+      color: var(--accent-ink);
+      box-shadow: 0 10px 26px rgba(61, 157, 255, 0.3);
+    }
+
+    .save-note { margin: 0.6rem 0 0; font-size: 0.76rem; color: var(--text-faint); line-height: 1.5; }
+    .page-footer { margin: 1.4rem 0 0; font-size: 0.7rem; color: var(--text-faint); letter-spacing: 0.08em; }
+
+    .dots { display: inline-flex; gap: 0.28rem; vertical-align: middle; margin-left: 0.15rem; }
+    .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: dot-pulse 1.2s ease-in-out infinite; }
+    .dots i:nth-child(2) { animation-delay: 0.15s; }
+    .dots i:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes dot-pulse {
+      0%, 100% { opacity: 0.25; transform: translateY(0); }
+      40% { opacity: 1; transform: translateY(-3px); }
+    }
   </style>
   <script type="importmap">
   {
     "imports": {
       "preact": "https://esm.sh/preact@10",
       "preact/hooks": "https://esm.sh/preact@10/hooks",
-      "htm": "https://esm.sh/htm@3"
+      "htm": "https://esm.sh/htm@3",
+      "jspdf": "https://esm.sh/jspdf@2"
     }
   }
   </script>

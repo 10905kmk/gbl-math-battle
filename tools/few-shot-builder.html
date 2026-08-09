@@ -3,6 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <title>무기 채점 few-shot 빌더</title>
+<!-- style.css를 먼저 읽어야 한다 — create.css가 쓰는 디자인 토큰(--accent, --border ...)이
+     이제 거기 :root에만 정의돼 있어서, 이 링크가 없으면 팔레트/캔버스가 색 없이 렌더된다.
+     아래 <style>이 뒤에 오므로 이 도구 고유의 body/button 스타일은 그대로 유지된다. -->
+<link rel="stylesheet" href="../style.css" />
 <link rel="stylesheet" href="../src/screens/create/create.css" />
 <style>
   body { font-family: sans-serif; background: #222; color: #eee; margin: 0; padding: 1rem; }
@@ -53,7 +57,7 @@
     import { useState } from 'preact/hooks';
     import htm from 'htm';
     import { CanvasEditor } from '../src/screens/create/CanvasEditor.js';
-    import { generatePartId } from '../shapes/registry.js';
+    import { generatePartId, partScale } from '../shapes/registry.js';
     import { computeWeaponBounds } from '../shapes/weaponRenderer.js';
     import {
       RANGE_DISTANCE_MIN,
@@ -83,13 +87,18 @@
 
     function formatSample({ parts, damage, attackRange, attackRangeDistance, note }) {
       const partLines = parts.map((p) => {
+        // 크기는 가로/세로가 독립이다(자유 변형). 두 값이 같으면 예전처럼 등비 scale 하나로
+        // 출력한다 — 손으로 쓴 기존 샘플들과 형식이 통일되고, 읽는 쪽(partScale)이 둘 다
+        // 흡수하므로 어느 쪽으로 적어도 동작은 같다.
+        const { sx, sy } = partScale(p);
+        const round = (v) => Math.round(v * 100) / 100;
         const out = {
           id: p.id,
           shapeId: p.shapeId,
           x: Math.round(p.x),
           y: Math.round(p.y),
           rotation: Math.round(p.rotation),
-          scale: Math.round(p.scale * 100) / 100,
+          ...(sx === sy ? { scale: round(sx) } : { scaleX: round(sx), scaleY: round(sy) }),
         };
         return '      ' + JSON.stringify(out).replace(/"([a-zA-Z]+)":/g, '$1:');
       });
@@ -154,7 +163,9 @@
               x: Number.isFinite(p.x) ? p.x : 240,
               y: Number.isFinite(p.y) ? p.y : 240,
               rotation: Number.isFinite(p.rotation) ? p.rotation : 0,
-              scale: Number.isFinite(p.scale) ? p.scale : 1,
+              // 예전 형식(등비 scale)으로 저장된 샘플도 그대로 불러올 수 있어야 한다.
+              scaleX: partScale(p).sx,
+              scaleY: partScale(p).sy,
             }))
           : [];
         setParts(importedParts);

@@ -1,63 +1,463 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   디자인 토큰 — 참가자 화면 전체(style.css / battle.css / create/create.css)가
+   공유한다. 예전엔 create.css가 자기 :root에 --accent 같은 이름을 따로 정의해서
+   화면마다 파랑 톤이 미묘하게 달랐다 — 토큰은 여기 한 곳에만 둔다.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  --ink-900: #09111f;
+  --ink-800: #0d1829;
+  --ink-700: #14243a;
+
+  /* 카드 표면은 불투명 색이 아니라 반투명 — 뒤에 깔린 도형 그리드가 살짝 비쳐서
+     "수학 도형" 테마가 배경에서만 끝나지 않고 UI 전체에 이어진다. */
+  --surface: #14243a;
+  --surface-2: #1d314c;
+  --surface-solid: #14243a;
+  --border: #304b69;
+  --border-strong: #5f7d9d;
+
+  --accent: #55d6be;
+  --accent-strong: #2fb59d;
+  --accent-dim: #173f43;
+  --accent-ink: #061d1c;
+  --violet: #a98bff;
+  --gold: #f5c451;
+  --danger: #ff8080;
+  --success: #5fe3a1;
+
+  --text: #eaf0ff;
+  --text-dim: #9fb0cf;
+  --text-faint: #6b7c9b;
+
+  --radius-sm: 7px;
+  --radius: 11px;
+  --radius-lg: 16px;
+  --shadow: 7px 7px 0 #050b14;
+  --ring: 0 0 0 3px rgba(85, 214, 190, 0.3);
+
+  --font: "Pretendard", system-ui, -apple-system, "Malgun Gothic", "맑은 고딕", sans-serif;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
-  background: #111;
-  color: #eee;
+  font-family: var(--font);
+  background: var(--ink-900);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 배경: 도형 격자 + 위아래 광원. fixed라 화면을 스크롤해도 따라오지 않는다. */
+body::before {
+  content: "";
+  position: fixed;
+  width: 18rem;
+  height: 18rem;
+  top: -8rem;
+  left: -7rem;
+  z-index: -1;
+  border: 2.5rem solid #132b3d;
+  transform: rotate(24deg);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  width: 22rem;
+  height: 22rem;
+  right: -10rem;
+  bottom: -11rem;
+  z-index: -1;
+  border: 2.5rem solid #102d36;
+  border-radius: 50%;
+  /* 격자가 화면 끝까지 또렷하면 배경이 아니라 표(table)처럼 보인다 — 가장자리로 갈수록 흐리게. */
 }
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem;
+  padding: clamp(1rem, 3vw, 2rem);
+  gap: 1rem;
 }
+
+/* ── 공통 컴포넌트 ──────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: clamp(1.4rem, 4vw, 2.2rem);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.title {
+  margin: 0.55rem 0 0;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.subtitle {
+  margin: 0.6rem 0 0;
+  color: var(--text-dim);
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
+
+.btn {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.8rem 1.5rem;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: transform 0.06s ease, background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: #29425f;
+  transform: translateY(-2px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: #8cf2df;
+  color: var(--accent-ink);
+  box-shadow: 4px 4px 0 #061412;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: #74e4cf;
+  border-color: #b0f8ea;
+}
+
+.btn--block {
+  width: 100%;
+}
+
+.field {
+  width: 100%;
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--text);
+  background: #0b1728;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.8rem 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field::placeholder {
+  color: var(--text-faint);
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.field:disabled {
+  opacity: 0.5;
+}
+
+/* 로딩 점 3개 — "대기 중" 상태가 멈춘 화면처럼 안 보이게.
+   앞 글자와 붙어 보이지 않도록 왼쪽 여백을 둔다(문장 바로 뒤에 이어 붙는 용법이라
+   호출부마다 공백을 넣게 하면 빠뜨리는 곳이 생긴다). */
+.dots {
+  display: inline-flex;
+  gap: 0.28rem;
+  margin-left: 0.45rem;
+  vertical-align: middle;
+}
+
+.dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dot-pulse 1.2s ease-in-out infinite;
+}
+
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* ── ① 이름 입력 ───────────────────────────────────────────────────────── */
 
 .name-screen {
+  width: min(26rem, 100%);
   text-align: center;
-  max-width: 24rem;
 }
 
-.name-screen input {
-  font-size: 1.2rem;
-  padding: 0.5rem;
+.name-screen form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.name-screen .field {
+  text-align: center;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+/* ── ② 학습 슬라이드 ───────────────────────────────────────────────────── */
+
+.slide-card {
+  width: min(46rem, 100%);
+  text-align: center;
+}
+
+.slide-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 auto 1rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.slide-card h2 {
+  margin: 0 0 1.2rem;
+  font-size: clamp(1.4rem, 4vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.slide-card img {
   width: 100%;
-  margin: 1rem 0;
-  box-sizing: border-box;
+  max-width: 24rem;
+  max-height: 40vh;
+  object-fit: contain;
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.75rem;
 }
 
-.name-screen button {
-  font-size: 1.2rem;
-  padding: 0.5rem 1.5rem;
+.slide-desc {
+  margin: 1.2rem auto 0;
+  max-width: 34rem;
+  color: var(--text-dim);
+  font-size: 1.02rem;
+  line-height: 1.75;
+  text-align: left;
 }
+
+/* 이미지 없는 슬라이드(learn.js) — 설명이 화면의 주인공이므로 가운데 정렬 + 크게. */
+.slide-card--text {
+  padding-top: clamp(2rem, 6vw, 3rem);
+  padding-bottom: clamp(2rem, 6vw, 3rem);
+}
+
+.slide-card--text .slide-desc {
+  text-align: center;
+  font-size: clamp(1.05rem, 2.6vw, 1.25rem);
+  color: var(--text);
+  word-break: keep-all;
+}
+
+.slide-bar {
+  margin-top: 1.5rem;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.slide-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.35s ease;
+}
+
+/* ── ④⑤ 결과 / 감사 ───────────────────────────────────────────────────── */
 
 .result-card,
 .thanks-card {
+  width: min(24rem, 100%);
   text-align: center;
-  max-width: 24rem;
 }
 
-.result-card img {
-  max-width: 12rem;
-  max-height: 12rem;
+/* 등수 배지 — 1등만 금색으로 강조한다. */
+.rank-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 5.2rem;
+  height: 5.2rem;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  background: var(--surface-2);
+  line-height: 1;
 }
 
-.result-rank {
-  font-size: 1.5rem;
-  font-weight: bold;
+.rank-badge strong {
+  font-size: 1.9rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
-.result-score {
-  color: #ccc;
+.rank-badge small {
+  margin-top: 0.25rem;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.rank-badge--top {
+  border-color: var(--gold);
+  background: rgba(255, 214, 110, 0.12);
+  color: var(--gold);
+  box-shadow: 4px 4px 0 #5b4310;
+}
+
+.rank-badge--top small {
+  color: rgba(255, 214, 110, 0.75);
+}
+
+.weapon-frame {
+  width: 11rem;
+  height: 11rem;
+  margin: 0 auto 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.weapon-frame img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.weapon-frame--empty {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+}
+
+.weapon-name {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
+}
+
+/* 전투력 / 획득 점수 2칸 그리드 */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin: 1.2rem 0 0;
+}
+
+.stat {
+  padding: 0.7rem 0.5rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.stat dt {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+
+.stat dd {
+  margin: 0.3rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat--damage dd { color: var(--accent); }
+.stat--score dd { color: var(--violet); }
+
+/* QR 패널 — "휴대폰으로 PDF 받기"의 진입점이라 그냥 이미지로 두지 않고 안내를 함께 묶는다. */
+.qr-panel {
+  margin-top: 1.4rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border-strong);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.qr-panel-title {
+  margin: 0 0 0.15rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.qr-panel-desc {
+  margin: 0 0 0.85rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  line-height: 1.5;
 }
 
 .qr-slot {
-  margin-top: 1rem;
   min-height: 180px;
   display: flex;
   align-items: center;
@@ -67,5 +467,15 @@ body {
 .result-qr {
   background: #fff;
   padding: 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
+  display: block;
+}
+
+.qr-pending {
+  font-size: 0.82rem;
+  color: var(--text-faint);
+}
+
+.thanks-card .title {
+  margin-bottom: 0.2rem;
 }

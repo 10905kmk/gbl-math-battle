@@ -22,26 +22,32 @@ export function NameScreen({ socket, onNameSubmit }) {
 
   if (submitted) {
     return html`
-      <div class="name-screen">
-        <h2>입력 완료!</h2>
-        <p>시작을 기다리는 중입니다...</p>
+      <div class="card name-screen">
+        <p class="eyebrow">준비 완료</p>
+        <h2 class="title">${name.trim() || '도전자'}님, 반가워요!</h2>
+        <p class="subtitle">
+          진행자가 시작하면 자동으로 넘어가요
+          <span class="dots"><i></i><i></i><i></i></span>
+        </p>
       </div>
     `;
   }
 
   return html`
-    <div class="name-screen">
-      <h2>이름을 알려주세요</h2>
-      <p>공용화면 리더보드에 표시돼요 (안 넣어도 진행할 수 있어요)</p>
+    <div class="card name-screen">
+      <p class="eyebrow">수학 도형 무기 배틀</p>
+      <h2 class="title">이름을 알려주세요</h2>
+      <p class="subtitle">공용화면 리더보드에 표시돼요<br />안 넣어도 진행할 수 있어요</p>
       <form onSubmit=${handleSubmit}>
         <input
+          class="field"
           type="text"
           value=${name}
           onInput=${(e) => setName(e.target.value)}
           placeholder="이름"
           maxlength="20"
         />
-        <button type="submit">시작하기</button>
+        <button class="btn btn--primary btn--block" type="submit">시작하기</button>
       </form>
     </div>
   `;

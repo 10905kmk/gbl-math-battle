@@ -1,6 +1,6 @@
 import { h } from 'preact';
 import htm from 'htm';
-import { ResultQr } from './ResultQr.js';
+import { ResultQrPanel } from './ResultQr.js';
 
 const html = htm.bind(h);
 
@@ -9,18 +9,40 @@ export function ResultScreen({ state, resultId }) {
   const { weapon, battleResult } = state;
   // 탈락이 없는 점수제라 승/패 대신 등수를 보여준다(공동 순위도 있을 수 있음) — battleResult는
   // battle.js의 battle:result 핸들러가 { win, score, rank, total }로 채워둔다.
-  const rankLabel = battleResult?.rank
-    ? `${battleResult.rank}위 / 총 ${battleResult.total}명`
-    : '결과 집계 중...';
+  const rank = battleResult?.rank ?? null;
 
   return html`
-    <div class="result-card">
-      <h2>${weapon?.name ?? '무기'}</h2>
-      ${weapon?.image && html`<img src=${weapon.image} alt=${weapon?.name} />`}
-      <p>전투력 ${weapon?.damage ?? '-'}</p>
-      <p class="result-rank">${rankLabel}</p>
-      ${battleResult?.score != null && html`<p class="result-score">획득 점수 ${battleResult.score}</p>`}
-      <div class="qr-slot"><${ResultQr} resultId=${resultId} /></div>
+    <div class="card result-card">
+      <p class="eyebrow">대전 결과</p>
+
+      ${rank
+        ? html`
+            <div class="rank-badge ${rank === 1 ? 'rank-badge--top' : ''}">
+              <strong>${rank}</strong>
+              <small>/ ${battleResult.total}명</small>
+            </div>
+          `
+        : html`<p class="subtitle">결과 집계 중<span class="dots"><i></i><i></i><i></i></span></p>`}
+
+      <div class="weapon-frame">
+        ${weapon?.image
+          ? html`<img src=${weapon.image} alt=${weapon?.name ?? '무기'} />`
+          : html`<span class="weapon-frame--empty">이미지 없음</span>`}
+      </div>
+      <h2 class="weapon-name">${weapon?.name ?? '무기'}</h2>
+
+      <dl class="stat-grid">
+        <div class="stat stat--damage">
+          <dt>전투력</dt>
+          <dd>${weapon?.damage ?? '-'}</dd>
+        </div>
+        <div class="stat stat--score">
+          <dt>획득 점수</dt>
+          <dd>${battleResult?.score ?? '-'}</dd>
+        </div>
+      </dl>
+
+      <${ResultQrPanel} resultId=${resultId} />
     </div>
   `;
 }

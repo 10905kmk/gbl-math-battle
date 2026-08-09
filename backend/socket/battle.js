@@ -1,9 +1,27 @@
-import { stepSimulation, hitScoreFromWeaponDamage, computeRanks, BATTLE_DURATION_MS, MELEE_DAMAGE_MULTIPLIER } from '../lib/battleSimulation.js';
+import {
+  stepSimulation,
+  hpDamageFromWeaponDamage,
+  computeRanks,
+  computeScore,
+  buildStandings,
+  clampMoveSpeed,
+  COUNTDOWN_MS,
+  BATTLE_DURATION_MS,
+  MELEE_DAMAGE_MULTIPLIER,
+  HP_DAMAGE_MAX,
+  HP_MAX,
+  DEFAULT_MOVE_SPEED,
+} from '../lib/battleSimulation.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX } from '../../shapes/attackGeometry.js';
+import { drawSkillChoices } from '../../shapes/skills.js';
+import { newPlayerSkillState, activateSkill } from '../lib/skillEngine.js';
 
 const CHARACTER_IDS = ['char1', 'char2', 'char3', 'char4', 'char5', 'char6', 'char7', 'char8'];
 const TICK_MS = 50;
+export const BATTLE_TIME_EXTENSION_MS = 30_000;
+export const BATTLE_DURATION_MIN_MS = 30_000;
+export const BATTLE_DURATION_MAX_MS = 20 * 60_000;
 
 let battleRoom = null;
 let tickInterval = null;
@@ -12,9 +30,60 @@ let tickInterval = null;
 // tickInterval과 같은 이유로 모듈 스코프에 들고 있는다.
 let ioRef = null;
 let onEndRef = null;
+// 라운드가 끝나도 유지돼야 하는 것들 — 관리자가 "새로운 판"을 누르면 같은 참가자/무기로
+// 다시 시작해야 하고(제작 단계로 되돌아가지 않는다), 이동 속도 설정도 판마다 초기화되면
+// 관리자가 매 판 다시 맞춰야 한다.
+let lastParticipants = [];
+let moveSpeedSetting = DEFAULT_MOVE_SPEED;
+let battleDurationSetting = BATTLE_DURATION_MS;
+// 방금 끝난 판의 최종 순위 — 대시보드 화면이 이걸 본다. 새 판을 시작하면 지워진다.
+let lastStandings = null;
+let roundNumber = 0;
 
 export function getBattleRoom() {
   return battleRoom;
+}
+
+export function getLastStandings() {
+  return lastStandings;
+}
+
+export function getMoveSpeed() {
+  return moveSpeedSetting;
+}
+
+export function getBattleDuration() {
+  return battleDurationSetting;
+}
+
+export function getRoundNumber() {
+  return roundNumber;
+}
+
+// 이동 속도는 진행 중인 판에도 즉시 반영된다 — 관리자가 "느리다"는 걸 알아채는 시점은
+// 보통 판이 이미 시작된 뒤라, 다음 판까지 기다리게 하면 조절 기능의 의미가 없다.
+export function setMoveSpeed(value) {
+  moveSpeedSetting = clampMoveSpeed(value);
+  if (battleRoom) battleRoom.moveSpeed = moveSpeedSetting;
+  return moveSpeedSetting;
+}
+
+export function setBattleDuration(value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return battleDurationSetting;
+  const stepped = Math.round(raw / BATTLE_TIME_EXTENSION_MS) * BATTLE_TIME_EXTENSION_MS;
+  battleDurationSetting = Math.min(BATTLE_DURATION_MAX_MS, Math.max(BATTLE_DURATION_MIN_MS, stepped));
+  if (battleRoom?.status === 'roulette') battleRoom.durationMs = battleDurationSetting;
+  return battleDurationSetting;
+}
+
+export function addBattleTime(amountMs = BATTLE_TIME_EXTENSION_MS) {
+  if (!battleRoom || battleRoom.status !== 'active' || !Number.isFinite(battleRoom.endsAt)) return false;
+  const safeAmount = Number(amountMs);
+  if (!Number.isFinite(safeAmount) || safeAmount <= 0) return false;
+  battleRoom = { ...battleRoom, endsAt: battleRoom.endsAt + safeAmount };
+  ioRef?.emit('battle:state', battleRoom);
+  return true;
 }
 
 // 진행 중인 대전이 있으면 정지시키고 상태를 완전히 비운다 — 멈추기만 하고 battleRoom을 그대로
@@ -32,42 +101,121 @@ export function stopBattleRoom() {
   onEndRef = null;
 }
 
-// 자연 종료(타이머 만료/전원 조작 불가)든, 관리자가 결과를 기다리지 않고 수동으로 battle
-// 단계를 벗어나서 조기 종료시키는 경우든 "라운드를 정상적으로 마무리하는" 로직은 여기
-// 하나로 통일한다 — stopBattleRoom()만 부르면 tick interval만 죽고 결과 저장/
-// battle:result/onEnd가 전부 스킵된다(2026-08-07 Opus 리뷰: 관리자가 대전 중 수동으로
-// 다음 단계를 누르면 참가자 전원이 QR도 결과도 못 받고 "결과 집계 중..."에 멈추는 버그).
-function concludeRound(winners) {
+// 부스 전체를 초기화할 때(admin:reset) 판 기록까지 지운다.
+export function resetBattleHistory() {
+  stopBattleRoom();
+  lastParticipants = [];
+  lastStandings = null;
+  roundNumber = 0;
+}
+
+// 자연 종료(타이머 만료)든, 관리자가 결과를 기다리지 않고 수동으로 battle 단계를 벗어나서
+// 조기 종료시키는 경우든 "라운드를 정상적으로 마무리하는" 로직은 여기 하나로 통일한다 —
+// stopBattleRoom()만 부르면 tick interval만 죽고 결과 저장/battle:result/onEnd가 전부
+// 스킵된다(2026-08-07 Opus 리뷰: 관리자가 대전 중 수동으로 다음 단계를 누르면 참가자
+// 전원이 QR도 결과도 못 받고 "결과 집계 중..."에 멈추는 버그).
+//
+// saveResults=false면 순위 대시보드만 띄우고 Supabase 저장/stage 전환은 하지 않는다 —
+// 한 팀이 여러 판을 도는데 매 판마다 결과 행이 쌓이면 QR이 가리키는 결과가 어느 판인지
+// 알 수 없게 된다. 저장은 관리자가 "부스 종료"를 누르는 마지막 한 번만.
+function concludeRound(winners, { saveResults }) {
   if (!battleRoom) return;
   const endedRoom = battleRoom;
   const scores = {};
   for (const id of Object.keys(endedRoom.players)) {
-    scores[id] = endedRoom.players[id].score;
+    scores[id] = computeScore(endedRoom.players[id]);
   }
   const ranks = computeRanks(scores);
   const total = Object.keys(endedRoom.players).length;
+  const standings = buildStandings(endedRoom.players);
   const io = ioRef;
   const onEnd = onEndRef;
+
+  lastStandings = { round: roundNumber, standings, endedAt: Date.now() };
   stopBattleRoom();
+
   if (io) {
+    // 순위표 자체는 전원이 같은 내용을 봐야 하므로 전체 브로드캐스트, "내 결과"는 개인별로.
+    io.emit('battle:standings', lastStandings);
     for (const id of Object.keys(endedRoom.players)) {
-      io.to(id).emit('battle:result', { win: winners.includes(id), score: scores[id], rank: ranks[id], total });
+      io.to(id).emit('battle:result', {
+        win: winners.includes(id),
+        score: scores[id],
+        rank: ranks[id],
+        total,
+      });
     }
   }
-  if (onEnd) onEnd(winners, scores);
+  if (saveResults && onEnd) onEnd(winners, scores);
 }
 
-// 진행 중인 라운드가 있으면 "지금 시점 점수"로 즉시 정상 종료 처리한다(순위 계산,
-// battle:result 전송, onEnd 콜백까지) — session.js의 goToStage가 관리자의 수동 단계
-// 전환으로 battle을 벗어날 때 호출한다. 이미 라운드가 자연 종료돼 battleRoom이 없으면
-// (흔한 정상 경로 — 결과 화면으로 이미 넘어간 뒤 관리자가 다음 단계를 또 누르는 경우)
-// 조용히 아무 일도 하지 않는다.
-export function finishBattleRoomNow() {
+// 진행 중인 라운드가 있으면 "지금 시점 점수"로 즉시 정상 종료 처리한다. session.js의
+// goToStage가 관리자의 수동 단계 전환으로 battle을 벗어날 때 호출한다(그때는 결과를
+// 저장해야 하므로 saveResults=true).
+export function finishBattleRoomNow({ saveResults = true } = {}) {
   if (!battleRoom) return;
   const allPlayers = Object.values(battleRoom.players);
-  const maxScore = Math.max(...allPlayers.map((p) => p.score));
-  const winners = allPlayers.filter((p) => p.score === maxScore).map((p) => p.id);
-  concludeRound(winners);
+  const maxScore = Math.max(...allPlayers.map((p) => computeScore(p)));
+  const winners = allPlayers.filter((p) => computeScore(p) === maxScore).map((p) => p.id);
+  concludeRound(winners, { saveResults });
+}
+
+// 라운드가 끝나 순위 대시보드가 떠 있는 상태에서 관리자가 "부스 종료"를 누르면, 마지막
+// 판의 점수로 결과를 저장하고 결과(QR/PDF) 단계로 넘어가야 한다. 이때는 이미 battleRoom이
+// 없으므로 concludeRound를 다시 탈 수 없다 — 저장해둔 순위표로 onEnd만 호출한다.
+export function saveLastRoundResults(onEnd) {
+  if (!lastStandings || !onEnd) return false;
+  const scores = Object.fromEntries(lastStandings.standings.map((p) => [p.id, p.score]));
+  const maxScore = Math.max(...lastStandings.standings.map((p) => p.score));
+  const winners = lastStandings.standings.filter((p) => p.score === maxScore).map((p) => p.id);
+  onEnd(winners, scores);
+  return true;
+}
+
+function buildPlayer(participant, index) {
+  const spawn = DEFAULT_MAP.spawnPoints[index % DEFAULT_MAP.spawnPoints.length];
+  // AI(또는 실패 시 폴백)가 판단한 근접/원거리 — 서버가 신뢰하지 않고 항상 재검증한다
+  // (기존 weaponDamage clamp와 같은 원칙). 'ranged'가 아니면 전부 근접으로 취급.
+  const isRanged = participant.weapon?.attackRange === 'ranged';
+  const rawDistance = Number(participant.weapon?.attackRangeDistance);
+  const rangeDistance = isRanged
+    ? Math.min(RANGE_DISTANCE_MAX, Math.max(RANGE_DISTANCE_MIN, Number.isFinite(rawDistance) ? rawDistance : RANGE_DISTANCE_MIN))
+    : null;
+  const baseDamage = hpDamageFromWeaponDamage(participant.weapon?.damage);
+  // 근접은 가까이 가야 하는 위험을 감수하므로 원거리보다 세다 — 다만 보정을 곱한 뒤에도
+  // 한 방 상한(HP_DAMAGE_MAX)은 반드시 지킨다. 이 clamp가 "최소 5대"를 보장한다.
+  const hpDamage = Math.min(HP_DAMAGE_MAX, isRanged ? baseDamage : Math.round(baseDamage * MELEE_DAMAGE_MULTIPLIER * 10) / 10);
+
+  return {
+    id: participant.id,
+    name: participant.name ?? null,
+    characterId: CHARACTER_IDS[index % CHARACTER_IDS.length],
+    x: spawn.x,
+    y: spawn.y,
+    // 기본 조준 방향(아래쪽) — 기존 facing:'down' 기본값과 같은 의미.
+    aimX: 0,
+    aimY: 1,
+    hp: HP_MAX,
+    alive: true,
+    respawnAt: 0,
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+    // { [attackerId]: timestamp } — 죽는 순간 어시스트를 나눠주기 위한 최근 피격 기록.
+    recentDamagers: {},
+    hpDamage,
+    isRanged,
+    rangeDistance,
+    weaponParts: participant.weapon?.parts ?? [],
+    connected: true,
+    lastAttackAt: 0,
+    attackRequested: false,
+    input: { moveX: 0, moveY: 0, aimX: 0, aimY: 0 },
+    // 룰렛 3칸에 채워질 후보. 참가자가 하나를 고르면 skillId가 채워지고, 시간 안에 못 고르면
+    // stepSimulation이 첫 번째 후보로 자동 확정한다.
+    skillChoices: drawSkillChoices(3),
+    ...newPlayerSkillState(null),
+  };
 }
 
 // participants: [{ id, weapon: { damage, ... } }, ...] — session.js의 cohort.participants
@@ -75,62 +223,100 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
   stopBattleRoom();
   ioRef = io;
   onEndRef = onEnd ?? null;
+  lastParticipants = participants;
+  lastStandings = null;
+  roundNumber += 1;
 
   const players = {};
   participants.forEach((participant, i) => {
-    const spawn = DEFAULT_MAP.spawnPoints[i % DEFAULT_MAP.spawnPoints.length];
-    // AI(또는 실패 시 폴백)가 판단한 근접/원거리 — 서버가 신뢰하지 않고 항상 재검증한다
-    // (기존 weaponDamage clamp와 같은 원칙). 'ranged'가 아니면 전부 근접으로 취급.
-    const isRanged = participant.weapon?.attackRange === 'ranged';
-    const rawDistance = Number(participant.weapon?.attackRangeDistance);
-    const rangeDistance = isRanged
-      ? Math.min(RANGE_DISTANCE_MAX, Math.max(RANGE_DISTANCE_MIN, Number.isFinite(rawDistance) ? rawDistance : RANGE_DISTANCE_MIN))
-      : null;
-    const baseHitScore = hitScoreFromWeaponDamage(participant.weapon?.damage);
-    // 근접은 가까이 가야 하는 위험을 감수하므로 원거리보다 데미지가 더 세다.
-    const hitScore = isRanged ? baseHitScore : Math.round(baseHitScore * MELEE_DAMAGE_MULTIPLIER);
-    players[participant.id] = {
-      id: participant.id,
-      name: participant.name ?? null,
-      characterId: CHARACTER_IDS[i % CHARACTER_IDS.length],
-      x: spawn.x,
-      y: spawn.y,
-      // 기본 조준 방향(아래쪽) — 기존 facing:'down' 기본값과 같은 의미.
-      aimX: 0,
-      aimY: 1,
-      score: 0,
-      hitScore,
-      isRanged,
-      rangeDistance,
-      weaponParts: participant.weapon?.parts ?? [],
-      connected: true,
-      lastAttackAt: 0,
-      attackRequested: false,
-      input: { moveX: 0, moveY: 0, aimX: 0, aimY: 0 },
-    };
+    players[participant.id] = buildPlayer(participant, i);
   });
 
+  const now = Date.now();
   battleRoom = {
-    status: 'active',
-    endsAt: Date.now() + BATTLE_DURATION_MS,
+    // 매 판은 "룰렛(스킬 3개 중 1개 선택) → 관리자 시작 승인 → 5초 카운트다운 →
+    // 본 게임" 순서다. 룰렛에는 자동 종료 시각을 두지 않는다.
+    status: 'roulette',
+    rouletteEndsAt: null,
+    countdownEndsAt: null,
+    endsAt: null,
+    round: roundNumber,
+    moveSpeed: moveSpeedSetting,
+    durationMs: battleDurationSetting,
     players,
     walls: DEFAULT_MAP.walls,
     arenaSize: DEFAULT_MAP.arenaSize,
+    spawnPoints: DEFAULT_MAP.spawnPoints,
     projectiles: [],
+    // 특수 스킬이 만들어내는 월드 오브젝트 / 시각 효과. 클라이언트는 이걸 그대로 그린다.
+    mines: [],
+    blackholes: [],
+    pearls: [],
+    effects: [],
+    effectSeq: 1,
   };
 
+  io.emit('battle:standings', null); // 이전 판의 대시보드를 내린다
   tickInterval = setInterval(() => {
-    const { room, winners } = stepSimulation(battleRoom, Date.now());
+    const { room, winners, events } = stepSimulation(battleRoom, Date.now());
     battleRoom = room;
     io.emit('battle:state', battleRoom);
+    if (events && events.length > 0) io.emit('battle:events', events);
 
     if (winners !== null) {
-      concludeRound(winners);
+      // 자연 종료(4분 만료)는 대시보드만 띄우고 저장하지 않는다 — 관리자가 "새로운 판"으로
+      // 계속 돌릴 수 있고, 저장은 "부스 종료" 한 번만.
+      concludeRound(winners, { saveResults: false });
     }
   }, TICK_MS);
 }
 
+// 참가자 전원이 특수 스킬을 고른 뒤 관리자가 누르는 최종 시작 게이트. 프론트 버튼만
+// disabled하는 것으로는 조작된 소켓 이벤트를 막을 수 없으므로 서버에서도 다시 검사한다.
+export function startBattleCountdown(now = Date.now()) {
+  if (!battleRoom || battleRoom.status !== 'roulette') return false;
+
+  const connectedPlayers = Object.values(battleRoom.players).filter((p) => p.connected !== false);
+  if (connectedPlayers.length === 0 || connectedPlayers.some((p) => !p.skillId)) return false;
+
+  battleRoom = {
+    ...battleRoom,
+    status: 'countdown',
+    countdownEndsAt: now + COUNTDOWN_MS,
+    // 실제 active 진입 때 stepSimulation이 다시 정확히 잡는다. 이 값은 카운트다운 첫
+    // 프레임부터 클라이언트가 전체 진행 시간을 예측할 수 있게 하는 초기값이다.
+    endsAt: now + COUNTDOWN_MS + battleRoom.durationMs,
+  };
+  ioRef?.emit('battle:state', battleRoom);
+  return true;
+}
+
+// 관리자가 순위 대시보드에서 "새로운 판"을 눌렀을 때 — 직전 판과 같은 참가자/무기로
+// 새 라운드를 시작한다. 대전 도중 나간 참가자는 세션이 알아서 걸러준 목록으로 다시 받는다.
+export function startNextRound(io, participants, { onEnd } = {}) {
+  const roster = participants && participants.length > 0 ? participants : lastParticipants;
+  if (!roster || roster.length === 0) return false;
+  startBattleRoom(io, roster, { onEnd });
+  return true;
+}
+
 export function registerBattleHandlers(io, socket) {
+  // 새로 접속한 화면(참가자 재접속, 나중에 여는 공용화면/관리자)에게 현재 대시보드 상태를
+  // 바로 알려준다 — 없으면 순위표가 안 보인 채로 남는다.
+  socket.emit('battle:standings', lastStandings);
+  socket.emit('battle:moveSpeed', moveSpeedSetting);
+  socket.emit('battle:duration', battleDurationSetting);
+
+  // 화면이 늦게 마운트되거나(참가자가 battle 단계에 들어온 순간) 대시보드 도중 새로고침해도
+  // 현재 상태를 받을 수 있어야 한다 — 연결 시점 emit만으로는 그 이후에 붙는 리스너가
+  // 놓친다(순위표가 안 보인 채 빈 아레나만 남는 사고).
+  socket.on('battle:requestSync', () => {
+    socket.emit('battle:standings', lastStandings);
+    socket.emit('battle:moveSpeed', moveSpeedSetting);
+    socket.emit('battle:duration', battleDurationSetting);
+    if (battleRoom) socket.emit('battle:state', battleRoom);
+  });
+
   socket.on('battle:input', (input) => {
     if (!battleRoom || !battleRoom.players[socket.id]) return;
     // input이 아예 안 왔거나(undefined/null) 이상한 값/타입이 섞여 있어도 크래시하지 않게 방어.
@@ -152,8 +338,45 @@ export function registerBattleHandlers(io, socket) {
     battleRoom.players[socket.id].attackRequested = true;
   });
 
+  // 룰렛에서 고른 특수 스킬 확정 — 자기에게 뽑힌 3개 중 하나여야만 받아들인다(클라이언트가
+  // 보낸 값을 그대로 믿지 않는 이 프로젝트의 기존 원칙).
+  socket.on('battle:pickSkill', (skillId) => {
+    const player = battleRoom?.players[socket.id];
+    if (!player || battleRoom.status !== 'roulette') return;
+    if (!player.skillChoices?.includes(skillId)) return;
+    player.skillId = skillId;
+  });
+
+  // 룰렛은 참가자 한 명의 선택이나 시간 경과로 끝나지 않는다. 전원이 선택한 상태에서
+  // 관리자 화면의 "5초 카운트다운 시작" 버튼을 눌러야만 다음 단계로 간다.
+  socket.on('admin:startBattleCountdown', () => {
+    startBattleCountdown();
+  });
+
+  // 특수 스킬 발동 — PC는 Z키, 모바일은 화면 버튼이 이걸 보낸다.
+  socket.on('battle:skill', () => {
+    if (!battleRoom || battleRoom.status !== 'active') return;
+    activateSkill(battleRoom, socket.id, Date.now());
+  });
+
+  socket.on('admin:setMoveSpeed', (value) => {
+    const applied = setMoveSpeed(value);
+    io.emit('battle:moveSpeed', applied);
+  });
+
+  socket.on('admin:setBattleDuration', (value) => {
+    if (battleRoom && battleRoom.status !== 'roulette') return;
+    const applied = setBattleDuration(value);
+    io.emit('battle:duration', applied);
+    if (battleRoom) io.emit('battle:state', battleRoom);
+  });
+
+  socket.on('admin:addBattleTime', () => {
+    addBattleTime();
+  });
+
   // 대전 중 연결이 끊긴 참가자는 더 이상 조작할 수 없는 상태로 처리 — 이동/공격 대상에서
-  // 제외되지만(stepSimulation의 connected 체크), 점수는 그대로 유지되어 최종 판정에 포함된다.
+  // 제외되지만, 기록(킬/데스/어시스트)은 그대로 유지되어 최종 순위에 포함된다.
   socket.on('disconnect', () => {
     if (battleRoom && battleRoom.players[socket.id]) {
       battleRoom.players[socket.id] = { ...battleRoom.players[socket.id], connected: false };

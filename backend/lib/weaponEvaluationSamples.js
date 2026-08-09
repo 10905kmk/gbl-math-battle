@@ -37,4 +37,27 @@ export const SAMPLES = [
     attackRangeDistance: 250,
     note: '작은 삼각형 4개로 만든 표창(수리검) — 뭉툭해도 던지는 무기라 ranged',
   },
+  // 아래 두 샘플은 자유 변형(scaleX ≠ scaleY)을 쓰는 예시다 — 부품 수가 적어도 비율을
+  // 조절해 제대로 된 형태를 만들면 그만큼 점수가 나온다는 걸 모델에게 보여준다.
+  // 이게 없으면 모델이 "부품 개수 = 완성도"로 학습해 길쭉한 무기를 과소평가한다.
+  {
+    parts: [
+      { id: 's1', shapeId: 'triangle', x: 100, y: 55, rotation: 0, scaleX: 0.9, scaleY: 1.3 },
+      { id: 's2', shapeId: 'bar', x: 100, y: 160, rotation: 0, scaleX: 0.8, scaleY: 2.2 },
+    ],
+    damage: 5600,
+    attackRange: 'melee',
+    attackRangeDistance: 0,
+    note: '가늘고 긴 자루(bar를 세로로 늘림) + 뾰족한 촉 — 부품 2개지만 창 형태가 명확함',
+  },
+  {
+    parts: [
+      { id: 's1', shapeId: 'circle', x: 100, y: 100, rotation: 0, scaleX: 1.8, scaleY: 1.8 },
+      { id: 's2', shapeId: 'star', x: 100, y: 100, rotation: 0, scaleX: 0.9, scaleY: 0.9 },
+    ],
+    damage: 3400,
+    attackRange: 'melee',
+    attackRangeDistance: 0,
+    note: '큰 원 위에 별을 겹친 원형 방패 — 방어형이라 데미지는 낮게',
+  },
 ];

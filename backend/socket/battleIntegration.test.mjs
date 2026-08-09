@@ -1,8 +1,26 @@
 import assert from 'node:assert';
 import { registerSessionHandlers } from './session.js';
-import { getBattleRoom, stopBattleRoom, startBattleRoom } from './battle.js';
+import {
+  addBattleTime,
+  BATTLE_TIME_EXTENSION_MS,
+  getBattleRoom,
+  getBattleDuration,
+  stopBattleRoom,
+  startBattleRoom,
+  startBattleCountdown,
+  setBattleDuration,
+  getLastStandings,
+} from './battle.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX } from '../../shapes/attackGeometry.js';
+
+// 매 판은 5초 카운트다운으로 시작한다 — 테스트에서 라운드를 끝내려면 먼저 카운트다운을
+// 지나 'active'로 만들어야 한다. 제한시간을 과거로 옮기는 것만으로는 카운트다운 중인
+// 라운드가 끝나지 않는다.
+function skipCountdownAndExpire(room) {
+  room.status = 'active';
+  room.endsAt = Date.now() - 1;
+}
 
 const handlers = {};
 const emitted = [];
@@ -57,10 +75,48 @@ assert.ok(room, 'battle room이 생성되어 있어야 함');
 assert.strictEqual(Object.keys(room.players).length, 5);
 // 이 참가자들의 weapon에는 attackRange가 없다(구버전 페이로드/평가 실패 등) — 그런 무기는
 // 근접으로 취급되므로 MELEE_DAMAGE_MULTIPLIER(1.3)가 곱해진 값이 나온다.
-assert.strictEqual(room.players.p1.hitScore, 65, 'damage=1000 -> round(1000*0.05)=50, 근접 배율 1.3 -> 65');
-assert.strictEqual(room.players.p5.hitScore, 325, 'damage=5000 -> round(5000*0.05)=250, 근접 배율 1.3 -> 325');
-assert.strictEqual(room.status, 'active');
-console.log('battle room initialized from participants: OK');
+// damage=1000 -> 3 + 0.1*(24-3) = 5.1 -> 근접 1.3배 = 6.6 (HP %)
+assert.strictEqual(room.players.p1.hpDamage, 6.6, 'damage=1000 -> HP 5.1% -> 근접 배율 1.3 -> 6.6%');
+assert.strictEqual(room.players.p5.hpDamage, 17.6, 'damage=5000 -> HP 13.5% -> 근접 배율 1.3 -> 17.6%');
+assert.strictEqual(room.players.p1.hp, 90, '모든 참가자는 90 체력으로 시작');
+assert.strictEqual(room.players.p1.alive, true);
+assert.strictEqual(room.status, 'roulette', '매 판은 특수 스킬 룰렛으로 시작');
+assert.strictEqual(room.rouletteEndsAt, null, '룰렛은 관리자가 시작할 때까지 자동 종료되지 않음');
+assert.strictEqual(room.players.p1.skillChoices.length, 3, '룰렛 3칸에 후보가 채워져야 함');
+assert.strictEqual(new Set(room.players.p1.skillChoices).size, 3, '3칸의 후보는 서로 달라야 함');
+assert.strictEqual(room.players.p1.skillId, null, '아직 고르기 전');
+console.log('battle room initialized from participants (HP model + countdown): OK');
+
+assert.strictEqual(setBattleDuration(90_000), 90_000, '게임 시간은 30초 단위로 설정 가능');
+assert.strictEqual(getBattleDuration(), 90_000);
+assert.strictEqual(getBattleRoom().durationMs, 90_000, '룰렛 중 변경한 시간이 현재 판에 반영');
+assert.strictEqual(setBattleDuration(240_000), 240_000, '테스트 뒤 기본 4분으로 복원');
+assert.strictEqual(getBattleRoom().durationMs, 240_000);
+console.log('admin configures battle duration in 30-second steps: OK');
+
+// 한 명이라도 특수 스킬을 고르지 않았으면 관리자 시작 요청도 거절된다. 전원이 선택한 뒤에만
+// 정확히 5초 카운트다운으로 넘어가야 한다.
+assert.strictEqual(startBattleCountdown(1000), false, '선택 미완료 상태에서는 관리자도 시작할 수 없음');
+Object.values(room.players).forEach((p) => {
+  p.skillId = p.skillChoices[0];
+});
+assert.strictEqual(startBattleCountdown(1000), true, '전원 선택 후 관리자 시작 승인');
+assert.strictEqual(getBattleRoom().status, 'countdown', '관리자 승인 뒤 카운트다운 상태');
+assert.strictEqual(getBattleRoom().countdownEndsAt, 6000, '5초 카운트다운 종료 시각');
+console.log('admin starts the 5-second countdown only after every player picks a skill: OK');
+
+{
+  const currentRoom = getBattleRoom();
+  const originalStatus = currentRoom.status;
+  const originalEndsAt = currentRoom.endsAt;
+  currentRoom.status = 'active';
+  currentRoom.endsAt = 10_000;
+  assert.strictEqual(addBattleTime(), true, '진행 중인 게임은 관리자가 시간을 연장할 수 있음');
+  assert.strictEqual(getBattleRoom().endsAt, 10_000 + BATTLE_TIME_EXTENSION_MS, '한 번 누르면 정확히 30초 연장');
+  getBattleRoom().status = originalStatus;
+  getBattleRoom().endsAt = originalEndsAt;
+  console.log('admin extends an active battle by 30 seconds: OK');
+}
 
 assert.strictEqual(room.players.p1.name, '민수', '앞뒤 공백은 trim되어야 함');
 assert.strictEqual(room.players.p2.name, '가'.repeat(20), '20자를 넘는 이름은 잘려야 함');
@@ -84,7 +140,9 @@ console.log('battle room carries weaponParts from participant weapon: OK');
 {
   const { registerBattleHandlers } = await import('./battle.js');
   const battleHandlers = {};
-  const testSocket = { id: 'p1', on: (ev, fn) => { battleHandlers[ev] = fn; } };
+  // registerBattleHandlers는 등록 시점에 현재 대시보드/이동속도를 socket.emit으로 바로
+  // 내려주므로(신규 접속 동기화) 목 소켓에도 emit이 있어야 한다.
+  const testSocket = { id: 'p1', on: (ev, fn) => { battleHandlers[ev] = fn; }, emit: () => {} };
   registerBattleHandlers(io, testSocket);
 
   // 빈 payload/undefined/null이 와도 크래시하지 않아야 함
@@ -112,44 +170,60 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   console.log('disconnect marks player as not connected: OK');
 }
 
-// 라운드를 강제로 즉시 종료시켜서(제한시간을 과거로 이동) onEnd -> stage:change('result')까지
-// 실제로 연쇄되는지 확인 — 이게 콜백 주입 방식(순환 import 회피)의 핵심 동작이라 직접 검증한다.
-// console.warn을 라운드 종료 직전에 스파이해서, 대전 종료 시 결과 저장이 참가자 수만큼
-// 실제로 시도됐는지까지 같은 블록에서 증거로 남긴다(SUPABASE_URL 미설정 -> mock 폴백 경로가
-// 참가자마다 한 번씩 warn을 남기므로, warn 횟수 == 저장 시도 횟수).
+// 한 팀이 여러 판을 도는 운영 방식(2026-08-09)이라, 판이 자연 종료되면 순위 대시보드만
+// 뜨고 stage는 battle에 머문다 — 결과 저장과 result 단계 전환은 관리자가 "부스 종료"를
+// 누를 때 한 번만 일어난다. 매 판 저장하면 QR이 어느 판을 가리키는지 알 수 없어진다.
 {
   const warnings = [];
   const origWarn = console.warn;
   console.warn = (...args) => { warnings.push(args.join(' ')); };
 
-  const activeRoom = getBattleRoom();
-  activeRoom.endsAt = Date.now() - 1;
-
+  skipCountdownAndExpire(getBattleRoom());
   await new Promise((resolve) => setTimeout(resolve, 150)); // 다음 틱(50ms)이 지나가길 대기
 
   console.warn = origWarn;
 
-  assert.strictEqual(getBattleRoom(), null, '라운드 종료 후 battleRoom은 null이어야 함(stopBattleRoom)');
+  assert.strictEqual(getBattleRoom(), null, '라운드 종료 후 battleRoom은 null이어야 함');
 
   const stageChanges = emitted.filter(([ev]) => ev === 'stage:change').map(([, s]) => s);
-  assert.deepStrictEqual(stageChanges, ['name', 'learn', 'create', 'battle', 'result']);
-
-  // p1은 앞서 disconnect 처리돼서 connected=false였지만, 아무도 서로 공격하지 않아 전원 점수가
-  // 0으로 동점이다 — 탈락 개념이 없으므로 연결이 끊긴 참가자도 자기 점수 그대로 판정에
-  // 포함되어 전원 공동 승리 처리된다(HP 기반 시절엔 반대로 "죽었으니 패배"였다).
-  assert.ok(resultsSentTo.p1, 'p1(연결 끊김 처리된 참가자)에게도 battle:result가 전달되어야 함');
-  assert.strictEqual(resultsSentTo.p1[0][1].win, true, '연결이 끊겨도 점수는 유지되어 동점 공동 승리에 포함됨');
-  assert.ok(resultsSentTo.p2 && resultsSentTo.p2[0][0] === 'battle:result', 'p2에게 battle:result가 전달되어야 함');
-  assert.strictEqual(resultsSentTo.p2[0][1].win, true, '아무도 공격하지 않아 전원 0점 동점으로 전원 승리 처리');
-  console.log('battle end -> stage change to result: OK');
-
-  // 실제로 저장이 시도됐다는 증거 — no-op 재확인이 아니라 mock 저장 경고 횟수를 직접 센다.
+  assert.deepStrictEqual(stageChanges, ['name', 'learn', 'create', 'battle'], '자연 종료로는 stage가 안 넘어간다');
   assert.strictEqual(
     warnings.filter((w) => w.includes('mock 저장')).length,
-    5,
-    '참가자 5명 각각에 대해 결과 저장이 시도되어야 함',
+    0,
+    '판이 끝났다고 바로 저장하면 안 된다 — 여러 판을 돌 수 있으므로 저장은 부스 종료 때 한 번만',
   );
-  console.log('battle end triggers result storage for every participant: OK');
+
+  const standings = getLastStandings();
+  assert.ok(standings, '판이 끝나면 최종 순위 대시보드 데이터가 생겨야 함');
+  assert.strictEqual(standings.standings.length, 5);
+  assert.ok(
+    standings.standings.every((p) => p.kills === 0 && p.deaths === 0 && p.assists === 0 && p.score === 0),
+    '아무도 공격하지 않았으므로 전원 0킬 0데스 0점',
+  );
+  assert.ok(
+    emitted.some(([ev, payload]) => ev === 'battle:standings' && payload && payload.standings),
+    '순위표가 전체에게 브로드캐스트되어야 함',
+  );
+  console.log('round end shows the standings dashboard without saving or advancing: OK');
+
+  // 이제 관리자가 "부스 종료" — 마지막 판 점수로 저장하고 결과 단계로 넘어간다.
+  const warnings2 = [];
+  console.warn = (...args) => { warnings2.push(args.join(' ')); };
+  handlers.p1['admin:endBooth']();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  console.warn = origWarn;
+
+  assert.deepStrictEqual(
+    emitted.filter(([ev]) => ev === 'stage:change').map(([, s]) => s),
+    ['name', 'learn', 'create', 'battle', 'result'],
+    '부스 종료를 누르면 결과 단계로 넘어간다',
+  );
+  assert.strictEqual(
+    warnings2.filter((w) => w.includes('mock 저장')).length,
+    5,
+    '부스 종료 시 참가자 5명 각각에 대해 결과 저장이 시도되어야 함',
+  );
+  console.log('admin:endBooth saves the last round and advances to the result stage: OK');
 }
 
 // 회귀 테스트: 대전 도중 참가자가 연결을 끊어도(session.js의 disconnect 핸들러가
@@ -175,8 +249,9 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   const origWarn = console.warn;
   console.warn = (...args) => { warnings.push(args.join(' ')); };
 
-  const room2 = getBattleRoom();
-  room2.endsAt = Date.now() - 1;
+  skipCountdownAndExpire(getBattleRoom());
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  handlers.p1['admin:endBooth']();
   await new Promise((resolve) => setTimeout(resolve, 150));
 
   console.warn = origWarn;
@@ -189,6 +264,49 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   console.log('disconnect during battle does not lose result storage: OK');
 }
 
+// 여러 판 운영: 대시보드에서 "새로운 판"을 누르면 같은 참가자/무기로 즉시 다음 라운드가
+// 시작된다(제작 단계로 되돌아가지 않는다).
+{
+  handlers.p1['admin:reset']();
+  handlers.p1['admin:startSession']();
+  handlers.p1['admin:nextStage'](); // -> learn
+  handlers.p1['admin:nextStage'](); // -> create
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
+  }
+  handlers.p1['admin:nextStage'](); // -> battle (1판)
+  const firstRound = getBattleRoom().round;
+
+  skipCountdownAndExpire(getBattleRoom());
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.strictEqual(getBattleRoom(), null, '1판이 끝나 대시보드 상태');
+
+  handlers.p1['admin:newRound']();
+  const second = getBattleRoom();
+  assert.ok(second, '새로운 판이 시작되어야 함');
+  assert.strictEqual(second.round, firstRound + 1, '판 번호가 1 올라가야 함');
+  assert.strictEqual(second.status, 'roulette', '새 판도 룰렛부터 다시 시작');
+  assert.strictEqual(Object.keys(second.players).length, 5, '같은 참가자로 다시 시작');
+  assert.ok(
+    Object.values(second.players).every((p) => p.hp === 90 && p.kills === 0 && p.deaths === 0),
+    '새 판은 체력/기록이 전부 초기화된 상태로 시작',
+  );
+  assert.strictEqual(getLastStandings(), null, '새 판이 시작되면 이전 대시보드는 내려간다');
+  console.log('admin:newRound restarts the same roster for another round: OK');
+
+  // 이동 속도는 판이 바뀌어도 유지된다 — 관리자가 매 판 다시 맞출 이유가 없다.
+  const { registerBattleHandlers } = await import('./battle.js');
+  const bh = {};
+  registerBattleHandlers(io, { id: 'admin-sock', on: (ev, fn) => { bh[ev] = fn; }, emit: () => {} });
+  bh['admin:setMoveSpeed'](12);
+  assert.strictEqual(getBattleRoom().moveSpeed, 12, '진행 중인 판에도 즉시 반영되어야 함');
+  bh['admin:setMoveSpeed'](9999);
+  assert.ok(getBattleRoom().moveSpeed < 100, '비정상적으로 큰 값은 상한으로 clamp');
+  console.log('admin:setMoveSpeed applies live to the running round: OK');
+
+  handlers.p1['admin:reset']();
+}
+
 // 회귀 테스트: battle.js의 onEnd 콜백이 최종 점수 스냅샷을 정확히 전달하는지 직접 확인
 // (Opus 리뷰 Important I4 — 기존 통합 테스트는 저장 "시도 횟수"만 셌지, session.js로 넘어가는
 // scores 값 자체가 종료 시점 점수와 정확히 일치하는지는 검증하지 않았음).
@@ -198,14 +316,18 @@ console.log('battle room carries weaponParts from participant weapon: OK');
     onEnd: (winners, scores) => { onEndArgs = { winners, scores }; },
   });
   const scoreRoom = getBattleRoom();
-  scoreRoom.players.sc1.score = 42;
-  scoreRoom.players.sc2.score = 7;
-  scoreRoom.endsAt = Date.now() - 1;
+  // 점수는 이제 킬/데스/어시스트에서 파생된다(킬 20, 데스 -10, 어시 5).
+  Object.assign(scoreRoom.players.sc1, { kills: 3, deaths: 1, assists: 2 }); // 60-10+10 = 60
+  Object.assign(scoreRoom.players.sc2, { kills: 1, deaths: 3, assists: 0 }); // 20-30 = -10
+  skipCountdownAndExpire(scoreRoom);
+  // 자연 종료는 저장을 안 하므로(여러 판 운영) onEnd를 보려면 부스 종료 경로를 타야 한다.
   await new Promise((resolve) => setTimeout(resolve, 150));
+  const { saveLastRoundResults } = await import('./battle.js');
+  saveLastRoundResults((winners, scores) => { onEndArgs = { winners, scores }; });
 
   assert.ok(onEndArgs, 'onEnd이 호출되어야 함');
-  assert.deepStrictEqual(onEndArgs.scores, { sc1: 42, sc2: 7 }, 'onEnd의 scores가 종료 시점 점수 스냅샷과 정확히 일치해야 함');
-  assert.deepStrictEqual(onEndArgs.winners, ['sc1'], 'sc1(42점)이 sc2(7점)보다 높으므로 단독 승자');
+  assert.deepStrictEqual(onEndArgs.scores, { sc1: 60, sc2: -10 }, 'onEnd의 scores가 K/D/A로 계산된 최종 점수와 일치해야 함');
+  assert.deepStrictEqual(onEndArgs.winners, ['sc1'], 'sc1(60점)이 sc2(-10점)보다 높으므로 단독 승자');
   console.log('battle.js onEnd callback delivers accurate score snapshot: OK');
 }
 
@@ -220,11 +342,11 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   const room = getBattleRoom();
   assert.strictEqual(room.players.r1.isRanged, true);
   assert.strictEqual(room.players.r1.rangeDistance, 400);
-  assert.strictEqual(room.players.r1.hitScore, 50, '원거리는 배율 없이 hitScoreFromWeaponDamage(1000)=50 그대로');
+  assert.strictEqual(room.players.r1.hpDamage, 5.1, '원거리는 배율 없이 HP 5.1% 그대로');
 
   assert.strictEqual(room.players.m1.isRanged, false);
   assert.strictEqual(room.players.m1.rangeDistance, null);
-  assert.strictEqual(room.players.m1.hitScore, 65, '근접은 50 * 1.3 = 65(반올림)');
+  assert.strictEqual(room.players.m1.hpDamage, 6.6, '근접은 5.1 * 1.3 = 6.6(반올림)');
   assert.deepStrictEqual(room.projectiles, [], 'projectiles는 빈 배열로 시작');
   console.log('startBattleRoom applies isRanged/rangeDistance/melee damage multiplier from weapon.attackRange: OK');
 }

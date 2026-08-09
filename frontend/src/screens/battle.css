@@ -2,7 +2,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
+  width: min(var(--arena-width), 100%);
 }
 
 /* battle-arena 자체는 순수 Konva 마운트 지점(battle.js가 ref로만 씀, Preact 자식을 그
@@ -10,7 +11,8 @@
    둬서, Preact와 Konva가 같은 DOM 노드의 자식을 두고 서로 덮어쓰지 않게 한다. */
 .battle-viewport {
   position: relative;
-  width: fit-content;
+  width: 100%;
+  aspect-ratio: 4 / 3;
 }
 
 .battle-arena {
@@ -19,25 +21,36 @@
      줄어들게(fit-content) 둔다 — 캔버스 크기는 이제 battle.js의 VIEWPORT_SIZE(맵 전체
      크기와 무관한 고정 뷰포트)가 정하므로, 그 값이 바뀌어도 여기가 어긋나지 않는다
      (Opus 리뷰 Important #1, 실측 확인됨: 고정값이면 캔버스가 이 박스 밖으로 넘침). */
-  width: fit-content;
-  height: fit-content;
-  background: #1a1a1a;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+  width: 100%;
+  height: 100%;
+  background: #0d1526;
+  border: 3px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* Konva는 800x600 논리 좌표를 유지하고, 표시 크기만 사용 가능한 화면 폭에 맞춘다.
+   getPointerPosition()은 DOM rect 비율을 반영하므로 마우스 조준 좌표도 그대로 맞는다. */
+.battle-arena > .konvajs-content,
+.battle-arena > .konvajs-content > canvas {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .battle-timer {
   position: absolute;
-  top: 0.6rem;
+  top: 0.7rem;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.55);
+  background: #0b1728;
+  border: 2px solid var(--border-strong);
   color: #fff;
-  font-weight: bold;
+  font-weight: 800;
   font-size: 1.1rem;
   font-variant-numeric: tabular-nums;
-  padding: 0.25rem 0.9rem;
-  border-radius: 999px;
+  padding: 0.28rem 1rem;
+  border-radius: var(--radius-sm);
   pointer-events: none;
 }
 
@@ -48,7 +61,15 @@
   /* --arena-width는 battle.js가 VIEWPORT_SIZE.width(화면에 보이는 고정 뷰포트 너비, 맵 전체
      크기와는 별개)로 인라인 설정한다. 좁은 화면(부스 태블릿/폰)에서는 뷰포트 폭보다 더
      줄여서, 이동 스틱이 화면 밖으로 밀려나 손이 안 닿는 걸 막는다. */
-  width: min(var(--arena-width), 100vw - 3rem);
+  width: 100%;
+  min-height: 6rem;
+  transition: opacity 0.15s ease;
+}
+
+.battle-controls.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .joystick-base {
@@ -80,4 +101,364 @@
 
 .joystick-base.aim .joystick-knob {
   background: #c0392b;
+}
+
+/* ── 아레나 위 오버레이(시작 카운트다운 / 사망) ──────────────────────────
+   Konva 캔버스 위에 겹치는 일반 DOM — 캔버스 안에 그리면 카메라 이동에 같이 끌려다닌다. */
+.battle-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  pointer-events: none;
+  text-align: center;
+  z-index: 5;
+}
+
+.battle-overlay--countdown {
+  background: rgba(9, 17, 31, 0.78);
+}
+
+.countdown-label {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+
+/* key가 바뀔 때마다 요소가 새로 생겨서 이 애니메이션이 매 초 다시 재생된다 — 숫자가
+   "탁, 탁, 탁" 떨어지는 느낌을 만든다. */
+.countdown-number {
+  margin: 0;
+  font-size: clamp(4rem, 18vw, 8rem);
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 6px 6px 0 #102d36;
+  animation: countdown-pop 0.9s ease-out;
+}
+
+@keyframes countdown-pop {
+  0% { transform: scale(1.6); opacity: 0; }
+  25% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.92); opacity: 0.85; }
+}
+
+.battle-overlay--dead {
+  background: rgba(60, 6, 6, 0.42);
+}
+
+.dead-label {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #ff8080;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+}
+
+.dead-timer {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 룰렛과 순위표는 영구 Konva 캔버스 위에 뜬다. 캔버스를 제거하지 않기 때문에 룰렛에서
+   카운트다운으로 넘어가도 배경/카메라/캐릭터 노드가 그대로 유지된다. */
+.battle-phase-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0.75rem, 2.5vw, 1.5rem);
+  overflow: auto;
+  background: rgba(9, 17, 31, 0.96);
+}
+
+.battle-phase-overlay--standings {
+  background: rgba(6, 10, 21, 0.94);
+}
+
+/* ── 특수 스킬 룰렛 ─────────────────────────────────────────────────── */
+.roulette-card {
+  width: min(46rem, 100%);
+  max-height: 100%;
+  text-align: center;
+}
+
+.roulette-timer {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.skill-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-top: 1.4rem;
+}
+
+.skill-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 11rem;
+  padding: 1rem 0.7rem;
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  background: #0b1728;
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.skill-card:hover:not(:disabled) {
+  transform: translateY(-3px);
+  border-color: var(--skill-color, var(--accent));
+  background: #1d314c;
+}
+
+.skill-card:disabled {
+  cursor: default;
+}
+
+/* 돌아가는 동안은 내용이 계속 바뀌므로 흐릿하게 처리해 "읽으려 하지 않게" 만든다. */
+.skill-card.is-spinning {
+  filter: blur(1px);
+  opacity: 0.75;
+  border-style: dashed;
+}
+
+.skill-card.is-selected {
+  border-color: var(--skill-color, var(--accent));
+  background: #18383d;
+  box-shadow: 4px 4px 0 #050b14;
+}
+
+.skill-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.skill-name {
+  font-size: 1.02rem;
+  font-weight: 800;
+  color: var(--skill-color, var(--text));
+}
+
+.skill-desc {
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  word-break: keep-all;
+}
+
+.skill-cool {
+  margin-top: auto;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.roulette-hint {
+  margin: 1.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.roulette-hint kbd {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.08);
+  font-family: inherit;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 640px) {
+  .battle-phase-overlay {
+    align-items: flex-start;
+  }
+
+  .roulette-card {
+    padding: 1rem;
+  }
+
+  .skill-grid {
+    grid-template-columns: 1fr;
+    margin-top: 0.75rem;
+  }
+  .skill-card {
+    min-height: 0;
+    flex-direction: row;
+    flex-wrap: wrap;
+    text-align: left;
+    align-items: center;
+    gap: 0.15rem 0.6rem;
+  }
+  .skill-desc,
+  .skill-cool {
+    flex-basis: 100%;
+    margin-top: 0;
+  }
+
+  .roulette-hint {
+    margin-top: 0.7rem;
+  }
+}
+
+/* ── 스킬 발동 버튼(모바일) ─────────────────────────────────────────── */
+.battle-skill-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.skill-btn {
+  position: relative;
+  width: 4.6rem;
+  height: 4.6rem;
+  border-radius: 50%;
+  border: 2px solid var(--skill-color, var(--accent));
+  background: rgba(6, 10, 21, 0.75);
+  color: var(--text);
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  cursor: pointer;
+  overflow: hidden;
+  touch-action: manipulation;
+}
+
+/* 쿨타임 — 아래에서 차오르는 어두운 막으로 남은 시간을 보여준다. */
+.skill-btn::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: var(--cool-fill, 0%);
+  background: rgba(0, 0, 0, 0.62);
+  transition: height 0.1s linear;
+  pointer-events: none;
+}
+
+.skill-btn.is-ready {
+  box-shadow: 4px 4px 0 #050b14;
+}
+
+.skill-btn.is-cooling {
+  border-color: var(--border-strong);
+  cursor: not-allowed;
+}
+
+.skill-btn.is-passive {
+  border-style: dashed;
+  cursor: default;
+}
+
+.skill-btn-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.skill-btn-label {
+  position: relative;
+  z-index: 1;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 판 종료 후 최종 순위 대시보드 ─────────────────────────────────────── */
+.standings-card {
+  width: min(38rem, 100%);
+  text-align: center;
+}
+
+.standings-formula {
+  margin-bottom: 1.2rem;
+  font-size: 0.82rem;
+  color: var(--text-faint);
+}
+
+/* 인원이 많거나 화면이 좁아도 표가 페이지를 가로로 밀지 않게. */
+.standings-scroll {
+  overflow-x: auto;
+}
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.standings-table th {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+
+.standings-table td {
+  padding: 0.6rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: center;
+}
+
+.standings-table .col-name {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.standings-table .col-rank {
+  font-weight: 800;
+  width: 3rem;
+}
+
+.standings-table .col-score {
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.standings-table tr.is-top .col-rank,
+.standings-table tr.is-top .col-name {
+  color: var(--gold);
+}
+
+.standings-table tr.is-self {
+  background: rgba(124, 196, 255, 0.09);
+}
+
+.self-tag {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.standings-wait {
+  margin: 1.3rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
 }

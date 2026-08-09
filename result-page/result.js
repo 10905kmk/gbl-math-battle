@@ -1,6 +1,7 @@
 import { h, render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import htm from 'htm';
+import { downloadCertificate } from './certificate.js';
 
 const html = htm.bind(h);
 
@@ -8,10 +9,13 @@ const SUPABASE_URL = 'https://sfqhhclxzgvwvlpsmiou.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_N_wvfJULzEEi4Azpq-7YtA_adyPra5v';
 
 // Supabase에서 URL의 id로 결과를 조회하는 상시 페이지.
-// 현장 result.js와 동일한 수준의 요약을 영구 소장하는 용도. docs/초안.md 7-④ 참고.
+// 현장 result.js와 동일한 수준의 요약을 영구 소장하는 용도 + PDF 증서 저장. docs/초안.md 7-④ 참고.
 function ResultPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  // idle | working | done-pdf | done-png | failed — PDF 생성은 캔버스를 그리고 jsPDF를
+  // 내려받는 동안 1초 안팎 걸려서, 버튼이 아무 반응 없으면 참가자가 계속 다시 누른다.
+  const [saveState, setSaveState] = useState('idle');
   const id = new URLSearchParams(location.search).get('id');
 
   useEffect(() => {
@@ -48,20 +52,89 @@ function ResultPage() {
     };
   }, [id]);
 
-  if (error) return html`<p class="result-error">${error}</p>`;
-  if (!result) return html`<p>결과를 불러오는 중...</p>`;
+  async function save() {
+    if (saveState === 'working') return;
+    setSaveState('working');
+    try {
+      const kind = await downloadCertificate(result);
+      setSaveState(kind === 'pdf' ? 'done-pdf' : 'done-png');
+    } catch (err) {
+      console.error('[result-page] 증서 저장 실패', err);
+      setSaveState('failed');
+    }
+  }
+
+  if (error) {
+    return html`
+      <div class="card state-card">
+        <p class="state-emoji">🔍</p>
+        <p class="result-error">${error}</p>
+      </div>
+    `;
+  }
+  if (!result) {
+    return html`
+      <div class="card state-card">
+        <p class="subtitle">결과를 불러오는 중<span class="dots"><i></i><i></i><i></i></span></p>
+      </div>
+    `;
+  }
 
   // 탈락이 없는 점수제라 승/패 대신 등수를 보여준다 — 현장 화면(frontend/src/screens/result.js)과
   // 같은 원칙(2026-08-06 게임 제한시간/결과 화면 개선 작업 참고).
-  const rankLabel = result.rank ? `${result.rank}위` : '순위 미집계';
+  const rank = Number.isFinite(result.rank) ? result.rank : null;
+
+  const saveLabel = {
+    idle: '📄 PDF로 저장하기',
+    working: '만드는 중...',
+    'done-pdf': '✓ 저장했어요 · 다시 받기',
+    'done-png': '✓ 이미지로 저장했어요 · 다시 받기',
+    failed: '다시 시도하기',
+  }[saveState];
 
   return html`
-    <div class="result-card">
-      <h2>${result.weapon_name ?? '무기'}</h2>
-      ${result.weapon_image && html`<img src=${result.weapon_image} alt=${result.weapon_name} />`}
-      <p>전투력 ${result.weapon_damage ?? '-'}</p>
-      <p class="result-rank">${rankLabel}</p>
-      ${result.score != null && html`<p class="result-score">획득 점수 ${result.score}</p>`}
+    <div class="card result-card">
+      <p class="eyebrow">수학 도형 무기 배틀</p>
+
+      ${rank
+        ? html`
+            <div class="rank-badge ${rank === 1 ? 'rank-badge--top' : ''}">
+              <strong>${rank}</strong>
+              <small>위</small>
+            </div>
+          `
+        : null}
+
+      <div class="weapon-frame">
+        ${result.weapon_image
+          ? html`<img src=${result.weapon_image} alt=${result.weapon_name ?? '무기'} />`
+          : html`<span class="weapon-frame--empty">이미지 없음</span>`}
+      </div>
+      <h1 class="weapon-name">${result.weapon_name ?? '무기'}</h1>
+
+      <dl class="stat-grid">
+        <div class="stat stat--damage">
+          <dt>AI 전투력</dt>
+          <dd>${result.weapon_damage ?? '-'}</dd>
+        </div>
+        <div class="stat stat--score">
+          <dt>획득 점수</dt>
+          <dd>${result.score ?? '-'}</dd>
+        </div>
+      </dl>
+
+      <button
+        class="btn btn--primary btn--block save-btn"
+        onClick=${save}
+        disabled=${saveState === 'working'}
+      >
+        ${saveLabel}
+      </button>
+      ${saveState === 'done-png'
+        ? html`<p class="save-note">PDF를 만들지 못해 이미지로 저장했어요.</p>`
+        : html`<p class="save-note">저장한 파일은 휴대폰 다운로드 폴더에 있어요</p>`}
+
+      <p class="page-footer">대전대신고등학교 GBL · 36조</p>
     </div>
   `;
 }

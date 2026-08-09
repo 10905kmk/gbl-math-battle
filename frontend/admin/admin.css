@@ -2,11 +2,19 @@
   box-sizing: border-box;
 }
 
+:root {
+  --line: #dfe4ec;
+  --muted: #6b7280;
+  --accent: #2b7fd4;
+  --danger: #c0392b;
+  --ok: #1f8f5f;
+}
+
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Malgun Gothic", sans-serif;
-  background: #f5f5f5;
-  color: #222;
+  background: #f2f4f8;
+  color: #1a2233;
 }
 
 .admin-shell {
@@ -15,51 +23,580 @@ body {
   flex-direction: column;
 }
 
+/* ── 상단바 ─────────────────────────────────────────────────────────── */
 .admin-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
-  gap: 1.5rem;
+  gap: 1.25rem;
   align-items: center;
-  padding: 1rem 1.5rem;
-  background: #222;
+  flex-wrap: wrap;
+  padding: 0.85rem 1.25rem;
+  background: #16203a;
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+.topbar-stage,
+.topbar-progress {
+  font-size: 0.9rem;
+  color: #aebbd4;
+}
+
+.topbar-stage strong,
+.topbar-progress strong {
+  color: #fff;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+button {
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.45rem 0.9rem;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #1a2233;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+button:hover {
+  background: #f0f3f8;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.admin-topbar button {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
-.admin-body {
-  flex: 1;
-  padding: 1.5rem;
+.admin-topbar button:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
+.admin-topbar button.developer {
+  border-color: #ffbd59;
+  color: #ffd48a;
+  background: rgba(255, 189, 89, 0.1);
+}
+
+.admin-topbar button.developer:hover {
+  background: rgba(255, 189, 89, 0.22);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.admin-topbar button.primary:hover,
+button.primary:hover {
+  background: #1f6cbb;
+  border-color: #1f6cbb;
+}
+
+button.danger {
+  color: #ffb4ab;
+}
+
+.admin-topbar button.danger:hover {
+  background: rgba(192, 57, 43, 0.35);
+}
+
+/* 되돌리기(구제) 버튼 — 실수 복구용이라 눈에 띄되 파괴적으로 보이지 않게. */
+button.rescue {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button.rescue:hover {
+  background: #e8f1fb;
+}
+
+/* ── 본문 ───────────────────────────────────────────────────────────── */
+.admin-body {
+  flex: 1;
+  padding: 1.25rem;
+}
+
+.dashboard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-width: 1100px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.panel-sub {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.panel-note {
+  margin: 0.9rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: #f5f7fb;
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* ── 참가자 개별 카드 ───────────────────────────────────────────────── */
 .participant-list {
   list-style: none;
   padding: 0;
-  margin: 0 0 1.5rem;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 0.75rem;
 }
 
-.participant-list li {
+.participant-card {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #ddd;
+  gap: 0.85rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.participant-card.is-done {
+  border-left-color: var(--ok);
+}
+
+.participant-card.is-working {
+  border-left-color: #e0a800;
+}
+
+.participant-thumb {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  /* 무기 이미지는 배경이 투명한 PNG(Konva toDataURL)라 밝은 하늘색 도형이 흰 바탕에서
+     잘 안 보인다 — 참가자 화면과 같은 어두운 배경을 깔아준다. */
+  background: #0f1729;
+  overflow: hidden;
+}
+
+.participant-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.participant-thumb--empty {
+  font-size: 0.65rem;
+  color: #8593ad;
+  text-align: center;
+  line-height: 1.3;
+  padding: 0 0.2rem;
+}
+
+.participant-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.participant-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .participant-name {
+  font-weight: 700;
+  font-size: 0.98rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  flex: none;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.badge--done {
+  background: #e3f5ec;
+  color: var(--ok);
+}
+
+.badge--working {
+  background: #fdf3d8;
+  color: #8a6a00;
+}
+
+.participant-weapon {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.participant-weapon strong {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12rem;
+}
+
+.participant-weapon--empty {
+  color: var(--muted);
+}
+
+.participant-damage {
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.participant-range {
+  font-size: 0.75rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+.participant-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.participant-actions button {
+  white-space: nowrap;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.7rem;
+}
+
+/* ── 대전 진행 패널 ─────────────────────────────────────────────────── */
+.speed-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.3rem;
+}
+
+.speed-label {
+  flex: none;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.speed-row input[type="range"] {
   flex: 1;
+  accent-color: var(--accent);
 }
 
-.error-log {
-  margin-top: 1.5rem;
+.speed-value {
+  flex: none;
+  min-width: 2.2rem;
+  text-align: right;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
 }
 
-.error-log ul {
-  list-style: none;
-  padding: 0;
+.battle-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.8rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+
+.battle-time-row > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.battle-time-row strong {
+  color: var(--accent);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-time-row button {
+  white-space: nowrap;
+}
+
+.battle-time-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.skill-catalog {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.9rem;
+}
+
+.skill-catalog summary {
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.skill-catalog summary span {
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.skill-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.skill-catalog-card {
+  display: flex;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--skill-color, var(--accent));
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.skill-catalog-icon {
+  flex: none;
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.skill-catalog-card > div {
+  min-width: 0;
+}
+
+.skill-catalog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.skill-catalog-head strong {
+  font-size: 0.86rem;
+}
+
+.skill-catalog-head span {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.skill-catalog-card p {
+  margin: 0.25rem 0;
+  color: #4b5563;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.skill-catalog-card small {
+  color: var(--skill-color, var(--accent));
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.round-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.9rem 0 0;
+}
+
+.battle-start-gate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.battle-start-gate.is-ready {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.battle-start-gate strong {
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.battle-start-gate p {
   margin: 0;
-  font-family: monospace;
+  color: var(--muted);
   font-size: 0.85rem;
 }
 
+.battle-start-gate button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .battle-start-gate {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+.round-actions button {
+  padding: 0.6rem 1.1rem;
+  font-size: 0.95rem;
+}
+
+.round-actions button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.round-actions button.danger:hover {
+  background: #fdecea;
+}
+
+.admin-standings {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-standings th {
+  padding: 0.35rem 0.4rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+}
+
+.admin-standings td {
+  padding: 0.45rem 0.4rem;
+  border-bottom: 1px solid #f0f2f6;
+  text-align: center;
+}
+
+.admin-standings .col-name {
+  text-align: left;
+  font-weight: 600;
+}
+
+.admin-standings .col-score {
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.admin-standings tr.is-top td {
+  background: #fffaea;
+}
+
+/* ── 에러 로그 ──────────────────────────────────────────────────────── */
+.error-log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
 .error-log li {
-  padding: 0.25rem 0;
-  color: #b00020;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #f0f2f6;
+  color: var(--danger);
+  word-break: break-all;
+}
+
+/* ── 발표자 모드 ────────────────────────────────────────────────────── */
+.presenter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 720px;
+}
+
+.slide-preview {
+  min-height: 12rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--muted);
+}
+
+.slide-controls {
+  display: flex;
+  gap: 0.5rem;
 }

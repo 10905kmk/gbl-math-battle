@@ -36,3 +36,20 @@ export function ResultQr({ resultId }) {
   if (!dataUrl) return null;
   return html`<img class="result-qr" src=${dataUrl} alt="결과 QR 코드" width="180" height="180" />`;
 }
+
+// QR을 그냥 이미지 하나로 두면 참가자가 "이걸 왜 찍어야 하는지" 모른 채 지나간다 — 실제
+// 목적(휴대폰으로 결과 PDF 받기)을 QR 바로 옆에 붙여서 같이 보여준다. 저장이 아직 안
+// 끝나 resultId가 없을 때도 빈 칸으로 두지 않고 "준비 중"을 알려준다.
+export function ResultQrPanel({ resultId }) {
+  return html`
+    <div class="qr-panel">
+      <p class="qr-panel-title">📱 휴대폰으로 결과 받기</p>
+      <p class="qr-panel-desc">QR을 찍으면 내 무기 증서를 PDF로 저장할 수 있어요</p>
+      <div class="qr-slot">
+        ${resultId
+          ? html`<${ResultQr} resultId=${resultId} />`
+          : html`<span class="qr-pending">결과를 저장하는 중<span class="dots"><i></i><i></i><i></i></span></span>`}
+      </div>
+    </div>
+  `;
+}

@@ -23,6 +23,25 @@ assert.strictEqual(cacheKey(a), cacheKey(b), '거의 같은 무기는 같은 캐
 const c = { parts: [{ id: 'p3', shapeId: 'square', x: 101, y: 99, rotation: 2, scale: 1.01 }] };
 assert.notStrictEqual(cacheKey(a), cacheKey(c));
 
+// 크기 표현이 등비 scale(예전 형식)에서 scaleX/scaleY(자유 변형)로 바뀌었어도, 실제로
+// 같은 크기라면 같은 키여야 한다 — 안 그러면 팀이 정해둔 few-shot 샘플(등비 scale)이
+// 시딩해둔 점수가 참가자가 만든 똑같은 무기에 적용되지 않고 AI를 다시 호출하게 된다.
+const legacyUniform = { parts: [{ id: 'p1', shapeId: 'square', x: 100, y: 100, rotation: 0, scale: 1.5 }] };
+const explicitUniform = { parts: [{ id: 'p9', shapeId: 'square', x: 100, y: 100, rotation: 0, scaleX: 1.5, scaleY: 1.5 }] };
+assert.strictEqual(cacheKey(legacyUniform), cacheKey(explicitUniform), '등비 scale과 같은 값의 scaleX/scaleY는 같은 키');
+
+// 가로세로 비율이 다르면 눈에 보이는 무기가 다르므로 반드시 다른 키여야 한다 — 예전
+// normalize는 scale 하나만 봐서 이 둘을 같은 무기로 취급했다.
+const wide = { parts: [{ id: 'p1', shapeId: 'circle', x: 100, y: 100, rotation: 0, scaleX: 2.5, scaleY: 0.5 }] };
+const tall = { parts: [{ id: 'p1', shapeId: 'circle', x: 100, y: 100, rotation: 0, scaleX: 0.5, scaleY: 2.5 }] };
+assert.notStrictEqual(cacheKey(wide), cacheKey(tall), '가로로 넓은 타원과 세로로 긴 타원은 다른 무기');
+
+// 크기를 아예 안 준 part도 기본 크기(1)로 수렴해야 한다(입력 경로마다 필드가 다를 수 있음).
+const noScale = { parts: [{ id: 'p1', shapeId: 'star', x: 50, y: 50, rotation: 0 }] };
+const oneScale = { parts: [{ id: 'p2', shapeId: 'star', x: 50, y: 50, rotation: 0, scaleX: 1, scaleY: 1 }] };
+assert.strictEqual(cacheKey(noScale), cacheKey(oneScale));
+console.log('cache keys treat legacy uniform scale and explicit per-axis scale consistently: OK');
+
 // 시드 확정값은 같은 키에 항상 같은 값
 const p1 = seededPick(cacheKey(a), 100, 200);
 const p2 = seededPick(cacheKey(b), 100, 200);

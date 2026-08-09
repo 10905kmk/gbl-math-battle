@@ -4,6 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>수학 도형 무기 온라인 베틀</title>
+  <!-- KaTeX 스타일시트 — AI 채팅 답변의 LaTeX 수식 렌더링용(src/screens/create/Markdown.js).
+       웹폰트(.woff2)도 이 CSS가 같은 CDN에서 상대경로로 받아온다. -->
+  <!-- 버전을 0.16으로 맞춰둔다 — importmap의 katex(esm.sh)와 같은 minor 라인이어야
+       CSS 클래스/폰트 메트릭이 어긋나지 않는다. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css" />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="src/screens/battle.css" />
   <link rel="stylesheet" href="src/screens/create/create.css" />
@@ -15,7 +20,10 @@
       "htm": "https://esm.sh/htm@3",
       "socket.io-client": "https://esm.sh/socket.io-client@4",
       "konva": "https://esm.sh/konva@9",
-      "qrcode": "https://esm.sh/qrcode@1"
+      "qrcode": "https://esm.sh/qrcode@1",
+      "marked": "https://esm.sh/marked@12",
+      "katex": "https://esm.sh/katex@0.16",
+      "dompurify": "https://esm.sh/dompurify@3"
     }
   }
   </script>

@@ -1,26 +1,53 @@
-/* frontend/src/screens/create/create.css */
+/* frontend/src/screens/create/create.css
+   디자인 토큰(--accent, --surface, --border ...)은 frontend/style.css의 :root에만 있다.
+   예전엔 이 파일에도 같은 이름의 :root가 따로 있어서 화면마다 톤이 어긋났다. */
 
-:root {
-  --accent: #8fd3ff;
-  --accent-dim: #1a5f8a;
-  --surface: #1a1a1a;
-  --surface-2: #202020;
-  --border: rgba(255, 255, 255, 0.14);
-  --border-strong: rgba(255, 255, 255, 0.28);
-  --danger: #ff8080;
-}
-
-/* ── 전체 구조: 캔버스(좌) / 채팅(우) 2컬럼 + 하단 평가 바 ────────────── */
+/* ── 전체 구조: 헤더 / 캔버스(좌)·채팅(우) / 하단 액션 바 ─────────────── */
 .create-shell {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: minmax(0, 1fr) 360px;
   grid-template-areas:
+    "head   head"
     "canvas chat"
     "action action";
-  gap: 1.25rem;
+  gap: 1rem 1.25rem;
   align-items: start;
   width: 100%;
-  max-width: 960px;
+  max-width: 1040px;
+}
+
+.create-header {
+  grid-area: head;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.create-title {
+  margin: 0.35rem 0 0;
+  font-size: clamp(1.1rem, 2.6vw, 1.4rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.part-counter {
+  flex: none;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.part-counter.is-full {
+  border-color: rgba(255, 214, 110, 0.45);
+  background: rgba(255, 214, 110, 0.1);
+  color: var(--gold);
 }
 
 /* ── 캔버스 카드 ──────────────────────────────────────────────────── */
@@ -30,14 +57,15 @@
   flex-direction: column;
   gap: 0.75rem;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.85rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 0.9rem;
 }
 
 .shape-palette {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.45rem;
   flex-wrap: wrap;
 }
 
@@ -45,10 +73,17 @@
   width: 480px;
   max-width: 100%;
   aspect-ratio: 1 / 1;
-  background: #111;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: #0b1728;
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius);
   overflow: hidden;
+}
+
+.canvas-hint {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-faint);
+  text-align: center;
 }
 
 /* Konva가 캔버스 엘리먼트뿐 아니라 그걸 감싸는 .konvajs-content 래퍼 div에도
@@ -67,50 +102,73 @@
   height: auto !important;
 }
 
-/* ── 버튼 공통 베이스 ─────────────────────────────────────────────── */
-.create-shell button {
-  font-family: inherit;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: #eee;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
-}
-
-.create-shell button:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: #262626;
-}
-
-.create-shell button:active:not(:disabled) {
-  transform: translateY(1px);
-}
-
-.create-shell button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* 팔레트 chip 버튼 */
+/* ── 버튼: 팔레트 chip ────────────────────────────────────────────── */
 .chip-btn {
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 0.42rem 0.8rem 0.42rem 0.55rem;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.06s ease;
 }
 
 .chip-btn:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
+  background: rgba(124, 196, 255, 0.1);
+}
+
+.chip-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.chip-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.shape-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+  flex: none;
+  color: var(--accent);
 }
 
 .chip-btn--danger {
-  border-color: rgba(255, 128, 128, 0.3);
+  margin-left: auto;
+  padding-left: 0.8rem;
+  border-color: rgba(255, 128, 128, 0.28);
   color: var(--danger);
+}
+
+.chip-btn--copy {
+  margin-left: auto;
+  padding-left: 0.8rem;
+  border-color: rgba(85, 214, 190, 0.55);
+  color: var(--accent);
+}
+
+.chip-btn--copy:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: #18383d;
+}
+
+.chip-btn--copy + .chip-btn--danger {
+  margin-left: 0;
 }
 
 .chip-btn--danger:hover:not(:disabled) {
   border-color: var(--danger);
-  background: rgba(255, 128, 128, 0.08);
+  color: var(--danger);
+  background: rgba(255, 128, 128, 0.1);
 }
 
 /* ── 채팅 패널 ────────────────────────────────────────────────────── */
@@ -118,95 +176,270 @@
   grid-area: chat;
   display: flex;
   flex-direction: column;
-  width: 340px;
+  width: 360px;
   max-width: 100%;
-  height: 480px;
+  height: 552px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  background: #1d314c;
+  font-size: 0.9rem;
+}
+
+.chat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 2px 2px 0 #173c2d;
+}
+
+.chat-header-hint {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--text-faint);
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.75rem;
+  gap: 0.5rem;
+  padding: 0.85rem;
 }
 
-.chat-msg {
-  margin: 0;
-  padding: 0.45rem 0.7rem;
-  border-radius: 10px;
-  max-width: 85%;
-  line-height: 1.4;
-  font-size: 0.92rem;
+/* 빈 상태: 눌러서 바로 보낼 수 있는 예시 명령 */
+.chat-empty {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.chat-empty-title {
+  margin: 0 0 0.15rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+
+.chat-example {
+  font-family: inherit;
+  text-align: left;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-strong);
+  background: rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.chat-example:hover:not(:disabled) {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(124, 196, 255, 0.08);
+}
+
+.chat-example:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 대화 턴 (말풍선 없는 GPT식 레이아웃) ────────────────────────────────
+   아바타 + 본문이 한 줄로 놓이고, 본문은 패널 폭을 그대로 쓴다. 말풍선이었을 때는 폭이
+   88%로 제한돼서 표나 $$...$$ 블록 수식이 계속 줄바꿈되고 가로 스크롤이 생겼다. */
+.chat-turn {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.55rem 0;
+}
+
+/* 턴 사이 구분선 — 배경색 대비 대신 얇은 선으로 나눠서 화면이 답답해지지 않게. */
+.chat-turn + .chat-turn {
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.chat-avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-top: 0.1rem;
+}
+
+.chat-avatar--user {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.chat-avatar--ai {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.chat-body {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.65;
+  font-size: 0.9rem;
   word-break: break-word;
 }
 
-.chat-msg--user {
-  align-self: flex-end;
-  background: var(--accent-dim);
-  color: #eaf6ff;
-  border-bottom-right-radius: 3px;
+.chat-body--user {
+  color: var(--text);
+  font-weight: 600;
+  white-space: pre-wrap;
 }
 
-.chat-msg--ai {
-  align-self: flex-start;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 3px;
-}
-
-.chat-msg--error {
-  align-self: center;
+.chat-error {
+  margin: 0.3rem 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-sm);
   color: var(--danger);
   background: rgba(255, 128, 128, 0.08);
   border: 1px solid rgba(255, 128, 128, 0.25);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
 
+/* ── AI 응답의 마크다운/수식 렌더링 (Markdown.js) ────────────────────
+   AI 답변은 이제 마크다운 + KaTeX HTML이라, 말풍선 안에서 기본 여백이 튀지 않도록
+   블록 요소들을 여기서 정리해준다. */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+
+.md p {
+  margin: 0.4rem 0;
+}
+
+.md ul,
+.md ol {
+  margin: 0.4rem 0;
+  padding-left: 1.15rem;
+}
+
+.md li {
+  margin: 0.15rem 0;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.md strong {
+  color: var(--accent);
+}
+
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.md pre {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.4);
+  overflow-x: auto;
+}
+
+.md pre code {
+  padding: 0;
+  background: none;
+}
+
+.md blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.7rem;
+  border-left: 3px solid var(--accent-dim);
+  color: var(--text-dim);
+}
+
+.md a {
+  color: var(--accent);
+}
+
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  margin: 0.5rem 0;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 0.28rem 0.45rem;
+  text-align: left;
+}
+
+/* 긴 수식이 말풍선을 밀어서 채팅 패널 자체를 늘려버리지 않게 — 수식 블록 안에서만 스크롤. */
+.md .katex-display {
+  margin: 0.6rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.2rem;
+}
+
+.md .katex {
+  font-size: 1.02em;
+}
+
+/* ── 채팅 입력줄 ──────────────────────────────────────────────────── */
 .chat-input-row {
   display: flex;
   gap: 0.5rem;
-  padding: 0.65rem;
+  padding: 0.7rem;
   border-top: 1px solid var(--border);
-  background: var(--surface-2);
+  background: #1d314c;
 }
 
-.chat-input-row input {
+.chat-input-row .field {
   flex: 1;
   min-width: 0;
-  background: #111;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: #eee;
-  padding: 0.5rem 0.65rem;
+  padding: 0.55rem 0.75rem;
   font-size: 0.9rem;
-}
-
-.chat-input-row input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.chat-input-row input:disabled {
-  opacity: 0.5;
+  border-radius: var(--radius-sm);
 }
 
 .chat-send-btn {
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  background: var(--accent);
-  color: #0a2436;
-  border-color: var(--accent);
-}
-
-.chat-send-btn:hover:not(:disabled) {
-  background: #a5ddff;
+  flex: none;
+  padding: 0.55rem 1rem;
+  font-size: 0.88rem;
+  border-radius: var(--radius-sm);
 }
 
 /* ── 평가 액션 바 ─────────────────────────────────────────────────── */
@@ -214,47 +447,145 @@
   grid-area: action;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-lg);
+  border: 2px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.evaluate-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.weapon-type-field {
+  flex: 1.25;
+  min-width: 18rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.weapon-type-field:disabled {
+  opacity: 0.55;
+}
+
+.weapon-type-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-top: 0.3rem;
+}
+
+.weapon-type-btn {
+  min-height: 3.15rem;
+  padding: 0.45rem 0.65rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #0b1728;
+  color: var(--text-dim);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weapon-type-btn strong,
+.weapon-type-btn small {
+  display: block;
+}
+
+.weapon-type-btn strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.weapon-type-btn small {
+  margin-top: 0.15rem;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+}
+
+.weapon-type-btn.is-selected {
+  border-color: var(--accent);
+  background: #18383d;
+  box-shadow: 3px 3px 0 #050b14;
+}
+
+.weapon-type-btn.is-selected strong {
+  color: var(--accent);
+}
+
+.name-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.name-field-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.name-field .field {
+  padding: 0.6rem 0.8rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+}
+
+.evaluate-btn {
+  flex: none;
+  font-size: 1rem;
+  padding: 0.72rem 1.5rem;
+}
+
+.evaluate-btn.is-loading {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+.evaluate-hint {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-faint);
+}
+
+/* 관리자가 제작 완료를 취소해줬을 때의 안내 — 에러가 아니라 "구제됐다"는 신호라
+   빨강이 아닌 accent 톤으로 구분한다. */
+.evaluate-notice {
+  color: var(--accent);
+  background: rgba(124, 196, 255, 0.08);
+  border: 1px solid rgba(124, 196, 255, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+  font-size: 0.88rem;
 }
 
 .evaluate-error {
   color: var(--danger);
   background: rgba(255, 128, 128, 0.08);
   border: 1px solid rgba(255, 128, 128, 0.25);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 0.5rem 0.75rem;
   margin: 0;
-  font-size: 0.9rem;
-}
-
-.evaluate-btn {
-  font-size: 1.05rem;
-  font-weight: 700;
-  padding: 0.7rem 1.6rem;
-  background: var(--accent);
-  color: #0a2436;
-  border-color: var(--accent);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.evaluate-btn:hover:not(:disabled) {
-  background: #a5ddff;
-}
-
-.evaluate-btn.is-loading {
-  background: var(--surface-2);
-  color: #eee;
-  border-color: var(--border-strong);
+  font-size: 0.88rem;
 }
 
 .btn-spinner {
   width: 0.85em;
   height: 0.85em;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #eee;
+  border: 2px solid rgba(0, 0, 0, 0.25);
+  border-top-color: currentColor;
   border-radius: 50%;
   display: inline-block;
   animation: spin 0.7s linear infinite;
@@ -266,47 +597,74 @@
   }
 }
 
-/* ── 대기 화면 카드 ───────────────────────────────────────────────── */
+/* ── 제작 완료 대기 카드 ──────────────────────────────────────────── */
 .weapon-card {
+  width: min(22rem, 100%);
   text-align: center;
-  max-width: 22rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.5rem;
 }
 
-.weapon-card-img {
-  max-width: 10rem;
-  max-height: 10rem;
-  border-radius: 6px;
-  margin-bottom: 0.75rem;
+/* .eyebrow의 기본 margin은 0이라 바로 아래 무기 액자에 글자가 닿아 보인다 — 이 카드에서만
+   숨통을 틔워준다. */
+.weapon-card .eyebrow {
+  margin-bottom: 1rem;
 }
 
-.weapon-card-status {
-  color: #bbb;
+.weapon-card-damage {
+  margin: 0.4rem 0 0;
   font-size: 0.9rem;
-  margin: 0.25rem 0 0.75rem;
+  color: var(--text-dim);
+}
+
+.weapon-card-type {
+  display: inline-block;
+  margin: 0.55rem 0 0;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  background: #18383d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.weapon-card-damage strong {
+  color: var(--accent);
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* "다른 도전자를 기다리는 중 ●●●" — 글자와 점을 한 줄 안에서 가운데 정렬한다. 예전엔
+   그냥 inline이라 점 3개가 문장 오른쪽에 딱 붙어 겹쳐 보였고, 좁은 화면에서는 마지막 점이
+   줄 밖으로 밀렸다. */
+.weapon-card-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  margin: 1.1rem 0 0.8rem;
 }
 
 .progress-track {
   width: 100%;
   height: 6px;
-  background: var(--surface-2);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 999px;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
+  border-radius: 999px;
   background: var(--accent);
   transition: width 0.3s ease;
 }
 
 .progress-label {
-  margin: 0.4rem 0 0;
-  font-size: 0.8rem;
-  color: #999;
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── 좁은 화면: 세로 스택 ─────────────────────────────────────────── */
@@ -314,6 +672,7 @@
   .create-shell {
     grid-template-columns: 1fr;
     grid-template-areas:
+      "head"
       "canvas"
       "chat"
       "action";
@@ -332,23 +691,26 @@
     min-width: 0;
   }
 
-  .canvas-editor {
-    width: 100%;
-  }
-
-  .canvas-container {
-    width: 100%;
-  }
-
+  .canvas-editor,
+  .canvas-container,
   .chat-panel {
     width: 100%;
   }
 
-  .evaluate-panel {
+  .chat-panel {
+    height: 420px;
+  }
+
+  .evaluate-row {
+    flex-direction: column;
     align-items: stretch;
   }
 
+  .weapon-type-field {
+    min-width: 0;
+  }
+
   .evaluate-btn {
-    justify-content: center;
+    width: 100%;
   }
 }
