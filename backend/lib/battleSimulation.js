@@ -22,9 +22,9 @@ export const MOVE_SPEED_MIN = 3;
 export const MOVE_SPEED_MAX = 20;
 
 export const ATTACK_COOLDOWN_MS = 500;
-// 한 판 4분. 시작 전 5초 카운트다운은 이 시간에 포함되지 않는다(카운트다운이 끝나는 순간
+// 한 판 기본 3분. 시작 전 5초 카운트다운은 이 시간에 포함되지 않는다(카운트다운이 끝나는 순간
 // endsAt을 다시 잡는다).
-export const BATTLE_DURATION_MS = 240000;
+export const BATTLE_DURATION_MS = 180000;
 export const COUNTDOWN_MS = 5000;
 export const RESPAWN_MS = 10000;
 
@@ -219,7 +219,7 @@ function applyHit(players, attackerId, targetId, damage, now, events, room) {
   // 실드/투명망토/대쉬 무적 — 맞아도 아무 일이 일어나지 않는다(어시스트 기록도 안 남김).
   if (isInvulnerable(target, now)) return;
 
-  // 광전사/최후의 발악/사형선고 표식/운빨을 곱한 최종 피해.
+  // 최후의 발악/사형선고 표식/운빨을 곱한 최종 피해.
   const { multiplier, lucky } = outgoingDamageMultiplier(attacker, target, now);
   const finalDamage = round1(damage * multiplier * incomingDamageMultiplier(target, now));
   if (lucky) events.push({ type: 'lucky', playerId: attackerId, x: attacker.x, y: attacker.y });
@@ -406,13 +406,12 @@ export function stepSimulation(room, now) {
   }
 
   // 목숨이 무한이라 라운드는 제한시간으로만 끝난다 — 다만 참가자가 0~1명이면(관리자가
-  // 아무도/한 명만 완료하지 않은 상태에서 강제로 battle 단계로 넘긴 경우) 4분을 채울 이유가
-  // 없으므로 그 즉시 종료한다.
+  // 참가자가 한 명뿐이어도 부스 및 개발자 테스트가 가능하도록 제한 시간까지 진행한다.
   const allPlayers = Object.values(players);
   let winners = null;
   let status = room.status;
-  if (allPlayers.length <= 1) {
-    winners = allPlayers.map((p) => p.id);
+  if (allPlayers.length === 0) {
+    winners = [];
     status = 'ended';
   } else if (now >= room.endsAt) {
     const maxScore = Math.max(...allPlayers.map((p) => computeScore(p)));

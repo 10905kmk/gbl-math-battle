@@ -34,6 +34,40 @@ body {
 .dev-help kbd { border: 1px solid #52647d; border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; background: #202d40; color: #fff; }
 .dev-help strong { color: #fff; }
 
+.dev-avatar-switcher {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+
+.dev-avatar-label {
+  display: flex;
+  align-items: center;
+  width: 76px;
+  color: #91a3ba;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.dev-avatar {
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  padding: 6px 8px;
+  border: 1px solid #354963;
+  border-radius: 6px;
+  background: #141f30;
+  color: #eef3fb;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dev-avatar:hover { background: #202d40; }
+.dev-avatar.is-controlled { border-color: #5fe3a1; box-shadow: inset 3px 0 #5fe3a1; }
+.dev-avatar span, .dev-avatar small { color: #91a3ba; font-size: 9px; }
+.dev-avatar strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
 .dev-game-column .battle-shell { margin: 0; }
 .dev-game-column .battle-viewport { border: 2px solid #354963; border-radius: 8px; overflow: hidden; }
 .dev-game-column .battle-controls { min-height: 120px; }

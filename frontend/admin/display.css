@@ -285,7 +285,7 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
-  min-width: 300px;
+  min-width: 430px;
   max-height: 600px;
   overflow-y: auto;
   padding: 0.75rem;
@@ -296,12 +296,24 @@ body {
 }
 
 .leaderboard li {
-  display: flex;
+  display: grid;
+  grid-template-columns: 3rem 1.5rem minmax(8rem, 1fr) repeat(3, 3rem) 4rem;
   align-items: center;
   gap: 0.75rem;
   font-size: 1.5rem;
   padding: 0.5rem 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.leaderboard li.leaderboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #14243a;
+  color: #8fa8c4;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 /* 미니맵에서 연결 끊긴 캐릭터를 흐리게 표시하는 것과 같은 원칙 — 리더보드도 일관되게. */
@@ -327,10 +339,9 @@ body {
 }
 
 /* 킬/데스/어시스트 — 종합 점수 왼쪽에 작게. 어떤 판인지 한눈에 읽히도록 고정폭 숫자. */
-.leaderboard-kda {
-  margin-right: 0.6rem;
-  font-size: 0.8em;
-  opacity: 0.65;
+.leaderboard-stat {
+  text-align: right;
+  font-size: 0.82em;
   font-variant-numeric: tabular-nums;
 }
 

@@ -369,9 +369,12 @@ console.log('computeScore: kill +20 / death -10 / assist +5: OK');
 {
   const room = makeRoom({ p1: makePlayer({ id: 'p1' }) }, { endsAt: 1_000_000 });
   const { winners, room: next } = stepSimulation(room, 1000);
-  assert.deepStrictEqual(winners, ['p1'], '참가자 1명뿐이면 제한시간과 무관하게 그 즉시 종료');
-  assert.strictEqual(next.status, 'ended');
-  console.log('battle with only 1 participant ends immediately: OK');
+  assert.strictEqual(winners, null, '참가자 1명이어도 제한시간 전에는 종료하지 않음');
+  assert.strictEqual(next.status, 'active');
+  const ended = stepSimulation(room, room.endsAt);
+  assert.deepStrictEqual(ended.winners, ['p1'], '참가자 1명 게임도 제한시간에 정상 종료');
+  assert.strictEqual(ended.room.status, 'ended');
+  console.log('battle with only 1 participant runs until the configured timeout: OK');
 }
 
 {

@@ -13,7 +13,11 @@ import {
   DEFAULT_MOVE_SPEED,
 } from '../lib/battleSimulation.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
-import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX } from '../../shapes/attackGeometry.js';
+import {
+  RANGE_DISTANCE_MIN,
+  RANGE_DISTANCE_MAX,
+  RANGED_COMBAT_RANGE_MULTIPLIER,
+} from '../../shapes/attackGeometry.js';
 import { drawSkillChoices } from '../../shapes/skills.js';
 import { newPlayerSkillState, activateSkill } from '../lib/skillEngine.js';
 
@@ -22,6 +26,8 @@ const TICK_MS = 50;
 export const BATTLE_TIME_EXTENSION_MS = 30_000;
 export const BATTLE_DURATION_MIN_MS = 30_000;
 export const BATTLE_DURATION_MAX_MS = 20 * 60_000;
+export const SKILL_CHOICE_COUNT = 9;
+export const SKILL_PICK_COUNT = 4;
 
 let battleRoom = null;
 let tickInterval = null;
@@ -178,8 +184,12 @@ function buildPlayer(participant, index) {
   // (기존 weaponDamage clamp와 같은 원칙). 'ranged'가 아니면 전부 근접으로 취급.
   const isRanged = participant.weapon?.attackRange === 'ranged';
   const rawDistance = Number(participant.weapon?.attackRangeDistance);
+  const evaluatedRangeDistance = Math.min(
+    RANGE_DISTANCE_MAX,
+    Math.max(RANGE_DISTANCE_MIN, Number.isFinite(rawDistance) ? rawDistance : RANGE_DISTANCE_MIN),
+  );
   const rangeDistance = isRanged
-    ? Math.min(RANGE_DISTANCE_MAX, Math.max(RANGE_DISTANCE_MIN, Number.isFinite(rawDistance) ? rawDistance : RANGE_DISTANCE_MIN))
+    ? evaluatedRangeDistance * RANGED_COMBAT_RANGE_MULTIPLIER
     : null;
   const baseDamage = hpDamageFromWeaponDamage(participant.weapon?.damage);
   // 근접은 가까이 가야 하는 위험을 감수하므로 원거리보다 세다 — 다만 보정을 곱한 뒤에도
@@ -211,9 +221,11 @@ function buildPlayer(participant, index) {
     lastAttackAt: 0,
     attackRequested: false,
     input: { moveX: 0, moveY: 0, aimX: 0, aimY: 0 },
-    // 룰렛 3칸에 채워질 후보. 참가자가 하나를 고르면 skillId가 채워지고, 시간 안에 못 고르면
-    // stepSimulation이 첫 번째 후보로 자동 확정한다.
-    skillChoices: drawSkillChoices(3),
+    // 서버가 추첨한 9개 후보 중 참가자가 4개를 고른다.
+    skillChoices: drawSkillChoices(SKILL_CHOICE_COUNT),
+    skillIds: [],
+    skillSelectionConfirmed: false,
+    skillReadyAts: {},
     ...newPlayerSkillState(null),
   };
 }
@@ -234,7 +246,7 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
 
   const now = Date.now();
   battleRoom = {
-    // 매 판은 "룰렛(스킬 3개 중 1개 선택) → 관리자 시작 승인 → 5초 카운트다운 →
+    // 매 판은 "룰렛(스킬 9개 중 4개 선택) → 관리자 시작 승인 → 5초 카운트다운 →
     // 본 게임" 순서다. 룰렛에는 자동 종료 시각을 두지 않는다.
     status: 'roulette',
     rouletteEndsAt: null,
@@ -264,7 +276,7 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
     if (events && events.length > 0) io.emit('battle:events', events);
 
     if (winners !== null) {
-      // 자연 종료(4분 만료)는 대시보드만 띄우고 저장하지 않는다 — 관리자가 "새로운 판"으로
+      // 자연 종료(기본 3분 만료)는 대시보드만 띄우고 저장하지 않는다 — 관리자가 "새로운 판"으로
       // 계속 돌릴 수 있고, 저장은 "부스 종료" 한 번만.
       concludeRound(winners, { saveResults: false });
     }
@@ -277,7 +289,10 @@ export function startBattleCountdown(now = Date.now()) {
   if (!battleRoom || battleRoom.status !== 'roulette') return false;
 
   const connectedPlayers = Object.values(battleRoom.players).filter((p) => p.connected !== false);
-  if (connectedPlayers.length === 0 || connectedPlayers.some((p) => !p.skillId)) return false;
+  if (
+    connectedPlayers.length === 0
+    || connectedPlayers.some((p) => p.skillIds?.length !== SKILL_PICK_COUNT || p.skillSelectionConfirmed !== true)
+  ) return false;
 
   battleRoom = {
     ...battleRoom,
@@ -338,13 +353,26 @@ export function registerBattleHandlers(io, socket) {
     battleRoom.players[socket.id].attackRequested = true;
   });
 
-  // 룰렛에서 고른 특수 스킬 확정 — 자기에게 뽑힌 3개 중 하나여야만 받아들인다(클라이언트가
+  // 룰렛에서 4개를 토글 선택한다. 자기에게 뽑힌 9개 안에 있고 최대 4개여야 한다(클라이언트가
   // 보낸 값을 그대로 믿지 않는 이 프로젝트의 기존 원칙).
   socket.on('battle:pickSkill', (skillId) => {
     const player = battleRoom?.players[socket.id];
     if (!player || battleRoom.status !== 'roulette') return;
     if (!player.skillChoices?.includes(skillId)) return;
-    player.skillId = skillId;
+    const selected = player.skillIds ?? [];
+    player.skillIds = selected.includes(skillId)
+      ? selected.filter((id) => id !== skillId)
+      : selected.length < SKILL_PICK_COUNT ? [...selected, skillId] : selected;
+    player.skillSelectionConfirmed = false;
+    io.emit('battle:state', battleRoom);
+  });
+
+  socket.on('battle:confirmSkills', () => {
+    const player = battleRoom?.players[socket.id];
+    if (!player || battleRoom.status !== 'roulette') return;
+    if (player.skillIds?.length !== SKILL_PICK_COUNT) return;
+    player.skillSelectionConfirmed = true;
+    io.emit('battle:state', battleRoom);
   });
 
   // 룰렛은 참가자 한 명의 선택이나 시간 경과로 끝나지 않는다. 전원이 선택한 상태에서
@@ -353,10 +381,11 @@ export function registerBattleHandlers(io, socket) {
     startBattleCountdown();
   });
 
-  // 특수 스킬 발동 — PC는 Z키, 모바일은 화면 버튼이 이걸 보낸다.
-  socket.on('battle:skill', () => {
+  // 특수 스킬 발동 — PC Z/X/C/V와 모바일 4개 버튼이 선택한 스킬 id를 보낸다.
+  socket.on('battle:skill', (skillId) => {
     if (!battleRoom || battleRoom.status !== 'active') return;
-    activateSkill(battleRoom, socket.id, Date.now());
+    if (typeof skillId !== 'string') return;
+    activateSkill(battleRoom, socket.id, Date.now(), Math.random, skillId);
   });
 
   socket.on('admin:setMoveSpeed', (value) => {

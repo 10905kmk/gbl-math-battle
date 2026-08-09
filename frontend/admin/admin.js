@@ -2,7 +2,7 @@ import { h, render, Fragment } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import htm from 'htm';
 import { io } from 'socket.io-client';
-import { SKILLS } from '../shapes/skills.js';
+import { SKILLS, formatSkillTiming } from '../shapes/skills.js';
 
 const html = htm.bind(h);
 const SKILL_KIND_LABELS = {
@@ -28,7 +28,7 @@ function AdminApp() {
   const [errors, setErrors] = useState([]);
   const [standings, setStandings] = useState(null);
   const [moveSpeed, setMoveSpeed] = useState(8);
-  const [battleDuration, setBattleDuration] = useState(240_000);
+  const [battleDuration, setBattleDuration] = useState(180_000);
   const [battleState, setBattleState] = useState(null);
 
   useEffect(() => {
@@ -179,6 +179,122 @@ function ParticipantCard({ participant, canReopen, onForceFinish, onReopen }) {
   `;
 }
 
+function ApiKeyPanel() {
+  const [status, setStatus] = useState({ count: 0, providers: {} });
+  const [slotStatus, setSlotStatus] = useState({
+    capacityPerKey: 2,
+    totals: { active: 0, queued: 0, capacity: 0 },
+    slots: [],
+  });
+  const [password, setPassword] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  async function refreshStatus() {
+    try {
+      const [keysRes, slotsRes] = await Promise.all([
+        fetch('/api/admin/api-keys'),
+        fetch('/api/admin/ai-slots'),
+      ]);
+      if (keysRes.ok) setStatus(await keysRes.json());
+      if (slotsRes.ok) setSlotStatus(await slotsRes.json());
+    } catch {
+      // 상태 표시는 보조 기능이다. 서버 연결이 잠시 끊겨도 관리자 전체 화면은 유지한다.
+    }
+  }
+
+  useEffect(() => {
+    refreshStatus();
+    const timer = setInterval(refreshStatus, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  async function saveApiKey(event) {
+    event.preventDefault();
+    if (!password || !apiKey.trim() || saving) return;
+    setSaving(true);
+    setNotice(null);
+    try {
+      const res = await fetch('/api/admin/api-keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, apiKey: apiKey.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'API 키를 저장하지 못했습니다.');
+      setStatus(data);
+      await refreshStatus();
+      setApiKey('');
+      const providerNames = { gemini: 'Gemini', github: 'GitHub Models', openrouter: 'OpenRouter' };
+      setNotice({ ok: true, text: data.added ? `새 ${providerNames[data.addedProvider] ?? 'AI'} API 키를 추가했습니다. 바로 사용됩니다.` : '이미 등록된 키입니다.' });
+    } catch (err) {
+      setNotice({ ok: false, text: err instanceof Error ? err.message : 'API 키를 저장하지 못했습니다.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return html`
+    <section class="panel api-key-panel">
+      <div class="panel-head">
+        <div>
+          <h2>긴급 AI API 키</h2>
+          <span class="panel-sub">현재 ${status.count}개 등록됨</span>
+        </div>
+        <div class="api-key-badges">
+          ${Object.entries(status.providers ?? {}).flatMap(([provider, item]) =>
+            (item.maskedKeys ?? []).map((masked) => html`<code>${provider} ${masked}</code>`))}
+        </div>
+      </div>
+      <p class="api-key-help">Gemini, GitHub Models, OpenRouter 키를 형식에 따라 자동 분류합니다. 입력한 키 원문은 다시 화면에 표시되지 않습니다.</p>
+      <div class="ai-slot-summary">
+        <strong>AI 슬롯 현황</strong>
+        <span>실행 중 ${slotStatus.totals?.active ?? 0}/${slotStatus.totals?.capacity ?? 0}</span>
+        <span>대기 ${slotStatus.totals?.queued ?? 0}건</span>
+      </div>
+      <div class="ai-slot-grid">
+        ${(slotStatus.slots ?? []).map((slot) => html`
+          <article class="ai-slot-card ${slot.active >= slot.capacity ? 'is-full' : ''}">
+            <div class="ai-slot-head">
+              <strong>${slot.label}</strong>
+              <code>${slot.maskedKey}</code>
+            </div>
+            <div class="ai-slot-meter" aria-label="${slot.active}/${slot.capacity}개 슬롯 사용 중">
+              ${Array.from({ length: slot.capacity }, (_, index) => html`
+                <i class=${index < slot.active ? 'is-active' : ''}></i>
+              `)}
+            </div>
+            <dl>
+              <div><dt>사용 중</dt><dd>${slot.active}/${slot.capacity}</dd></div>
+              <div><dt>대기열</dt><dd>${slot.queued}건</dd></div>
+              <div><dt>완료</dt><dd>${slot.completed}건</dd></div>
+              <div><dt>실패</dt><dd>${slot.failed}건</dd></div>
+            </dl>
+            ${slot.lastErrorStatus
+              ? html`<p class="ai-slot-error">최근 오류 ${slot.lastErrorStatus}</p>`
+              : html`<p class="ai-slot-ready">정상 대기</p>`}
+          </article>
+        `)}
+      </div>
+      <form class="api-key-form" onSubmit=${saveApiKey}>
+        <label>
+          <span>관리자 비밀번호</span>
+          <input type="password" value=${password} onInput=${(e) => setPassword(e.target.value)} autocomplete="current-password" />
+        </label>
+        <label class="api-key-field">
+          <span>새 AI API 키</span>
+          <input type="password" value=${apiKey} onInput=${(e) => setApiKey(e.target.value)} autocomplete="off" placeholder="AIza… / ghp_… / sk-or-v1-…" />
+        </label>
+        <button class="primary" type="submit" disabled=${saving || !password || !apiKey.trim()}>
+          ${saving ? '저장 중…' : 'API 키 추가'}
+        </button>
+      </form>
+      ${notice ? html`<p class="api-key-notice ${notice.ok ? 'is-ok' : 'is-error'}">${notice.text}</p>` : null}
+    </section>
+  `;
+}
+
 function DashboardPanel({ socket, stage, participants, errors }) {
   // 되돌리기는 create 단계에서만 의미가 있다(서버도 같은 조건으로 막는다) — battle로
   // 넘어간 뒤엔 이미 대전 시작 시점의 참가자 스냅샷이 떠 있어서 되돌려도 반영되지 않는다.
@@ -200,6 +316,7 @@ function DashboardPanel({ socket, stage, participants, errors }) {
   // 대전 단계에서는 BattlePanel이 같은 컨테이너 안에 형제로 함께 들어간다.
   return html`
     <${Fragment}>
+      <${ApiKeyPanel} />
       <section class="panel">
         <div class="panel-head">
           <h2>참가자 (${participants.length}명)</h2>
@@ -241,7 +358,7 @@ function DashboardPanel({ socket, stage, participants, errors }) {
 function BattlePanel({ socket, standings, moveSpeed, battleDuration, battleState }) {
   const rows = standings?.standings ?? [];
   const livePlayers = Object.values(battleState?.players ?? {}).filter((p) => p.connected !== false);
-  const pickedCount = livePlayers.filter((p) => Boolean(p.skillId)).length;
+  const pickedCount = livePlayers.filter((p) => p.skillSelectionConfirmed === true).length;
   const playerCount = livePlayers.length;
   const battleStatus = battleState?.status ?? null;
   const canStartCountdown = battleStatus === 'roulette' && playerCount > 0 && pickedCount === playerCount;
@@ -368,9 +485,8 @@ function BattlePanel({ socket, standings, moveSpeed, battleDuration, battleState
                   </div>
                   <p>${skill.desc}</p>
                   <small>
-                    ${skill.kind === 'passive'
-                      ? '자동 발동'
-                      : `재사용 ${Math.round(skill.cooldownMs / 1000)}초`}
+                    ${formatSkillTiming(skill)}
+                    ${skill.kind === 'passive' ? ' · 자동' : ''}
                   </small>
                 </div>
               </article>

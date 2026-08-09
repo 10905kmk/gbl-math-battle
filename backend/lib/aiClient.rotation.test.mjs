@@ -40,15 +40,53 @@ console.log('callGeminiWithRotation retries the next key on 429: OK');
 }
 console.log('callGeminiWithRotation retries the next key on 503: OK');
 
+// 한 키가 시간초과되어도 다음 키로 넘어가며, 테스트에서는 짧은 제한시간을 주입한다.
 {
-  const requestFn = async () => {
-    const err = new Error('bad request');
-    err.status = 400;
-    throw err;
-  };
-  await assert.rejects(() => callGeminiWithRotation(requestFn, ['only-key']), /bad request/);
+  const calls = [];
+  const result = await callGeminiWithRotation(async (key) => {
+    calls.push(key);
+    if (key === 'slow-key') {
+      const err = new Error('request timed out');
+      err.name = 'TimeoutError';
+      throw err;
+    }
+    return 'recovered';
+  }, ['slow-key', 'backup-key'], { requestTimeoutMs: 100, attemptTimeoutMs: 20 });
+  assert.strictEqual(result, 'recovered');
+  assert.deepStrictEqual(calls, ['slow-key', 'backup-key']);
 }
-console.log('callGeminiWithRotation propagates non-429 errors immediately: OK');
+console.log('callGeminiWithRotation retries a backup key after timeout: OK');
+
+{
+  const calls = [];
+  const requestFn = async (key) => {
+    calls.push(key);
+    if (key === 'bad-request-key') {
+      const err = new Error('bad request');
+      err.status = 400;
+      throw err;
+    }
+    return 'recovered-from-400';
+  };
+  const result = await callGeminiWithRotation(requestFn, ['bad-request-key', 'backup-key']);
+  assert.strictEqual(result, 'recovered-from-400');
+  assert.deepStrictEqual(calls, ['bad-request-key', 'backup-key']);
+}
+console.log('callGeminiWithRotation retries the next key on every API error: OK');
+
+{
+  const calls = [];
+  await assert.rejects(
+    () => callGeminiWithRotation(async (key) => {
+      calls.push(key);
+      throw new SyntaxError(`malformed response from ${key}`);
+    }, ['key-a', 'key-b', 'key-c']),
+    (err) => err instanceof SyntaxError && err.attemptedApiKeys === 3,
+  );
+  assert.strictEqual(calls.length, 3);
+  assert.deepStrictEqual(new Set(calls), new Set(['key-a', 'key-b', 'key-c']));
+}
+console.log('callGeminiWithRotation reports failure only after every key fails: OK');
 
 {
   await assert.rejects(

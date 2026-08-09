@@ -12,7 +12,7 @@ import {
   getLastStandings,
 } from './battle.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
-import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX } from '../../shapes/attackGeometry.js';
+import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX, RANGED_COMBAT_RANGE_MULTIPLIER } from '../../shapes/attackGeometry.js';
 
 // 매 판은 5초 카운트다운으로 시작한다 — 테스트에서 라운드를 끝내려면 먼저 카운트다운을
 // 지나 'active'로 만들어야 한다. 제한시간을 과거로 옮기는 것만으로는 카운트다운 중인
@@ -82,28 +82,32 @@ assert.strictEqual(room.players.p1.hp, 90, '모든 참가자는 90 체력으로 
 assert.strictEqual(room.players.p1.alive, true);
 assert.strictEqual(room.status, 'roulette', '매 판은 특수 스킬 룰렛으로 시작');
 assert.strictEqual(room.rouletteEndsAt, null, '룰렛은 관리자가 시작할 때까지 자동 종료되지 않음');
-assert.strictEqual(room.players.p1.skillChoices.length, 3, '룰렛 3칸에 후보가 채워져야 함');
-assert.strictEqual(new Set(room.players.p1.skillChoices).size, 3, '3칸의 후보는 서로 달라야 함');
-assert.strictEqual(room.players.p1.skillId, null, '아직 고르기 전');
+assert.strictEqual(room.players.p1.skillChoices.length, 9, '룰렛 9칸에 후보가 채워져야 함');
+assert.strictEqual(new Set(room.players.p1.skillChoices).size, 9, '9칸의 후보는 서로 달라야 함');
+assert.deepStrictEqual(room.players.p1.skillIds, [], '아직 고르기 전');
 console.log('battle room initialized from participants (HP model + countdown): OK');
 
 assert.strictEqual(setBattleDuration(90_000), 90_000, '게임 시간은 30초 단위로 설정 가능');
 assert.strictEqual(getBattleDuration(), 90_000);
 assert.strictEqual(getBattleRoom().durationMs, 90_000, '룰렛 중 변경한 시간이 현재 판에 반영');
-assert.strictEqual(setBattleDuration(240_000), 240_000, '테스트 뒤 기본 4분으로 복원');
-assert.strictEqual(getBattleRoom().durationMs, 240_000);
+assert.strictEqual(setBattleDuration(180_000), 180_000, '테스트 뒤 기본 3분으로 복원');
+assert.strictEqual(getBattleRoom().durationMs, 180_000);
 console.log('admin configures battle duration in 30-second steps: OK');
 
 // 한 명이라도 특수 스킬을 고르지 않았으면 관리자 시작 요청도 거절된다. 전원이 선택한 뒤에만
 // 정확히 5초 카운트다운으로 넘어가야 한다.
 assert.strictEqual(startBattleCountdown(1000), false, '선택 미완료 상태에서는 관리자도 시작할 수 없음');
 Object.values(room.players).forEach((p) => {
-  p.skillId = p.skillChoices[0];
+  p.skillIds = p.skillChoices.slice(0, 4);
+});
+assert.strictEqual(startBattleCountdown(1000), false, '4개를 골라도 확정 전에는 시작할 수 없음');
+Object.values(room.players).forEach((p) => {
+  p.skillSelectionConfirmed = true;
 });
 assert.strictEqual(startBattleCountdown(1000), true, '전원 선택 후 관리자 시작 승인');
 assert.strictEqual(getBattleRoom().status, 'countdown', '관리자 승인 뒤 카운트다운 상태');
 assert.strictEqual(getBattleRoom().countdownEndsAt, 6000, '5초 카운트다운 종료 시각');
-console.log('admin starts the 5-second countdown only after every player picks a skill: OK');
+console.log('admin starts the 5-second countdown only after every player picks 4 skills: OK');
 
 {
   const currentRoom = getBattleRoom();
@@ -144,6 +148,36 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   // 내려주므로(신규 접속 동기화) 목 소켓에도 emit이 있어야 한다.
   const testSocket = { id: 'p1', on: (ev, fn) => { battleHandlers[ev] = fn; }, emit: () => {} };
   registerBattleHandlers(io, testSocket);
+
+  // 서버에서도 9개 후보 밖/최대 4개 조작을 막고, 선택 카드를 다시 누르면 해제한다.
+  const current = getBattleRoom();
+  const savedStatus = current.status;
+  current.status = 'roulette';
+  current.players.p1.skillChoices = ['heal', 'shield', 'dash', 'mine', 'blink', 'poison', 'recall', 'coldplay', 'lucky'];
+  current.players.p1.skillIds = [];
+  current.players.p1.skillSelectionConfirmed = false;
+  for (const id of ['heal', 'shield', 'dash', 'mine', 'blink']) battleHandlers['battle:pickSkill'](id);
+  assert.deepStrictEqual(current.players.p1.skillIds, ['heal', 'shield', 'dash', 'mine'], '선택은 최대 4개');
+  battleHandlers['battle:pickSkill']('not-a-choice');
+  assert.strictEqual(current.players.p1.skillIds.length, 4, '후보 밖 스킬은 무시');
+  battleHandlers['battle:pickSkill']('dash');
+  assert.deepStrictEqual(current.players.p1.skillIds, ['heal', 'shield', 'mine'], '다시 누르면 선택 해제');
+  battleHandlers['battle:pickSkill']('blink');
+  assert.strictEqual(current.players.p1.skillSelectionConfirmed, false, '카드 선택만으로 자동 확정되지 않음');
+  battleHandlers['battle:confirmSkills']();
+  assert.strictEqual(current.players.p1.skillSelectionConfirmed, true, '4개 선택 뒤 별도 확정 이벤트로 준비 완료');
+  current.status = 'active';
+
+  // Z/X/C/V가 보내는 id는 장착한 4개일 때만 발동하고 쿨타임은 스킬별로 독립적이다.
+  current.players.p1.hp = 40;
+  battleHandlers['battle:skill']('heal');
+  assert.strictEqual(current.players.p1.hp, 70, '장착한 힐 발동');
+  assert.ok(current.players.p1.skillReadyAts.heal > Date.now(), '힐 쿨타임 저장');
+  battleHandlers['battle:skill']('dash');
+  assert.strictEqual(current.players.p1.skillReadyAts.dash, undefined, '장착하지 않은 스킬은 발동 불가');
+  battleHandlers['battle:skill']('mine');
+  assert.ok(current.players.p1.skillReadyAts.mine > Date.now(), '다른 스킬은 힐 쿨타임과 무관하게 발동');
+  current.status = savedStatus;
 
   // 빈 payload/undefined/null이 와도 크래시하지 않아야 함
   assert.doesNotThrow(() => battleHandlers['battle:input'](undefined), 'input이 undefined');
@@ -341,7 +375,7 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   ]);
   const room = getBattleRoom();
   assert.strictEqual(room.players.r1.isRanged, true);
-  assert.strictEqual(room.players.r1.rangeDistance, 400);
+  assert.strictEqual(room.players.r1.rangeDistance, 400 * RANGED_COMBAT_RANGE_MULTIPLIER);
   assert.strictEqual(room.players.r1.hpDamage, 5.1, '원거리는 배율 없이 HP 5.1% 그대로');
 
   assert.strictEqual(room.players.m1.isRanged, false);
@@ -361,8 +395,8 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   ]);
   const room2 = getBattleRoom();
   assert.strictEqual(room2.players.x1.isRanged, false, '알 수 없는 attackRange 값은 근접으로 취급');
-  assert.strictEqual(room2.players.x2.rangeDistance, RANGE_DISTANCE_MAX, '범위를 넘는 사거리는 상한으로 clamp');
-  assert.strictEqual(room2.players.x3.rangeDistance, RANGE_DISTANCE_MIN, '숫자가 아닌 사거리는 하한으로 대체');
+  assert.strictEqual(room2.players.x2.rangeDistance, RANGE_DISTANCE_MAX * RANGED_COMBAT_RANGE_MULTIPLIER, '범위를 넘는 사거리는 전투 상한으로 clamp 후 3배 적용');
+  assert.strictEqual(room2.players.x3.rangeDistance, RANGE_DISTANCE_MIN * RANGED_COMBAT_RANGE_MULTIPLIER, '숫자가 아닌 사거리는 전투 하한으로 대체 후 3배 적용');
   console.log('startBattleRoom defends against malformed attackRange/attackRangeDistance: OK');
 }
 

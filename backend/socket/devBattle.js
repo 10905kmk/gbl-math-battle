@@ -98,7 +98,7 @@ function emitState(socket, room) {
 
 function startDevRoom(socket) {
   stopDevRoom(socket.id);
-  const entry = { room: createDevBattleRoom(socket.id), interval: null };
+  const entry = { room: createDevBattleRoom(socket.id), controlledId: socket.id, interval: null };
   entry.interval = setInterval(() => {
     const stepped = stepSimulation(entry.room, Date.now());
     entry.room = stepped.room;
@@ -108,11 +108,22 @@ function startDevRoom(socket) {
     if (stepped.events?.length) socket.emit('devBattle:events', stepped.events);
   }, TICK_MS);
   devRooms.set(socket.id, entry);
+  socket.emit('devBattle:controlled', { playerId: entry.controlledId });
   emitState(socket, entry.room);
 }
 
 export function getDevBattleRoom(socketId) {
   return devRooms.get(socketId)?.room ?? null;
+}
+
+export function getDevControlledPlayerId(socketId) {
+  return devRooms.get(socketId)?.controlledId ?? null;
+}
+
+function controlledPlayer(socketId) {
+  const entry = devRooms.get(socketId);
+  if (!entry) return null;
+  return entry.room.players[entry.controlledId] ?? null;
 }
 
 export function registerDevBattleHandlers(socket) {
@@ -122,7 +133,7 @@ export function registerDevBattleHandlers(socket) {
     if (room) emitState(socket, room);
   });
   socket.on('devBattle:input', (input) => {
-    const player = getDevBattleRoom(socket.id)?.players[socket.id];
+    const player = controlledPlayer(socket.id);
     if (!player) return;
     const src = input ?? {};
     const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
@@ -132,31 +143,43 @@ export function registerDevBattleHandlers(socket) {
     };
   });
   socket.on('devBattle:attack', () => {
-    const player = getDevBattleRoom(socket.id)?.players[socket.id];
+    const player = controlledPlayer(socket.id);
     if (player) player.attackRequested = true;
   });
   socket.on('devBattle:skill', () => {
-    const room = getDevBattleRoom(socket.id);
-    if (room) activateSkill(room, socket.id, Date.now());
+    const entry = devRooms.get(socket.id);
+    if (entry) activateSkill(entry.room, entry.controlledId, Date.now());
+  });
+  socket.on('devBattle:controlPlayer', (playerId) => {
+    const entry = devRooms.get(socket.id);
+    if (!entry || !entry.room.players[playerId]) return;
+    const previous = entry.room.players[entry.controlledId];
+    if (previous) previous.input = { moveX: 0, moveY: 0, aimX: previous.aimX ?? 1, aimY: previous.aimY ?? 0 };
+    entry.controlledId = playerId;
+    socket.emit('devBattle:controlled', { playerId });
+    emitState(socket, entry.room);
   });
   socket.on('devBattle:selectSkill', (skillId) => {
     if (!isValidSkillId(skillId)) return;
-    const room = getDevBattleRoom(socket.id);
-    const player = room?.players[socket.id];
+    const entry = devRooms.get(socket.id);
+    const room = entry?.room;
+    const player = entry ? room.players[entry.controlledId] : null;
     if (!player) return;
-    room.players[socket.id] = { ...player, ...newPlayerSkillState(skillId) };
+    room.players[entry.controlledId] = { ...player, ...newPlayerSkillState(skillId) };
     emitState(socket, room);
   });
   socket.on('devBattle:resetCooldown', () => {
-    const room = getDevBattleRoom(socket.id);
-    const player = room?.players[socket.id];
+    const entry = devRooms.get(socket.id);
+    const room = entry?.room;
+    const player = entry ? room.players[entry.controlledId] : null;
     if (!player) return;
-    room.players[socket.id] = { ...player, ...newPlayerSkillState(player.skillId) };
+    room.players[entry.controlledId] = { ...player, ...newPlayerSkillState(player.skillId) };
     emitState(socket, room);
   });
   socket.on('devBattle:lowHp', () => {
-    const room = getDevBattleRoom(socket.id);
-    const player = room?.players[socket.id];
+    const entry = devRooms.get(socket.id);
+    const room = entry?.room;
+    const player = entry ? room.players[entry.controlledId] : null;
     if (!player) return;
     player.hp = Math.max(1, Math.floor(HP_MAX * 0.15));
     emitState(socket, room);

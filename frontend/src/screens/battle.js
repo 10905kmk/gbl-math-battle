@@ -8,7 +8,8 @@ import { meleeHitboxRect, ATTACK_HITBOX_SIZE, PROJECTILE_RADIUS } from '../../..
 import { VirtualJoystick } from './VirtualJoystick.js';
 import { SkillRoulette } from './battle/SkillRoulette.js';
 import { SkillButton } from './battle/SkillButton.js';
-import { drawSkillEffects } from './battle/skillEffects.js';
+import { clearSkillEffects, drawSkillEffects } from './battle/skillEffects.js';
+import { hasLocalDamage } from './battle/battleFeedback.js';
 
 const html = htm.bind(h);
 
@@ -60,6 +61,8 @@ export function BattleScreen({ socket, state }) {
   const nodesRef = useRef({});
   // 투사체는 플레이어와 달리 계속 생겼다 없어지므로 별도로 관리한다(id별 Konva 노드).
   const projectileNodesRef = useRef({});
+  const hitFlashUntilRef = useRef(0);
+  const hitFlashTimerRef = useRef(null);
   // 내 캐릭터의 공격 미리보기(텔레그래프) 노드 — 무기 종류(근접 Rect/원거리 Line)는 대전
   // 중 안 바뀌므로 한 번만 만들고 이후 위치만 갱신한다.
   const previewNodeRef = useRef(null);
@@ -79,12 +82,16 @@ export function BattleScreen({ socket, state }) {
   const [respawnSec, setRespawnSec] = useState(null);
   // 판이 끝나면 서버가 보내주는 최종 순위표. null이면 대시보드를 안 그린다.
   const [standings, setStandings] = useState(null);
-  // 특수 스킬 — 룰렛 후보 3개, 내가 고른 것, 쿨타임이 풀리는 시각.
+  const [hitFlashPulse, setHitFlashPulse] = useState(0);
+  // 특수 스킬 — 룰렛 후보 9개, 내가 고른 4개, 스킬별 쿨타임.
   const [skillChoices, setSkillChoices] = useState([]);
-  const [mySkillId, setMySkillId] = useState(null);
-  const [skillReadyAt, setSkillReadyAt] = useState(0);
+  const [mySkillIds, setMySkillIds] = useState([]);
+  const [skillsConfirmed, setSkillsConfirmed] = useState(false);
+  const [skillReadyAts, setSkillReadyAts] = useState({});
 
   useEffect(() => {
+    // 이전 게임 화면/개발자 조종 아바타의 Konva 레이어에 속했던 파티클 캐시를 비운다.
+    // 이걸 남겨두면 새 캔버스에서 같은 id의 파티클을 이미 있다고 착각해 그리지 않는다.
     const stage = new Konva.Stage({
       container: containerRef.current,
       width: VIEWPORT_SIZE.width,
@@ -119,6 +126,7 @@ export function BattleScreen({ socket, state }) {
 
     return () => {
       cancelled = true;
+      clearSkillEffects(layer);
       stage.destroy();
     };
   }, []);
@@ -144,8 +152,10 @@ export function BattleScreen({ socket, state }) {
       );
       if (me) {
         setSkillChoices(me.skillChoices ?? []);
-        setMySkillId(me.skillId ?? null);
-        setSkillReadyAt(me.skillReadyAt ?? 0);
+        // 개발자 테스트 방은 한 번에 하나를 바꿔 시험하는 기존 skillId 형식도 계속 받는다.
+        setMySkillIds(me.skillIds ?? (me.skillId ? [me.skillId] : []));
+        setSkillsConfirmed(me.skillSelectionConfirmed === true);
+        setSkillReadyAts(me.skillReadyAts ?? (me.skillId ? { [me.skillId]: me.skillReadyAt ?? 0 } : {}));
       }
       const layer = layerRef.current;
       if (!layer) return;
@@ -261,15 +271,24 @@ export function BattleScreen({ socket, state }) {
         // 명시적으로 false일 때만 흐리게 — p.score ?? 0과 같은 방어 원칙(Opus 리뷰 Minor M2).
         const isConnected = p.connected !== false;
         const isAlive = p.alive !== false;
+        const cloakActive = (p.status?.cloakUntil ?? 0) > Date.now();
+        const hiddenByCloak = cloakActive && p.id !== socket.id;
+        const selfCloakOpacity = cloakActive && p.id === socket.id ? 0.42 : 1;
         // 연결이 끊겼거나(조작 불가) 죽어서 부활 대기 중이면 흐리게 — 둘 다 "지금은 상호작용
         // 대상이 아니다"라는 같은 뜻이라 같은 표현을 쓴다.
-        const opacity = !isConnected ? 0.2 : isAlive ? 1 : 0.28;
+        const opacity = (!isConnected ? 0.2 : isAlive ? 1 : 0.28) * selfCloakOpacity;
 
+        const localHitFlash = p.id === socket.id && hitFlashUntilRef.current > Date.now();
         entry.circle.x(p.x);
         entry.circle.y(p.y);
+        entry.circle.visible(!hiddenByCloak);
+        entry.circle.fill(localHitFlash ? '#ff4d4d' : CHARACTER_COLORS[p.characterId] ?? '#999');
+        entry.circle.shadowColor(localHitFlash ? '#ff1f1f' : 'transparent');
+        entry.circle.shadowBlur(localHitFlash ? 18 : 0);
         entry.circle.opacity(opacity);
         entry.label.x(p.x - CHARACTER_RADIUS);
         entry.label.y(p.y - 7);
+        entry.label.visible(!hiddenByCloak);
         entry.label.opacity(opacity);
 
         // 체력바 — 남은 비율만큼 채우고, 색으로도 위험도를 알린다(초록 → 노랑 → 빨강).
@@ -278,23 +297,24 @@ export function BattleScreen({ socket, state }) {
         const barY = Math.max(0, p.y - CHARACTER_RADIUS - 22);
         entry.hpBarBg.x(barX);
         entry.hpBarBg.y(barY);
-        entry.hpBarBg.visible(isAlive);
+        entry.hpBarBg.visible(isAlive && !hiddenByCloak);
         entry.hpBarFill.x(barX);
         entry.hpBarFill.y(barY);
         entry.hpBarFill.width(HP_BAR_WIDTH * hpRatio);
         entry.hpBarFill.fill(hpRatio > 0.5 ? HP_COLOR_FULL : hpRatio > 0.25 ? HP_COLOR_MID : HP_COLOR_LOW);
-        entry.hpBarFill.visible(isAlive && hpRatio > 0);
+        entry.hpBarFill.visible(isAlive && hpRatio > 0 && !hiddenByCloak);
         entry.hpBarBg.opacity(isConnected ? 1 : 0.2);
         entry.hpBarFill.opacity(isConnected ? 1 : 0.2);
 
         entry.nameLabel.x(p.x - 60);
         entry.nameLabel.y(barY - 15);
         entry.nameLabel.text(p.name ?? `캐릭터 ${(p.characterId ?? '').replace('char', '')}`);
+        entry.nameLabel.visible(!hiddenByCloak);
         entry.nameLabel.opacity(opacity);
 
         // 부활 카운트 — 죽어 있을 때만.
         const showRespawn = !isAlive && Number.isFinite(p.respawnAt);
-        entry.respawnLabel.visible(showRespawn);
+        entry.respawnLabel.visible(showRespawn && !hiddenByCloak);
         if (showRespawn) {
           entry.respawnLabel.x(p.x - 60);
           entry.respawnLabel.y(barY - 2);
@@ -320,10 +340,12 @@ export function BattleScreen({ socket, state }) {
         );
         entry.rightHand.x(handX);
         entry.rightHand.y(handY);
+        entry.rightHand.visible(!hiddenByCloak);
         entry.rightHand.opacity(opacity);
         entry.weaponGroup.x(handX);
         entry.weaponGroup.y(handY);
         entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
+        entry.weaponGroup.visible(!hiddenByCloak);
         entry.weaponGroup.opacity(opacity);
       });
 
@@ -348,13 +370,42 @@ export function BattleScreen({ socket, state }) {
       });
 
       // 특수 스킬 이펙트(지뢰/블랙홀/진주/오라/부채꼴 등) — 서버가 보낸 것을 그대로 그린다.
-      // 지뢰는 설치자 본인에게만 보여야 해서 내 소켓 id를 같이 넘긴다.
-      drawSkillEffects(Konva, layer, { ...room, selfId: socket.id }, Date.now());
+      // 지뢰 본체는 설치자에게만 보이도록 내 소켓 id를 같이 넘긴다.
+      drawSkillEffects(Konva, layer, {
+        ...room,
+        selfId: socket.id,
+        camera: cameraRef.current,
+        viewport: VIEWPORT_SIZE,
+      }, Date.now());
 
       layer.draw();
     }
     socket.on('battle:state', onState);
     return () => socket.off('battle:state', onState);
+  }, [socket]);
+
+  useEffect(() => {
+    function onBattleEvents(events) {
+      if (!hasLocalDamage(events, socket.id)) return;
+      hitFlashUntilRef.current = Date.now() + 280;
+      setHitFlashPulse((pulse) => pulse + 1);
+      clearTimeout(hitFlashTimerRef.current);
+      hitFlashTimerRef.current = setTimeout(() => setHitFlashPulse(0), 280);
+
+      // 다음 20Hz 상태 프레임을 기다리지 않고 피격 즉시 캐릭터를 빨갛게 번쩍인다.
+      const selfNode = nodesRef.current[socket.id]?.circle;
+      if (selfNode) {
+        selfNode.fill('#ff4d4d');
+        selfNode.shadowColor('#ff1f1f');
+        selfNode.shadowBlur(18);
+        layerRef.current?.draw();
+      }
+    }
+    socket.on('battle:events', onBattleEvents);
+    return () => {
+      socket.off('battle:events', onBattleEvents);
+      clearTimeout(hitFlashTimerRef.current);
+    };
   }, [socket]);
 
   useEffect(() => {
@@ -419,10 +470,12 @@ export function BattleScreen({ socket, state }) {
       return null;
     }
     function onKeyDown(e) {
-      // 특수 스킬 — PC는 Z키. 모바일 버튼(SkillButton)과 같은 이벤트를 보낸다.
-      if (e.key === 'z' || e.key === 'Z' || e.key === 'ㅋ') {
+      // 특수 스킬 4칸 — Z/X/C/V가 선택 순서 0/1/2/3에 대응한다.
+      const skillIndex = ['KeyZ', 'KeyX', 'KeyC', 'KeyV'].indexOf(e.code);
+      if (skillIndex >= 0) {
         e.preventDefault();
-        if (!e.repeat) socket.emit('battle:skill');
+        const skillId = mySkillIds[skillIndex];
+        if (!e.repeat && skillId) socket.emit('battle:skill', skillId);
         return;
       }
       const dir = keyToDirection(e.key);
@@ -446,7 +499,7 @@ export function BattleScreen({ socket, state }) {
       window.removeEventListener('keyup', onKeyUp);
     };
     // onKeyDown이 socket.emit('battle:skill')을 쓰므로 socket이 의존성에 들어가야 한다.
-  }, [socket]);
+  }, [socket, mySkillIds]);
 
   // 카메라 — 내 캐릭터(월드 좌표 myX, myY)가 화면 중앙에 오도록 레이어를 이동시키되, 맵
   // 가장자리에서는 그 이상 못 밀리게 clamp한다. cameraRef에 저장해두는 이유는
@@ -528,6 +581,9 @@ export function BattleScreen({ socket, state }) {
     <div class="battle-shell" style=${{ '--arena-width': `${VIEWPORT_SIZE.width}px` }}>
       <div class="battle-viewport">
         <div class="battle-arena" ref=${containerRef}></div>
+        ${hitFlashPulse > 0
+          ? html`<div class="battle-hit-flash" key=${hitFlashPulse} aria-hidden="true"></div>`
+          : null}
         ${roundStatus === 'active' && remainingMs !== null
           ? html`<div class="battle-timer">${formatTimeRemaining(remainingMs)}</div>`
           : null}
@@ -555,11 +611,16 @@ export function BattleScreen({ socket, state }) {
               <div class="battle-phase-overlay battle-phase-overlay--roulette">
                 <${SkillRoulette}
                   choices=${skillChoices}
-                  picked=${mySkillId}
+                  picked=${mySkillIds}
+                  confirmed=${skillsConfirmed}
                   onPick=${(id) => {
-                    setMySkillId(id);
+                    setSkillsConfirmed(false);
+                    setMySkillIds((selected) => selected.includes(id)
+                      ? selected.filter((skillId) => skillId !== id)
+                      : selected.length < 4 ? [...selected, id] : selected);
                     socket.emit('battle:pickSkill', id);
                   }}
+                  onConfirm=${() => socket.emit('battle:confirmSkills')}
                 />
               </div>
             `
@@ -576,11 +637,15 @@ export function BattleScreen({ socket, state }) {
       <div class="battle-controls ${controlsEnabled ? '' : 'is-hidden'}" aria-hidden=${!controlsEnabled}>
         <${VirtualJoystick} onChange=${onMoveStick} />
         <div class="battle-skill-slot">
-          <${SkillButton}
-            skillId=${mySkillId}
-            readyAt=${skillReadyAt}
-            onUse=${() => socket.emit('battle:skill')}
-          />
+          ${mySkillIds.map((skillId, index) => html`
+            <${SkillButton}
+              key=${skillId}
+              skillId=${skillId}
+              keyLabel=${['Z', 'X', 'C', 'V'][index]}
+              readyAt=${skillReadyAts[skillId] ?? 0}
+              onUse=${() => socket.emit('battle:skill', skillId)}
+            />
+          `)}
         </div>
         <${VirtualJoystick} onChange=${onAimStick} onRelease=${onAimRelease} className="aim" />
       </div>

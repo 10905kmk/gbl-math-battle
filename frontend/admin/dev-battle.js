@@ -1,26 +1,27 @@
 import { h, render } from 'preact';
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import htm from 'htm';
 import { io } from 'socket.io-client';
 import { BattleScreen } from '../src/screens/battle.js';
-import { SKILLS } from '../shapes/skills.js';
+import { SKILLS, formatSkillTiming } from '../shapes/skills.js';
 
 const html = htm.bind(h);
 
 // 기존 BattleScreen을 그대로 재사용하되, 이벤트 이름만 개발자 전용 채널로 바꾼다.
 // 일반 battle:* 브로드캐스트와 섞이지 않아 실제 참가자의 라운드에는 영향을 주지 않는다.
-function createDevSocket(realSocket) {
+function createDevSocket(realSocket, controlledIdRef) {
   const eventMap = {
     'battle:state': 'devBattle:state',
     'battle:result': 'devBattle:result',
     'battle:standings': 'devBattle:standings',
+    'battle:events': 'devBattle:events',
     'battle:requestSync': 'devBattle:requestSync',
     'battle:input': 'devBattle:input',
     'battle:attack': 'devBattle:attack',
     'battle:skill': 'devBattle:skill',
   };
   return {
-    get id() { return realSocket.id; },
+    get id() { return controlledIdRef.current ?? realSocket.id; },
     on(event, listener) { realSocket.on(eventMap[event] ?? event, listener); return this; },
     off(event, listener) { realSocket.off(eventMap[event] ?? event, listener); return this; },
     emit(event, payload) { realSocket.emit(eventMap[event] ?? event, payload); return this; },
@@ -29,8 +30,12 @@ function createDevSocket(realSocket) {
 
 function DevBattleApp() {
   const [realSocket] = useState(() => io());
-  const devSocket = useMemo(() => createDevSocket(realSocket), [realSocket]);
+  const controlledIdRef = useRef(null);
+  const devSocket = useMemo(() => createDevSocket(realSocket, controlledIdRef), [realSocket]);
+  const battleState = useMemo(() => ({ battleResult: null }), []);
   const [connected, setConnected] = useState(false);
+  const [controlledId, setControlledId] = useState(null);
+  const [players, setPlayers] = useState([]);
   const [selectedSkill, setSelectedSkill] = useState('heal');
   const [hp, setHp] = useState(null);
   const selected = SKILLS.find((skill) => skill.id === selectedSkill);
@@ -41,14 +46,20 @@ function DevBattleApp() {
       realSocket.emit('devBattle:start');
     }
     function onDisconnect() { setConnected(false); }
+    function onControlled({ playerId }) {
+      controlledIdRef.current = playerId;
+      setControlledId(playerId);
+    }
     function onState(room) {
-      const me = room?.players?.[realSocket.id];
+      setPlayers(Object.values(room?.players ?? {}));
+      const me = room?.players?.[controlledIdRef.current ?? realSocket.id];
       if (!me) return;
       setSelectedSkill(me.skillId ?? 'heal');
       setHp(me.hp);
     }
     realSocket.on('connect', start);
     realSocket.on('disconnect', onDisconnect);
+    realSocket.on('devBattle:controlled', onControlled);
     realSocket.on('devBattle:state', onState);
     if (realSocket.connected) start();
     const stop = () => realSocket.emit('devBattle:stop');
@@ -57,6 +68,7 @@ function DevBattleApp() {
       window.removeEventListener('beforeunload', stop);
       realSocket.off('connect', start);
       realSocket.off('disconnect', onDisconnect);
+      realSocket.off('devBattle:controlled', onControlled);
       realSocket.off('devBattle:state', onState);
       realSocket.emit('devBattle:stop');
       realSocket.disconnect();
@@ -66,6 +78,12 @@ function DevBattleApp() {
   function chooseSkill(skillId) {
     setSelectedSkill(skillId);
     realSocket.emit('devBattle:selectSkill', skillId);
+  }
+
+  function controlPlayer(playerId) {
+    controlledIdRef.current = playerId;
+    setControlledId(playerId);
+    realSocket.emit('devBattle:controlPlayer', playerId);
   }
 
   return html`
@@ -87,7 +105,20 @@ function DevBattleApp() {
             <span><kbd>Z</kbd> 선택한 스킬 사용</span>
             <span>현재 HP <strong>${hp ?? '-'}</strong></span>
           </div>
-          <${BattleScreen} socket=${devSocket} state=${{ battleResult: null }} />
+          <div class="dev-avatar-switcher">
+            <span class="dev-avatar-label">시점·조종 아바타</span>
+            ${players.map((player) => html`
+              <button
+                class="dev-avatar ${controlledId === player.id ? 'is-controlled' : ''}"
+                onClick=${() => controlPlayer(player.id)}
+              >
+                <span>${player.characterId?.replace('char', '캐릭터 ')}</span>
+                <strong>${player.name}</strong>
+                <small>HP ${Math.ceil(player.hp ?? 0)}</small>
+              </button>
+            `)}
+          </div>
+          <${BattleScreen} key=${controlledId ?? 'connecting'} socket=${devSocket} state=${battleState} />
         </div>
 
         <aside class="dev-sidebar">
@@ -120,7 +151,7 @@ function DevBattleApp() {
               >
                 <span>${skill.icon}</span>
                 <strong>${skill.name}</strong>
-                <small>${skill.kind === 'passive' ? '자동 발동' : `${Math.round(skill.cooldownMs / 1000)}초`}</small>
+                <small>${formatSkillTiming(skill)}</small>
               </button>
             `)}
           </div>

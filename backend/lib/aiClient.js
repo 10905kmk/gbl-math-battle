@@ -1,7 +1,8 @@
 // backend/lib/aiClient.js — Gemini 연동: 무기 채팅 해석 + 무기 채점
 import { cacheKey, seededPick, getCached, setCached, seedCache } from './weaponCache.js';
 import { SAMPLES } from './weaponEvaluationSamples.js';
-import { getApiKeys } from './apiKeys.js';
+import { getAllApiCredentials } from './apiKeys.js';
+import { runInAiSlot } from './aiSlotManager.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX, classifyWeaponRangeFallback } from '../../shapes/attackGeometry.js';
 import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
 import { getShapeById, partScale, SCALE_MIN, SCALE_MAX } from '../../shapes/registry.js';
@@ -13,7 +14,19 @@ export const DAMAGE_MAX = 10000;
 // generateContent 엔드포인트/요청 형식을 쓰므로 다른 코드는 안 바뀐다.
 const GEMINI_MODEL = 'gemini-flash-latest';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-export const AI_REQUEST_TIMEOUT_MS = 15_000;
+const OPENAI_COMPATIBLE_PROVIDERS = {
+  github: {
+    endpoint: 'https://models.github.ai/inference/chat/completions',
+    model: process.env.GITHUB_MODELS_MODEL || 'openai/gpt-4.1-mini',
+  },
+  openrouter: {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    model: process.env.OPENROUTER_MODEL || 'openai/gpt-4.1-mini',
+  },
+};
+// 전체 요청 시간은 키 개수에 따라 정한다. 각 키는 아래 시간까지만 기다린 뒤 다음 키로 넘어간다.
+export const AI_REQUEST_TIMEOUT_MS = null;
+export const AI_ATTEMPT_TIMEOUT_MS = 10_000;
 
 seedCache(SAMPLES);
 
@@ -32,23 +45,47 @@ function nextKey(pool) {
 // pool은 기본으로 apiKeys.json의 gemini 키 배열을 쓰지만, 파라미터로 받을 수 있게 해서
 // 테스트가 실제 키 파일 없이도 가짜 키 배열을 주입해 로테이션 로직만 따로 검증할 수 있다
 // (shapes/weaponRenderer.js의 drawWeaponGroup(Konva, ...)와 같은 이유의 의존성 주입).
-export async function callGeminiWithRotation(requestFn, pool = getApiKeys('gemini')) {
+export async function callGeminiWithRotation(
+  requestFn,
+  pool = getAllApiCredentials(),
+  { requestTimeoutMs = AI_REQUEST_TIMEOUT_MS, attemptTimeoutMs = AI_ATTEMPT_TIMEOUT_MS } = {},
+) {
   if (pool.length === 0) {
     throw new Error('gemini API 키가 없습니다 — backend/config/apiKeys.json의 "gemini" 배열을 채워주세요');
   }
-  // 키를 바꿔 재시도하더라도 참가자가 기다리는 전체 시간은 하나의 제한시간 안에 둔다.
-  // 각 키마다 새 타이머를 만들면 키가 3개일 때 대기시간도 세 배가 되기 때문이다.
-  const signal = AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS);
+  // 한 키가 응답하지 않는 경우에도 다음 키를 실제로 시도하되, 전체 대기시간은 제한한다.
+  // 키 개수만큼 10초가 계속 늘어나지 않도록 deadline을 공유한다.
+  // requestTimeoutMs를 명시한 테스트/호출만 전체 제한을 둔다. 기본 동작은 등록된 키를
+  // 하나도 건너뛰지 않고 각 키를 최대 attemptTimeoutMs 동안 순서대로 시도한다.
+  const deadline = Number.isFinite(requestTimeoutMs) ? Date.now() + requestTimeoutMs : Infinity;
   let lastError;
+  let attempted = 0;
   for (let attempt = 0; attempt < pool.length; attempt += 1) {
-    const key = nextKey(pool);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    const rawCredential = nextKey(pool);
+    const credential = typeof rawCredential === 'string'
+      ? { provider: 'gemini', apiKey: rawCredential }
+      : rawCredential;
+    attempted += 1;
     try {
-      return await requestFn(key, signal);
+      return await runInAiSlot(credential, () => {
+        const executionRemainingMs = deadline - Date.now();
+        if (executionRemainingMs <= 0) {
+          const timeoutError = new Error('AI request deadline exceeded while queued');
+          timeoutError.name = 'TimeoutError';
+          throw timeoutError;
+        }
+        const signal = AbortSignal.timeout(Math.max(1, Math.min(attemptTimeoutMs, executionRemainingMs)));
+        return requestFn(credential.apiKey, signal, credential.provider);
+      });
     } catch (err) {
       lastError = err;
-      if (err.status !== 429 && err.status !== 503) throw err;
+      // HTTP 상태(400/401/403/429/5xx), 시간 초과, 네트워크 오류, JSON/응답 형식 오류를
+      // 구분하지 않고 다음 키로 넘긴다. 참가자 화면에는 모든 키가 실패한 뒤에만 오류가 간다.
     }
   }
+  if (lastError && typeof lastError === 'object') lastError.attemptedApiKeys = attempted;
   throw lastError;
 }
 
@@ -130,6 +167,68 @@ export async function requestWeaponEvaluation(apiKey, weaponState, signal) {
   return { min: parsed.min, max: parsed.max, attackRange, attackRangeDistance };
 }
 
+function stripJsonFence(text) {
+  return String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+}
+
+function compatibleHeaders(provider, apiKey) {
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  };
+  if (provider === 'github') {
+    headers.Accept = 'application/vnd.github+json';
+    headers['X-GitHub-Api-Version'] = '2022-11-28';
+  }
+  return headers;
+}
+
+async function callOpenAiCompatible(provider, apiKey, body, signal) {
+  const config = OPENAI_COMPATIBLE_PROVIDERS[provider];
+  if (!config) throw new Error(`unsupported AI provider: ${provider}`);
+  const res = await fetch(config.endpoint, {
+    method: 'POST',
+    signal,
+    headers: compatibleHeaders(provider, apiKey),
+    body: JSON.stringify({ model: config.model, ...body }),
+  });
+  if (!res.ok) {
+    const err = new Error(`${provider} AI request failed with ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
+export async function requestCompatibleWeaponEvaluation(provider, apiKey, weaponState, signal) {
+  const data = await callOpenAiCompatible(provider, apiKey, {
+    messages: [
+      { role: 'system', content: 'Return only one valid JSON object. Do not use markdown.' },
+      { role: 'user', content: `${buildEvaluationPrompt(weaponState)}\n\nJSON keys: min, max, attackRange, attackRangeDistance` },
+    ],
+    temperature: 0.2,
+    max_tokens: 256,
+  }, signal);
+  const parsed = JSON.parse(stripJsonFence(data.choices?.[0]?.message?.content));
+  if (!Number.isFinite(parsed.min) || !Number.isFinite(parsed.max)) {
+    throw new Error(`${provider} weapon evaluation response missing numeric min/max`);
+  }
+  return {
+    min: parsed.min,
+    max: parsed.max,
+    attackRange: parsed.attackRange === 'ranged' ? 'ranged' : 'melee',
+    attackRangeDistance: Number.isFinite(parsed.attackRangeDistance)
+      ? parsed.attackRangeDistance
+      : RANGE_DISTANCE_MIN,
+  };
+}
+
+function requestWeaponEvaluationForProvider(provider, apiKey, weaponState, signal) {
+  return provider === 'gemini'
+    ? requestWeaponEvaluation(apiKey, weaponState, signal)
+    : requestCompatibleWeaponEvaluation(provider, apiKey, weaponState, signal);
+}
+
 // 완성된 무기를 AI에게 채점받는다. 같은(또는 거의 같은) 무기는 항상 같은 damage/attackRange를 반환한다.
 export async function evaluateWeapon(weaponState) {
   const key = cacheKey(weaponState);
@@ -147,8 +246,8 @@ export async function evaluateWeapon(weaponState) {
     return { ...result, cached: false };
   }
 
-  const { min, max, attackRange, attackRangeDistance } = await callGeminiWithRotation((apiKey, signal) =>
-    requestWeaponEvaluation(apiKey, weaponState, signal),
+  const { min, max, attackRange, attackRangeDistance } = await callGeminiWithRotation((apiKey, signal, provider) =>
+    requestWeaponEvaluationForProvider(provider, apiKey, weaponState, signal),
   );
   const damage = seededPick(key, Math.max(DAMAGE_MIN, min), Math.min(DAMAGE_MAX, max));
   const result = { damage, attackRange, attackRangeDistance };
@@ -313,6 +412,56 @@ export async function requestToolCalls(apiKey, weaponState, message, availableSh
   return { toolCalls, reply: text || describeToolCalls(toolCalls) || '(응답 텍스트가 없어요)' };
 }
 
+function normalizeJsonSchema(value) {
+  if (Array.isArray(value)) return value.map(normalizeJsonSchema);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+    key,
+    key === 'type' && typeof item === 'string' ? item.toLowerCase() : normalizeJsonSchema(item),
+  ]));
+}
+
+export async function requestCompatibleToolCalls(provider, apiKey, weaponState, message, availableShapeIds, canvasSize, signal) {
+  const tools = TOOL_DECLARATIONS.map((declaration) => ({
+    type: 'function',
+    function: {
+      name: declaration.name,
+      description: declaration.description,
+      parameters: normalizeJsonSchema(declaration.parameters),
+    },
+  }));
+  const data = await callOpenAiCompatible(provider, apiKey, {
+    messages: [
+      { role: 'system', content: buildChatSystemInstruction(weaponState, availableShapeIds, canvasSize) },
+      { role: 'user', content: message },
+    ],
+    tools,
+    tool_choice: 'auto',
+    temperature: 0.2,
+    max_tokens: 2048,
+  }, signal);
+  const response = data.choices?.[0]?.message ?? {};
+  const toolCalls = (response.tool_calls ?? []).map((call) => {
+    let args = {};
+    try {
+      args = JSON.parse(call.function?.arguments || '{}');
+    } catch {
+      throw new Error(`${provider} returned invalid function arguments`);
+    }
+    return { op: call.function?.name, ...args };
+  });
+  return {
+    toolCalls,
+    reply: response.content || describeToolCalls(toolCalls) || '(응답 텍스트가 없어요)',
+  };
+}
+
+function requestToolCallsForProvider(provider, apiKey, weaponState, message, availableShapeIds, canvasSize, signal) {
+  return provider === 'gemini'
+    ? requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize, signal)
+    : requestCompatibleToolCalls(provider, apiKey, weaponState, message, availableShapeIds, canvasSize, signal);
+}
+
 function mockInterpretCommand(message) {
   return {
     toolCalls: [{ op: 'addPart', shapeId: 'triangle', x: 100, y: 100, rotation: 0, scaleX: 1, scaleY: 1 }],
@@ -324,7 +473,7 @@ export async function interpretCommand({ weaponState, message, availableShapeIds
   if (process.env.MOCK_AI === 'true') {
     return mockInterpretCommand(message);
   }
-  return callGeminiWithRotation((apiKey, signal) =>
-    requestToolCalls(apiKey, weaponState, message, availableShapeIds, canvasSize, signal),
+  return callGeminiWithRotation((apiKey, signal, provider) =>
+    requestToolCallsForProvider(provider, apiKey, weaponState, message, availableShapeIds, canvasSize, signal),
   );
 }

@@ -54,6 +54,22 @@
   pointer-events: none;
 }
 
+/* 내 캐릭터가 피해를 받았을 때 짧게 번지는 빨간 피격 비네트. */
+.battle-hit-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  background: rgba(255, 38, 38, 0.13);
+  box-shadow: inset 0 0 5rem 1.2rem rgba(255, 24, 24, 0.72);
+  animation: battle-hit-flash 280ms ease-out both;
+}
+
+@keyframes battle-hit-flash {
+  0% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
 .battle-controls {
   display: flex;
   align-items: center;
@@ -186,10 +202,19 @@
   background: rgba(6, 10, 21, 0.94);
 }
 
+/* 룰렛 내용이 뷰포트보다 높을 때 가운데 정렬을 유지하면 카드 위쪽이 화면 밖으로 잘릴 수
+   있다. 남는 공간이 있을 때만 auto margin으로 가운데 두고, 넘치면 위에서부터 자연스럽게
+   오버레이 전체가 스크롤되게 한다. */
+.battle-phase-overlay--roulette {
+  align-items: flex-start;
+}
+
 /* ── 특수 스킬 룰렛 ─────────────────────────────────────────────────── */
 .roulette-card {
-  width: min(46rem, 100%);
-  max-height: 100%;
+  width: min(50rem, 100%);
+  max-height: none;
+  flex: 0 0 auto;
+  margin-block: auto;
   text-align: center;
 }
 
@@ -201,8 +226,8 @@
 .skill-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
-  margin-top: 1.4rem;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
 }
 
 .skill-card {
@@ -210,8 +235,8 @@
   flex-direction: column;
   align-items: center;
   gap: 0.35rem;
-  min-height: 11rem;
-  padding: 1rem 0.7rem;
+  min-height: 7.4rem;
+  padding: 0.55rem;
   border-radius: var(--radius);
   border: 2px solid var(--border);
   background: #0b1728;
@@ -245,19 +270,19 @@
 }
 
 .skill-icon {
-  font-size: 2rem;
+  font-size: 1.55rem;
   line-height: 1;
 }
 
 .skill-name {
-  font-size: 1.02rem;
+  font-size: 0.9rem;
   font-weight: 800;
   color: var(--skill-color, var(--text));
 }
 
 .skill-desc {
-  font-size: 0.76rem;
-  line-height: 1.5;
+  font-size: 0.68rem;
+  line-height: 1.3;
   color: var(--text-dim);
   word-break: keep-all;
 }
@@ -269,8 +294,36 @@
   color: var(--text-faint);
 }
 
+.roulette-confirm {
+  display: block;
+  width: min(24rem, 100%);
+  margin: 1rem auto 0;
+  padding: 0.8rem 1.2rem;
+  border: 2px solid #55d6be;
+  border-radius: 10px;
+  background: #55d6be;
+  color: #07131f;
+  font: 800 1rem/1.2 inherit;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 #050b14;
+}
+
+.roulette-confirm:disabled {
+  cursor: not-allowed;
+  border-color: #3c526d;
+  background: #1a2a3e;
+  color: #8193a9;
+  box-shadow: none;
+}
+
+.roulette-confirm.is-confirmed {
+  border-color: #55d6be;
+  background: #18383d;
+  color: #7ff0da;
+}
+
 .roulette-hint {
-  margin: 1.2rem 0 0;
+  margin: 0.7rem 0 0;
   font-size: 0.78rem;
   color: var(--text-faint);
 }
@@ -294,21 +347,12 @@
   }
 
   .skill-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-top: 0.75rem;
   }
   .skill-card {
     min-height: 0;
-    flex-direction: row;
-    flex-wrap: wrap;
-    text-align: left;
-    align-items: center;
-    gap: 0.15rem 0.6rem;
-  }
-  .skill-desc,
-  .skill-cool {
-    flex-basis: 100%;
-    margin-top: 0;
+    padding: 0.45rem;
   }
 
   .roulette-hint {
@@ -321,12 +365,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.35rem;
 }
 
 .skill-btn {
   position: relative;
-  width: 4.6rem;
-  height: 4.6rem;
+  width: 3.8rem;
+  height: 3.8rem;
   border-radius: 50%;
   border: 2px solid var(--skill-color, var(--accent));
   background: rgba(6, 10, 21, 0.75);

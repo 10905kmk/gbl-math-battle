@@ -1,7 +1,13 @@
 import assert from 'node:assert';
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { loadApiKeysFromFile, filterValidKeys } from './apiKeys.js';
+import {
+  addApiKeyToFile,
+  detectApiKeyProvider,
+  loadApiKeysFromFile,
+  filterValidKeys,
+  maskApiKey,
+} from './apiKeys.js';
 
 // 실제 backend/config/apiKeys.json(사용자의 진짜 키가 들어갈 수 있는 gitignore 대상 파일)은
 // 절대 건드리지 않는다 — 테스트 전용 임시 파일만 사용한다.
@@ -39,6 +45,31 @@ console.log('loadApiKeysFromFile tolerates malformed JSON: OK');
   assert.deepStrictEqual(filterValidKeys('not-an-array'), []);
 }
 console.log('filterValidKeys drops empty/non-string entries: OK');
+
+assert.deepStrictEqual(filterValidKeys([' key-a ', 'key-a', 'key-b']), ['key-a', 'key-b']);
+console.log('filterValidKeys trims and removes duplicate keys: OK');
+
+assert.strictEqual(detectApiKeyProvider('ghp_123456789012345678901234567890123456'), 'github');
+assert.strictEqual(detectApiKeyProvider('sk-or-v1-123456789012345678901234567890'), 'openrouter');
+assert.strictEqual(detectApiKeyProvider('AIza123456789012345678901234567890'), 'gemini');
+assert.strictEqual(detectApiKeyProvider('unknown-key'), null);
+console.log('detectApiKeyProvider identifies supported provider key formats: OK');
+
+// 관리자 긴급 키 추가 — 기존 provider를 보존하고 중복은 추가하지 않으며 원문을 상태에 노출하지 않는다.
+{
+  const p = path.join(SCRATCH_DIR, 'apiKeys.add.json');
+  writeFileSync(p, JSON.stringify({ gemini: ['existing-key-1234567890'], openai: ['keep-me'] }));
+  const added = addApiKeyToFile(p, 'gemini', 'new-gemini-key-1234567890');
+  assert.strictEqual(added.added, true);
+  assert.deepStrictEqual(loadApiKeysFromFile(p), {
+    gemini: ['existing-key-1234567890', 'new-gemini-key-1234567890'],
+    openai: ['keep-me'],
+  });
+  const duplicate = addApiKeyToFile(p, 'gemini', 'new-gemini-key-1234567890');
+  assert.strictEqual(duplicate.added, false);
+  assert.strictEqual(maskApiKey('new-gemini-key-1234567890'), '****7890');
+}
+console.log('admin API key addition preserves config, rejects duplicates, and masks secrets: OK');
 
 rmSync(SCRATCH_DIR, { recursive: true, force: true });
 console.log('apiKeys.test.mjs: OK');

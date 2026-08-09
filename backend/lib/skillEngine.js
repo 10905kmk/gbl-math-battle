@@ -39,6 +39,23 @@ function pushEffect(room, effect) {
   room.effects.push({ id: `fx${room.effectSeq++}`, ...effect });
 }
 
+function hasSkill(player, skillId) {
+  return player.skillId === skillId || player.skillIds?.includes(skillId);
+}
+
+function skillReadyAt(player, skillId) {
+  if (Array.isArray(player.skillIds)) return player.skillReadyAts?.[skillId] ?? 0;
+  return player.skillReadyAt ?? 0;
+}
+
+function setSkillReadyAt(player, skillId, readyAt) {
+  if (Array.isArray(player.skillIds)) {
+    player.skillReadyAts = { ...(player.skillReadyAts ?? {}), [skillId]: readyAt };
+  } else {
+    player.skillReadyAt = readyAt;
+  }
+}
+
 export function newPlayerSkillState(skillId) {
   return {
     skillId: skillId ?? null,
@@ -51,12 +68,12 @@ export function newPlayerSkillState(skillId) {
       invulnUntil: 0,
       cloakUntil: 0,
       reflectUntil: 0,
-      berserkUntil: 0,
       poisonArmedUntil: 0,
       poisonedUntil: 0, poisonedBy: null, poisonNextTickAt: 0,
       markedBy: null, markedUntil: 0,
       savedX: null, savedY: null, savedUntil: 0,
-      lastStandUntil: 0, lastStandReadyAt: 0,
+      lastStandUntil: 0,
+      luckyUntil: 0, luckyReadyAt: 0,
     },
   };
 }
@@ -65,7 +82,12 @@ export function newPlayerSkillState(skillId) {
 export function resetSkillsOnRespawn(player) {
   const fresh = newPlayerSkillState(player.skillId);
   // 최후의 발악은 "죽고 부활하면 바로 발동 가능"이라 재사용 대기도 같이 지운다.
-  return { ...player, skillReadyAt: 0, status: fresh.status };
+  return {
+    ...player,
+    skillReadyAt: 0,
+    skillReadyAts: Array.isArray(player.skillIds) ? {} : player.skillReadyAts,
+    status: fresh.status,
+  };
 }
 
 export function isFrozen(player, now) {
@@ -93,30 +115,35 @@ export function speedMultiplier(player, now) {
   return mul;
 }
 
-// 공격자가 주는 피해 배율 — 광전사/최후의 발악/사형선고 표식/운빨을 전부 여기서 합친다.
+// 공격자가 주는 피해 배율 — 최후의 발악/사형선고 표식/운빨을 전부 여기서 합친다.
 export function outgoingDamageMultiplier(attacker, target, now, random = Math.random) {
   const s = attacker.status ?? {};
   let mul = 1;
-  if ((s.berserkUntil ?? 0) > now) mul *= getSkill('berserk').damageOut;
   if ((s.lastStandUntil ?? 0) > now) mul *= getSkill('lastStand').damageOut;
   // 사형선고: 표식을 남긴 "그 사람"이 때릴 때만 증폭된다.
   if (target.status?.markedBy === attacker.id && (target.status?.markedUntil ?? 0) > now) {
     mul *= getSkill('deathMark').damageBonus;
   }
   let lucky = false;
-  if (attacker.skillId === 'lucky') {
+  if (hasSkill(attacker, 'lucky')) {
     const skill = getSkill('lucky');
-    if (random() < skill.chance) {
+    if ((s.luckyUntil ?? 0) > now) {
       mul *= skill.multiplier;
       lucky = true;
+    } else if (now >= (s.luckyReadyAt ?? 0)) {
+      s.luckyReadyAt = now + skill.cooldownMs;
+      if (random() < skill.chance) {
+        s.luckyUntil = now + skill.activationDurationMs;
+        mul *= skill.multiplier;
+        lucky = true;
+      }
     }
   }
   return { multiplier: mul, lucky };
 }
 
 export function incomingDamageMultiplier(target, now) {
-  const s = target.status ?? {};
-  return (s.berserkUntil ?? 0) > now ? getSkill('berserk').damageIn : 1;
+  return 1;
 }
 
 // 원 안의 살아 있는 다른 플레이어들.
@@ -126,11 +153,12 @@ function enemiesInRadius(players, self, cx, cy, radius, now) {
   );
 }
 
-// 앞쪽 부채꼴에서 가장 가까운 적 하나.
-function pickConeTarget(players, self, range, halfAngle, now) {
+// 앞쪽 부채꼴 안의 모든 적. 콜드플레이는 전원, 연행영장/사형선고는
+// 이 목록에서 가장 가까운 한 명만 사용한다.
+function coneTargets(players, self, range, halfAngle, now) {
   const ax = self.aimX ?? 0;
   const ay = self.aimY ?? 1;
-  const candidates = Object.values(players).filter((p) => {
+  return Object.values(players).filter((p) => {
     if (p.id === self.id || !p.alive || !p.connected || isCloaked(p, now)) return false;
     const dx = p.x - self.x;
     const dy = p.y - self.y;
@@ -140,6 +168,10 @@ function pickConeTarget(players, self, range, halfAngle, now) {
     const cos = (dx * ax + dy * ay) / d;
     return cos >= Math.cos(halfAngle);
   });
+}
+
+function pickConeTarget(players, self, range, halfAngle, now) {
+  const candidates = coneTargets(players, self, range, halfAngle, now);
   if (candidates.length === 0) return null;
   return candidates.reduce((best, p) =>
     dist(p.x, p.y, self.x, self.y) < dist(best.x, best.y, self.x, self.y) ? p : best,
@@ -203,15 +235,17 @@ function killPlayer(room, attackerId, target, now, events) {
 }
 
 // ── 스킬 발동 ────────────────────────────────────────────────────────────
-export function activateSkill(room, playerId, now, random = Math.random) {
+export function activateSkill(room, playerId, now, random = Math.random, requestedSkillId = null) {
   const player = room.players[playerId];
   if (!player || !player.alive || !player.connected) return false;
   if (isFrozen(player, now)) return false;
-  const skill = getSkill(player.skillId);
+  const selectedSkillId = requestedSkillId ?? player.skillId;
+  if (requestedSkillId && Array.isArray(player.skillIds) && !player.skillIds.includes(requestedSkillId)) return false;
+  const skill = getSkill(selectedSkillId);
   if (!skill || skill.kind === 'passive') return false;
   // 텔레포트 백은 "저장 대기 중"일 때 쿨타임을 무시하고 두 번째 입력을 받아야 한다.
   const recallPending = skill.id === 'recall' && (player.status.savedUntil ?? 0) > now;
-  if (!recallPending && now < player.skillReadyAt) return false;
+  if (!recallPending && now < skillReadyAt(player, skill.id)) return false;
 
   const events = [];
   const s = player.status;
@@ -219,36 +253,36 @@ export function activateSkill(room, playerId, now, random = Math.random) {
   switch (skill.id) {
     case 'heal': {
       player.hp = round1(Math.min(MAX_HP, player.hp + skill.healPercent));
-      pushEffect(room, { type: 'heal', playerId, endsAt: now + 900, color: skill.color });
+      pushEffect(room, { type: 'heal', playerId, endsAt: now + skill.activationDurationMs, color: skill.color });
       break;
     }
     case 'shield': {
-      s.invulnUntil = now + skill.durationMs;
+      s.invulnUntil = now + skill.activationDurationMs;
       pushEffect(room, { type: 'shield', playerId, endsAt: s.invulnUntil, color: skill.color });
       break;
     }
     case 'reflect': {
-      s.reflectUntil = now + skill.durationMs;
+      s.reflectUntil = now + skill.activationDurationMs;
       pushEffect(room, { type: 'reflectAura', playerId, endsAt: s.reflectUntil, color: skill.color });
       break;
     }
     case 'speedUp': {
-      s.speedUntil = now + skill.durationMs;
+      s.speedUntil = now + skill.activationDurationMs;
       s.speedMul = skill.speedMultiplier;
       pushEffect(room, { type: 'speedUp', playerId, endsAt: s.speedUntil, color: skill.color });
       break;
     }
-    case 'berserk': {
-      s.berserkUntil = now + skill.durationMs;
-      pushEffect(room, { type: 'berserk', playerId, endsAt: s.berserkUntil, color: skill.color });
+    case 'cloak': {
+      s.cloakUntil = now + skill.activationDurationMs;
+      // 상대에게는 은신 위치를 노출하지 않고, 사용자 본인에게만 발동 상태를 알린다.
+      pushEffect(room, {
+        type: 'cloakSelf', playerId, ownerId: playerId, ownerOnly: true,
+        endsAt: s.cloakUntil, color: skill.color,
+      });
       break;
     }
-    case 'cloak': {
-      s.cloakUntil = now + skill.durationMs;
-      break; // 파티클 없음(요구사항)
-    }
     case 'poison': {
-      s.poisonArmedUntil = now + skill.armWindowMs;
+      s.poisonArmedUntil = now + skill.activationDurationMs;
       pushEffect(room, { type: 'poisonArm', playerId, endsAt: s.poisonArmedUntil, color: skill.color });
       break;
     }
@@ -262,8 +296,8 @@ export function activateSkill(room, playerId, now, random = Math.random) {
       );
       player.x = to.x;
       player.y = to.y;
-      s.invulnUntil = Math.max(s.invulnUntil, now + skill.invulnMs);
-      pushEffect(room, { type: 'dash', fromX: from.x, fromY: from.y, x: to.x, y: to.y, endsAt: now + 500, color: skill.color });
+      s.invulnUntil = Math.max(s.invulnUntil, now + skill.activationDurationMs);
+      pushEffect(room, { type: 'dash', fromX: from.x, fromY: from.y, x: to.x, y: to.y, endsAt: now + skill.activationDurationMs, color: skill.color });
       break;
     }
     case 'recall': {
@@ -274,15 +308,15 @@ export function activateSkill(room, playerId, now, random = Math.random) {
         s.savedUntil = 0;
         s.savedX = null;
         s.savedY = null;
-        player.skillReadyAt = now + skill.cooldownMs;
+        setSkillReadyAt(player, skill.id, now + skill.cooldownMs);
         room.events = events;
         return true;
       }
       s.savedX = player.x;
       s.savedY = player.y;
-      s.savedUntil = now + skill.windowMs;
+      s.savedUntil = now + skill.activationDurationMs;
       pushEffect(room, { type: 'recallMark', x: player.x, y: player.y, endsAt: s.savedUntil, color: skill.color });
-      // 저장 단계에서는 쿨타임을 걸지 않는다 — 복귀(두 번째 입력) 때 건다.
+      // 첫 입력은 위치만 저장한다. 재사용 대기 40초는 실제로 복귀한 순간에만 시작한다.
       return true;
     }
     case 'blink': {
@@ -294,13 +328,17 @@ export function activateSkill(room, playerId, now, random = Math.random) {
         traveled: 0,
         speed: skill.projectileSpeed,
         maxRange: skill.maxRange,
+        endsAt: now + skill.activationDurationMs,
       });
       break;
     }
     case 'mine': {
       // 최대 1개 — 새로 놓으면 이전 것은 사라진다.
       room.mines = room.mines.filter((m) => m.ownerId !== playerId);
-      room.mines.push({ id: `mine${room.effectSeq++}`, ownerId: playerId, x: player.x, y: player.y });
+      room.mines.push({
+        id: `mine${room.effectSeq++}`, ownerId: playerId, x: player.x, y: player.y,
+        endsAt: now + skill.activationDurationMs,
+      });
       break;
     }
     case 'blackhole': {
@@ -312,7 +350,7 @@ export function activateSkill(room, playerId, now, random = Math.random) {
         x: clamp(cx, 0, room.arenaSize.width),
         y: clamp(cy, 0, room.arenaSize.height),
         radius: skill.radius,
-        endsAt: now + skill.durationMs,
+        endsAt: now + skill.activationDurationMs,
       });
       break;
     }
@@ -322,10 +360,10 @@ export function activateSkill(room, playerId, now, random = Math.random) {
       const targets = enemiesInRadius(room.players, player, player.x, player.y, skill.radius, now);
       for (const t of targets) {
         if (skill.id === 'slowHell') {
-          t.status.slowUntil = now + skill.durationMs;
+          t.status.slowUntil = now + skill.activationDurationMs;
           t.status.slowMul = skill.slowFactor;
         } else if (skill.id === 'timeStop') {
-          if (!isInvulnerable(t, now)) t.status.frozenUntil = now + skill.durationMs;
+          if (!isInvulnerable(t, now)) t.status.frozenUntil = now + skill.activationDurationMs;
         } else {
           // 충격파 — 밀어낸 뒤 피해. 순서를 반대로 하면 죽은 대상을 밀어내게 된다.
           const dx = t.x - player.x;
@@ -339,7 +377,7 @@ export function activateSkill(room, playerId, now, random = Math.random) {
       }
       pushEffect(room, {
         type: skill.id, playerId, x: player.x, y: player.y,
-        radius: skill.radius, endsAt: now + (skill.id === 'shockwave' ? 600 : skill.durationMs),
+        radius: skill.radius, endsAt: now + skill.activationDurationMs,
         color: skill.color,
       });
       break;
@@ -347,11 +385,13 @@ export function activateSkill(room, playerId, now, random = Math.random) {
     case 'warrant':
     case 'coldplay':
     case 'deathMark': {
+      const targets = coneTargets(room.players, player, skill.range, skill.halfAngle, now);
       const target = pickConeTarget(room.players, player, skill.range, skill.halfAngle, now);
       pushEffect(room, {
         type: 'cone', skillId: skill.id, playerId,
         x: player.x, y: player.y, aimX: player.aimX ?? 0, aimY: player.aimY ?? 1,
-        range: skill.range, halfAngle: skill.halfAngle, endsAt: now + 500, color: skill.color,
+        range: skill.range, halfAngle: skill.halfAngle,
+        endsAt: now + (skill.id === 'coldplay' ? 500 : skill.activationDurationMs), color: skill.color,
       });
       if (target) {
         if (skill.id === 'warrant') {
@@ -362,11 +402,18 @@ export function activateSkill(room, playerId, now, random = Math.random) {
           target.x = to.x;
           target.y = to.y;
         } else if (skill.id === 'coldplay') {
-          if (!isInvulnerable(target, now)) target.status.frozenUntil = now + skill.freezeMs;
-          applySkillDamage(room, playerId, target, skill.damagePercent, now, events);
+          for (const frozenTarget of targets) {
+            if (isInvulnerable(frozenTarget, now)) continue;
+            frozenTarget.status.frozenUntil = now + skill.activationDurationMs;
+            pushEffect(room, {
+              type: 'frozenIce', playerId: frozenTarget.id,
+              endsAt: frozenTarget.status.frozenUntil, color: skill.color,
+            });
+            applySkillDamage(room, playerId, frozenTarget, skill.damagePercent, now, events);
+          }
         } else {
           target.status.markedBy = playerId;
-          target.status.markedUntil = now + skill.durationMs;
+          target.status.markedUntil = now + skill.activationDurationMs;
           pushEffect(room, { type: 'mark', playerId: target.id, endsAt: target.status.markedUntil, color: skill.color });
         }
       }
@@ -376,7 +423,7 @@ export function activateSkill(room, playerId, now, random = Math.random) {
       return false;
   }
 
-  player.skillReadyAt = now + skill.cooldownMs;
+  setSkillReadyAt(player, skill.id, now + skill.cooldownMs);
   room.events = events;
   return true;
 }
@@ -403,7 +450,7 @@ export function tickSkillWorld(room, now, events) {
       nx <= CHARACTER_RADIUS || ny <= CHARACTER_RADIUS ||
       nx >= room.arenaSize.width - CHARACTER_RADIUS || ny >= room.arenaSize.height - CHARACTER_RADIUS;
 
-    if (hitWall || traveled >= pearl.maxRange) {
+    if (hitWall || traveled >= pearl.maxRange || now >= pearl.endsAt) {
       if (owner && owner.alive) {
         const to = moveToward(owner, pearl.x, pearl.y, room);
         pushEffect(room, { type: 'blinkJump', fromX: owner.x, fromY: owner.y, x: to.x, y: to.y, endsAt: now + 500, color: '#ffffff' });
@@ -434,6 +481,7 @@ export function tickSkillWorld(room, now, events) {
   const mineSkill = getSkill('mine');
   const remainingMines = [];
   for (const mine of room.mines) {
+    if (now >= mine.endsAt) continue;
     const victim = Object.values(room.players).find(
       (p) => p.id !== mine.ownerId && p.alive && p.connected && dist(p.x, p.y, mine.x, mine.y) <= mineSkill.triggerRadius,
     );
@@ -462,13 +510,17 @@ export function tickSkillWorld(room, now, events) {
       applySkillDamage(room, s.poisonedBy ?? p.id, p, poisonSkill.dotPercentPerSec, now, events);
     }
 
-    // 최후의 발악 — HP가 문턱 아래로 떨어지는 순간 자동 발동.
-    if (p.skillId === 'lastStand') {
+    // 최후의 발악 — HP가 20 이하인 동안 무제한 유지. 쿨타임은 없고
+    // 회복/사망/부활로 HP 조건을 벗어나면 즉시 상태와 파티클을 제거한다.
+    if (hasSkill(p, 'lastStand')) {
       const skill = getSkill('lastStand');
-      if (p.hp > 0 && p.hp <= MAX_HP * skill.threshold && now >= (s.lastStandReadyAt ?? 0) && (s.lastStandUntil ?? 0) <= now) {
-        s.lastStandUntil = now + skill.durationMs;
-        s.lastStandReadyAt = now + skill.cooldownMs;
+      const active = p.alive && p.hp > 0 && p.hp <= skill.thresholdHp;
+      if (active && (s.lastStandUntil ?? 0) <= now) {
+        s.lastStandUntil = Number.MAX_SAFE_INTEGER;
         pushEffect(room, { type: 'lastStand', playerId: p.id, endsAt: s.lastStandUntil, color: skill.color });
+      } else if (!active) {
+        s.lastStandUntil = 0;
+        room.effects = room.effects.filter((fx) => !(fx.type === 'lastStand' && fx.playerId === p.id));
       }
     }
   }
@@ -477,7 +529,7 @@ export function tickSkillWorld(room, now, events) {
 // 무기 공격이 명중했을 때 "독" 부착을 처리한다 — battleSimulation의 applyHit이 호출한다.
 export function onWeaponHit(room, attacker, target, now) {
   const s = attacker.status;
-  if (!s || attacker.skillId !== 'poison') return;
+  if (!s || !hasSkill(attacker, 'poison')) return;
   if ((s.poisonArmedUntil ?? 0) <= now) return;
   const skill = getSkill('poison');
   s.poisonArmedUntil = 0;

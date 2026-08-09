@@ -577,6 +577,170 @@ button.rescue:hover {
   word-break: break-all;
 }
 
+/* ── 긴급 Gemini API 키 관리 ─────────────────────────────────────── */
+.api-key-panel {
+  border-left: 4px solid #d18b18;
+}
+
+.api-key-panel .panel-head > div:first-child {
+  min-width: 12rem;
+}
+
+.api-key-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.api-key-badges code {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #f5f7fa;
+  color: #4b5563;
+  font-size: 0.72rem;
+}
+
+.api-key-help {
+  margin: 0.25rem 0 0.8rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.api-key-form {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.7fr) minmax(18rem, 1.5fr) auto;
+  align-items: end;
+  gap: 0.65rem;
+}
+
+.ai-slot-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.9rem 0 0.6rem;
+  font-size: 0.82rem;
+}
+
+.ai-slot-summary span {
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #eef3f8;
+  color: #526174;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.ai-slot-card {
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--ok);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.ai-slot-card.is-full { border-left-color: #d18b18; }
+
+.ai-slot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.ai-slot-head code { color: var(--muted); font-size: 0.7rem; }
+
+.ai-slot-meter {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.35rem;
+  margin: 0.6rem 0;
+}
+
+.ai-slot-meter i {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #dfe6ee;
+}
+
+.ai-slot-meter i.is-active { background: var(--accent); }
+
+.ai-slot-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.25rem 0.65rem;
+  margin: 0;
+}
+
+.ai-slot-card dl div {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+}
+
+.ai-slot-card dt { color: var(--muted); }
+.ai-slot-card dd { margin: 0; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ai-slot-ready,
+.ai-slot-error { margin: 0.5rem 0 0; font-size: 0.7rem; font-weight: 700; }
+.ai-slot-ready { color: var(--ok); }
+.ai-slot-error { color: var(--danger); }
+
+.api-key-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  color: #4b5563;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.api-key-form input {
+  width: 100%;
+  min-height: 2.35rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: #1a2233;
+  font: inherit;
+}
+
+.api-key-form input:focus {
+  border-color: var(--accent);
+  outline: 2px solid rgba(43, 127, 212, 0.15);
+}
+
+.api-key-form button {
+  min-height: 2.35rem;
+}
+
+.api-key-notice {
+  margin: 0.65rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.api-key-notice.is-ok { color: var(--ok); }
+.api-key-notice.is-error { color: var(--danger); }
+
+@media (max-width: 860px) {
+  .api-key-form {
+    grid-template-columns: 1fr;
+  }
+
+  .api-key-badges {
+    justify-content: flex-start;
+  }
+}
+
 /* ── 발표자 모드 ────────────────────────────────────────────────────── */
 .presenter-panel {
   display: flex;

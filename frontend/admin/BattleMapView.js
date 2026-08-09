@@ -35,6 +35,20 @@ function formatTimeRemaining(ms) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function scoreOf(player) {
+  return (player.kills ?? 0) * 20 - (player.deaths ?? 0) * 10 + (player.assists ?? 0) * 5;
+}
+
+function buildLiveStandings(players) {
+  const rows = Object.values(players).map((player) => ({ ...player, score: scoreOf(player) }));
+  return rows
+    .map((player) => ({
+      ...player,
+      rank: 1 + rows.filter((other) => other.score > player.score).length,
+    }))
+    .sort((a, b) => a.rank - b.rank || (b.kills ?? 0) - (a.kills ?? 0) || String(a.name ?? '').localeCompare(String(b.name ?? '')));
+}
+
 export function BattleMapView({ socket }) {
   const containerRef = useRef(null);
   const layerRef = useRef(null);
@@ -90,7 +104,7 @@ export function BattleMapView({ socket }) {
           : null,
       );
       const connected = Object.values(room.players).filter((p) => p.connected !== false);
-      setPickedCount(connected.filter((p) => Boolean(p.skillId)).length);
+      setPickedCount(connected.filter((p) => p.skillSelectionConfirmed === true).length);
 
       if (Number.isFinite(room.endsAt)) {
         setRemainingMs(Math.max(0, room.endsAt - Date.now()));
@@ -126,10 +140,9 @@ export function BattleMapView({ socket }) {
   // (battleSimulation.computeScore와 같은 식). 서버가 그때그때 계산해 보내지 않으므로
   // 공용화면도 같은 식으로 직접 계산한다 — 두 화면의 순위가 어긋나면 안 되므로 계수는
   // 반드시 서버와 같은 값이어야 한다(킬 +20 / 데스 -10 / 어시 +5).
-  const scoreOf = (p) => (p.kills ?? 0) * 20 + (p.deaths ?? 0) * -10 + (p.assists ?? 0) * 5;
-  const sorted = Object.values(players).sort((a, b) => scoreOf(b) - scoreOf(a) || (b.kills ?? 0) - (a.kills ?? 0));
+  const sorted = buildLiveStandings(players);
   const battleGuide = roundStatus === 'roulette'
-    ? { title: '특수 스킬을 선택하세요', text: `참가자 화면에서 3개 중 1개 선택 · ${pickedCount}/${sorted.length}명 완료` }
+    ? { title: '특수 스킬을 선택하세요', text: `참가자 화면에서 9개 중 4개 선택 · ${pickedCount}/${sorted.length}명 완료` }
     : roundStatus === 'countdown'
       ? { title: '곧 전투가 시작됩니다', text: '화면을 보고 준비하세요' }
       : roundStatus === 'active'
@@ -155,15 +168,26 @@ export function BattleMapView({ socket }) {
             : null}
         </div>
         <ol class="leaderboard">
-          ${sorted.map((p, i) => {
+          <li class="leaderboard-header" aria-hidden="true">
+            <span class="leaderboard-rank">순위</span>
+            <span class="leaderboard-swatch"></span>
+            <span class="leaderboard-name">참가자</span>
+            <span class="leaderboard-stat">킬</span>
+            <span class="leaderboard-stat">데스</span>
+            <span class="leaderboard-stat">어시</span>
+            <span class="leaderboard-score">종합</span>
+          </li>
+          ${sorted.map((p) => {
             const isConnected = p.connected !== false;
             return html`
               <li key=${p.id} class=${isConnected ? '' : 'leaderboard-disconnected'}>
-                <span class="leaderboard-rank">${i + 1}</span>
+                <span class="leaderboard-rank">${p.rank}</span>
                 <span class="leaderboard-swatch" style=${{ background: CHARACTER_COLORS[p.characterId] ?? '#999' }}></span>
                 <span class="leaderboard-name">${p.name || characterLabel(p.characterId)}</span>
-                <span class="leaderboard-kda">${p.kills ?? 0}/${p.deaths ?? 0}/${p.assists ?? 0}</span>
-                <span class="leaderboard-score">${scoreOf(p)}</span>
+                <span class="leaderboard-stat">${p.kills ?? 0}</span>
+                <span class="leaderboard-stat">${p.deaths ?? 0}</span>
+                <span class="leaderboard-stat">${p.assists ?? 0}</span>
+                <span class="leaderboard-score">${p.score}</span>
               </li>
             `;
           })}

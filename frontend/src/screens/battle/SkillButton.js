@@ -6,7 +6,7 @@ import { getSkill } from '../../../../shapes/skills.js';
 
 const html = htm.bind(h);
 
-export function SkillButton({ skillId, readyAt, onUse }) {
+export function SkillButton({ skillId, readyAt, onUse, keyLabel }) {
   const skill = getSkill(skillId);
   // 쿨타임은 "언제 준비되는지(readyAt)"만 서버가 주므로, 남은 시간은 클라이언트가 매
   // 프레임 계산한다 — 서버 틱(50ms)에만 의존하면 숫자가 뚝뚝 끊겨 보인다.
@@ -24,7 +24,7 @@ export function SkillButton({ skillId, readyAt, onUse }) {
     return html`
       <div class="skill-btn is-passive" style=${{ '--skill-color': skill.color }} title=${skill.desc}>
         <span class="skill-btn-icon">${skill.icon}</span>
-        <span class="skill-btn-label">자동</span>
+        <span class="skill-btn-label">${keyLabel} · 자동</span>
       </div>
     `;
   }
@@ -45,7 +45,7 @@ export function SkillButton({ skillId, readyAt, onUse }) {
       title=${skill.desc}
     >
       <span class="skill-btn-icon">${skill.icon}</span>
-      <span class="skill-btn-label">${ready ? skill.name : `${Math.ceil(remainMs / 1000)}`}</span>
+      <span class="skill-btn-label">${keyLabel} · ${ready ? skill.name : `${Math.ceil(remainMs / 1000)}`}</span>
     </button>
   `;
 }
