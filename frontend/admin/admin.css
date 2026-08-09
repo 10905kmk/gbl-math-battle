@@ -129,6 +129,17 @@ button.rescue:hover {
   background: #e8f1fb;
 }
 
+/* 강제 연결 끊기 — 되돌릴 수 없는 조작(재접속 필요)이라 danger와 같은 계열 색을 쓰되,
+   상단바 전체 리셋만큼 위협적으로 보이지 않게 톤을 낮춘다. */
+button.kick {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+button.kick:hover {
+  background: #fbe9e7;
+}
+
 /* ── 본문 ───────────────────────────────────────────────────────────── */
 .admin-body {
   flex: 1;

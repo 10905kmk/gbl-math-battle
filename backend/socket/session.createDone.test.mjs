@@ -10,6 +10,10 @@ function makeSocket(id) {
     id,
     on: (ev, fn) => { handlers[id] = handlers[id] || {}; handlers[id][ev] = fn; },
     emit: () => {},
+    // 실제 Socket.IO의 socket.disconnect(true)는 그 소켓 자신의 'disconnect' 이벤트를
+    // 곧바로 발생시킨다 — 목도 같은 순서를 흉내내야 admin:kickParticipant가 진짜로
+    // 참가자를 제거하는지 검증할 수 있다.
+    disconnect: () => { handlers[id]?.disconnect?.(); },
   };
 }
 const emitted = [];
@@ -298,6 +302,26 @@ console.log('participant:join atomically restores a persisted nickname: OK');
   assert.strictEqual(w1.name, null, '새 라운드가 시작되면 이전 라운드에 입력했던 이름은 초기화되어야 함');
   assert.strictEqual(w1.createDone, false, '새 라운드가 시작되면 제작 완료 상태도 초기화되어야 함');
   console.log("a new admin:startSession resets each surviving participant's round fields: OK");
+}
+
+// 회귀 테스트: admin:kickParticipant는 대상 소켓의 연결을 실제로 끊어서(disconnect(true))
+// 기존 'disconnect' 핸들러가 그대로 명단 정리/재브로드캐스트를 처리하게 해야 한다 —
+// "이름없음" 유령 참가자를 서버 재시작 없이 즉시 제거하는 용도(2026-08-10).
+{
+  assert.ok(latestParticipants().some((p) => p.id === 'w3'), '테스트 전제: w3가 아직 참가자 명단에 있어야 함');
+  emitted.length = 0;
+
+  handlers.w1['admin:kickParticipant']('w3');
+
+  const participants = latestParticipants();
+  assert.ok(!participants.some((p) => p.id === 'w3'), 'admin:kickParticipant는 대상 참가자를 명단에서 즉시 제거해야 함');
+  console.log('admin:kickParticipant force-disconnects the target and removes it from the roster: OK');
+
+  // 존재하지 않는 id를 kick해도 조용히 무시해야 한다(오타/이미 나간 참가자 대응).
+  emitted.length = 0;
+  handlers.w1['admin:kickParticipant']('does-not-exist');
+  assert.deepStrictEqual(emitted, [], '존재하지 않는 참가자를 kick해도 아무 브로드캐스트가 없어야 함(조용히 무시)');
+  console.log('admin:kickParticipant on an unknown id is a silent no-op: OK');
 }
 
 stopBattleRoom();

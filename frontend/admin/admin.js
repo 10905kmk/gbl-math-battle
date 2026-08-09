@@ -141,7 +141,7 @@ function PresenterPanel({ socket }) {
 // 참가자 1명 = 카드 1장. 이름/상태만 나열하던 목록으로는 "누가 무엇을 만들었는지"를 볼 수
 // 없어서, 실수로 평가받은 참가자를 구제할 때 그 사람이 맞는지 확인할 방법이 없었다 —
 // 무기 썸네일/이름/전투력까지 같이 보여주고 개별 조치 버튼을 카드 안에 둔다.
-function ParticipantCard({ participant, canReopen, onForceFinish, onReopen }) {
+function ParticipantCard({ participant, canReopen, onForceFinish, onReopen, onKick }) {
   const { name, createDone, weapon } = participant;
   const label = name ?? '이름 없음';
 
@@ -185,6 +185,13 @@ function ParticipantCard({ participant, canReopen, onForceFinish, onReopen }) {
             ↩ 제작 완료 취소
           </button>
         `}
+        <button
+          class="kick"
+          title="이 참가자의 연결을 서버가 강제로 끊습니다(유령/이름없음 정리용)"
+          onClick=${() => onKick(participant.id, label)}
+        >
+          ⏻ 강제 연결 끊기
+        </button>
       </div>
     </li>
   `;
@@ -323,6 +330,13 @@ function DashboardPanel({ socket, stage, participants, errors }) {
     socket.emit('admin:reopenCreate', participantId);
   }
 
+  function kick(participantId, name) {
+    if (!confirm(`"${name}"님의 연결을 강제로 끊을까요?\n\n실제 참가자라면 다시 접속해야 합니다 — 유령/이름없는 연결 정리용으로만 쓰세요.`)) {
+      return;
+    }
+    socket.emit('admin:kickParticipant', participantId);
+  }
+
   // 바깥(AdminApp)이 .dashboard-panel 컨테이너를 들고 있으므로 여기서는 section들만 낸다 —
   // 대전 단계에서는 BattlePanel이 같은 컨테이너 안에 형제로 함께 들어간다.
   return html`
@@ -345,6 +359,7 @@ function DashboardPanel({ socket, stage, participants, errors }) {
                       canReopen=${canReopen}
                       onForceFinish=${forceFinish}
                       onReopen=${reopen}
+                      onKick=${kick}
                     />
                   `,
                 )}

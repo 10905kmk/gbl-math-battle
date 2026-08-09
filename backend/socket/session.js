@@ -30,6 +30,12 @@ const cohort = {
   battleRoster: [],
 };
 
+// socket.id -> socket 참조 — admin:kickParticipant가 io.sockets.sockets(실제 Socket.IO
+// 서버 내부 레지스트리)에 의존하지 않고도 대상 소켓을 직접 끊을 수 있게 이 모듈이 스스로
+// 들고 있는다. 테스트 목 io는 io.sockets를 흉내내지 않으므로, 여기 의존하면 목 소켓에도
+// 실제 서버와 같은 구조를 강제해야 해서 더 무거워진다.
+const connectedSockets = new Map();
+
 // 관리자가 수동으로 단계를 앞뒤로 넘길 때의 순서. idle은 startSession/reset으로만 드나든다.
 // 'name'이 맨 앞에 추가됨(2026-08-07) — 기기를 새로고침 없이 계속 켜두므로 라운드마다
 // 이름을 다시 물어봐야 해서, 전역 화면 게이트가 아니라 실제 stage로 승격시켰다.
@@ -156,6 +162,8 @@ function defaultWeapon() {
 }
 
 export function registerSessionHandlers(io, socket) {
+  connectedSockets.set(socket.id, socket);
+
   // 새로 연결된 소켓(새로고침한 참가자, 나중에 여는 관리자/공용화면 등)에게 현재 상태를
   // 바로 알려준다. 이게 없으면 stage:change/learn:slide 등은 "그 이후 변경분"만 받기
   // 때문에 계속 idle/빈 값으로 보인다.
@@ -308,11 +316,20 @@ export function registerSessionHandlers(io, socket) {
     broadcastParticipants(io);
   });
 
+  // 유령/불필요한 연결을 관리자가 즉시 끊을 때 쓴다 — 이름 없이 오래 떠 있는 소켓이나
+  // 자리를 뜬 참가자가 핑퐁 타임아웃(자연 disconnect)을 기다리지 않고 명단에서 바로
+  // 빠지게 한다. 대상 소켓의 연결을 실제로 끊으므로(disconnect(true)) 정리/재브로드캐스트는
+  // 아래 'disconnect' 핸들러가 그대로 처리한다 — 로직을 여기 따로 둘 필요가 없다.
+  socket.on('admin:kickParticipant', (participantId) => {
+    connectedSockets.get(participantId)?.disconnect(true);
+  });
+
   // 참가자가 완전히 연결을 끊으면(기기를 끄거나 브라우저를 닫는 등) 명단에서 제거한다.
   // 새로고침만으로는 여기 안 온다고 가정하면 안 된다 — 새로고침도 기존 소켓의
   // disconnect를 먼저 발생시키고 새 소켓으로 다시 연결되므로, 옛 id를 지워두지 않으면
   // 유령 참가자가 계속 쌓인다(Opus 리뷰 Critical #2b, 실제로 재현됨).
   socket.on('disconnect', () => {
+    connectedSockets.delete(socket.id);
     const before = cohort.participants.length;
     cohort.participants = cohort.participants.filter((p) => p.id !== socket.id);
     if (cohort.participants.length !== before) {
