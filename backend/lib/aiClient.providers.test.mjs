@@ -24,6 +24,41 @@ try {
   assert.strictEqual(captured.body.model, 'openai/gpt-4.1-mini');
   assert.deepStrictEqual(evaluation, { min: 100, max: 200, attackRange: 'ranged', attackRangeDistance: 700 });
 
+  // 회귀 테스트: GitHub/OpenRouter 쪽도 "Return only one valid JSON object" 지시를 가끔
+  // 무시하고 설명 문구를 앞뒤에 붙인다 — Gemini 쪽과 같은 파싱 보강이 여기도 필요하다.
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: 'Here is the JSON: {"min":10,"max":20,"attackRange":"melee","attackRangeDistance":10}' } }],
+    }),
+  });
+  const prefixed = await requestCompatibleWeaponEvaluation('github', 'fake-github-key', { parts: [] });
+  assert.deepStrictEqual(prefixed, { min: 10, max: 20, attackRange: 'melee', attackRangeDistance: 10 });
+
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: '{"min":10,"max":20,"attackRange":"ranged","attackRangeDistance":300}\n\nLet me know if you need changes.' } }],
+    }),
+  });
+  const suffixed = await requestCompatibleWeaponEvaluation('github', 'fake-github-key', { parts: [] });
+  assert.deepStrictEqual(suffixed, { min: 10, max: 20, attackRange: 'ranged', attackRangeDistance: 300 });
+
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: '```json\n{"min":10,"max":20,"attackRange":"melee","attackRangeDistance":10}\n```' } }],
+    }),
+  });
+  const fenced = await requestCompatibleWeaponEvaluation('github', 'fake-github-key', { parts: [] });
+  assert.deepStrictEqual(fenced, { min: 10, max: 20, attackRange: 'melee', attackRangeDistance: 10 });
+
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ choices: [{ message: { content: 'this is not json at all' } }] }),
+  });
+  await assert.rejects(() => requestCompatibleWeaponEvaluation('github', 'fake-github-key', { parts: [] }), SyntaxError);
+
   global.fetch = async (url, options) => {
     captured = { url, options, body: JSON.parse(options.body) };
     return {

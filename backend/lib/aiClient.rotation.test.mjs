@@ -149,6 +149,67 @@ console.log('requestWeaponEvaluation rejects a non-numeric min/max response: OK'
 }
 console.log('requestWeaponEvaluation defends against malformed attackRange/attackRangeDistance: OK');
 
+// 회귀 테스트: Gemini가 responseSchema/responseMimeType 강제에도 가끔 JSON 앞뒤에 설명
+// 문구를 붙여서 반환한다(예: "Here is the JSON: {...}") — 이전에는 JSON.parse가 그대로
+// 던져서 멀쩡한 채점 결과가 통째로 버려지고 weaponEvaluate.js의 결정론적 폴백으로
+// 떨어졌다. 앞뒤 문구를 잘라내고 한 번 더 파싱을 시도해야 한다.
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: { parts: [{ text: `Here is the JSON: ${JSON.stringify({ min: 10, max: 20, attackRange: 'melee', attackRangeDistance: 10 })}` }] },
+      }],
+    }),
+  });
+  const result = await requestWeaponEvaluation('fake-key', { parts: [] });
+  global.fetch = origFetch;
+  assert.deepStrictEqual(result, { min: 10, max: 20, attackRange: 'melee', attackRangeDistance: 10 });
+}
+console.log('requestWeaponEvaluation parses JSON prefixed with prose: OK');
+
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{
+        content: { parts: [{ text: `${JSON.stringify({ min: 10, max: 20, attackRange: 'ranged', attackRangeDistance: 300 })}\n\nLet me know if you need changes.` }] },
+      }],
+    }),
+  });
+  const result = await requestWeaponEvaluation('fake-key', { parts: [] });
+  global.fetch = origFetch;
+  assert.deepStrictEqual(result, { min: 10, max: 20, attackRange: 'ranged', attackRangeDistance: 300 });
+}
+console.log('requestWeaponEvaluation parses JSON suffixed with prose: OK');
+
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text: `\`\`\`json\n${JSON.stringify({ min: 10, max: 20, attackRange: 'melee', attackRangeDistance: 10 })}\n\`\`\`` }] } }],
+    }),
+  });
+  const result = await requestWeaponEvaluation('fake-key', { parts: [] });
+  global.fetch = origFetch;
+  assert.deepStrictEqual(result, { min: 10, max: 20, attackRange: 'melee', attackRangeDistance: 10 });
+}
+console.log('requestWeaponEvaluation still parses markdown-fenced JSON: OK');
+
+{
+  const origFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ candidates: [{ content: { parts: [{ text: 'this is not json at all' }] } }] }),
+  });
+  await assert.rejects(() => requestWeaponEvaluation('fake-key', { parts: [] }), SyntaxError);
+  global.fetch = origFetch;
+}
+console.log('requestWeaponEvaluation still throws on genuinely non-JSON responses: OK');
+
 // requestToolCalls — 복합 명령의 모든 함수 호출과 설명을 한 번의 응답으로 받는다.
 {
   const origFetch = global.fetch;

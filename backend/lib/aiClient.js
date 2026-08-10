@@ -156,7 +156,7 @@ export async function requestWeaponEvaluation(apiKey, weaponState, signal) {
   }
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  const parsed = JSON.parse(text);
+  const parsed = extractJsonObject(text);
   if (!Number.isFinite(parsed.min) || !Number.isFinite(parsed.max)) {
     throw new Error('Gemini weapon evaluation response missing numeric min/max');
   }
@@ -169,6 +169,29 @@ export async function requestWeaponEvaluation(apiKey, weaponState, signal) {
 
 function stripJsonFence(text) {
   return String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+}
+
+// responseSchema/responseMimeType(Gemini)나 "Return only one valid JSON object"(호환 provider)
+// 지시에도 가끔 "Here is the JSON: {...}"처럼 설명 문구를 앞뒤에 붙여서 응답한다 — 그대로
+// JSON.parse하면 멀쩡한 채점 결과가 통째로 버려지고 weaponEvaluate.js의 결정론적 폴백으로
+// 떨어진다. 펜스 제거 후에도 안 되면 첫 '{'~마지막 '}' 구간만 잘라 한 번 더 시도한다 — 여기
+// 다루는 응답은 중첩 없는 단일 flat 객체({min,max,attackRange,attackRangeDistance})뿐이라
+// 균형 스캐너 없이 단순 슬라이스로 충분하다. 그래도 파싱이 안 되면 원래 에러를 그대로
+// 던져서 진짜 사용 불가능한 응답에 대한 폴백 경로는 그대로 유지한다.
+function extractJsonObject(text) {
+  const stripped = stripJsonFence(text);
+  try {
+    return JSON.parse(stripped);
+  } catch (err) {
+    const start = stripped.indexOf('{');
+    const end = stripped.lastIndexOf('}');
+    if (start === -1 || end <= start) throw err;
+    try {
+      return JSON.parse(stripped.slice(start, end + 1));
+    } catch {
+      throw err;
+    }
+  }
 }
 
 function compatibleHeaders(provider, apiKey) {
@@ -209,7 +232,7 @@ export async function requestCompatibleWeaponEvaluation(provider, apiKey, weapon
     temperature: 0.2,
     max_tokens: 256,
   }, signal);
-  const parsed = JSON.parse(stripJsonFence(data.choices?.[0]?.message?.content));
+  const parsed = extractJsonObject(data.choices?.[0]?.message?.content);
   if (!Number.isFinite(parsed.min) || !Number.isFinite(parsed.max)) {
     throw new Error(`${provider} weapon evaluation response missing numeric min/max`);
   }
