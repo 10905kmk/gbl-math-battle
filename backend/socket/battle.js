@@ -250,12 +250,29 @@ export function leaveBattleStage(onEnd) {
   saveLastRoundResults(onEnd);
 }
 
-function buildPlayer(participant, index) {
-  const spawn = DEFAULT_MAP.spawnPoints[index % DEFAULT_MAP.spawnPoints.length];
+// 참가자 하나를 배틀 플레이어 객체로 만든다 — 부스 세션(startBattleRoom)과 개발자 테스트
+// 방(devBattle.js)이 완전히 같은 필드 구성을 쓴다(Opus 리뷰 Minor #8, 2026-08-10). 예전엔
+// 두 파일이 각자 ~20개 필드를 손으로 복제했는데, 이미 실전과 어긋나 있었다 — dev 버전은
+// skillIds/skillSelectionConfirmed/skillReadyAts를 안 채웠고 MELEE_DAMAGE_MULTIPLIER도
+// 안 붙어 있었다. 스폰 위치/캐릭터 아이콘/조준 기본값/초기 스킬처럼 호출자마다 다른 값만
+// 파라미터로 받는다.
+export function buildPlayer({
+  id,
+  name = null,
+  characterId,
+  x,
+  y,
+  aimX = 0,
+  aimY = 1,
+  weapon = null,
+  connected = true,
+  skillId = null,
+  skillChoices = drawSkillChoices(SKILL_CHOICE_COUNT),
+}) {
   // AI(또는 실패 시 폴백)가 판단한 근접/원거리 — 서버가 신뢰하지 않고 항상 재검증한다
   // (기존 weaponDamage clamp와 같은 원칙). 'ranged'가 아니면 전부 근접으로 취급.
-  const isRanged = participant.weapon?.attackRange === 'ranged';
-  const rawDistance = Number(participant.weapon?.attackRangeDistance);
+  const isRanged = weapon?.attackRange === 'ranged';
+  const rawDistance = Number(weapon?.attackRangeDistance);
   const evaluatedRangeDistance = Math.min(
     RANGE_DISTANCE_MAX,
     Math.max(RANGE_DISTANCE_MIN, Number.isFinite(rawDistance) ? rawDistance : RANGE_DISTANCE_MIN),
@@ -263,20 +280,19 @@ function buildPlayer(participant, index) {
   const rangeDistance = isRanged
     ? evaluatedRangeDistance * RANGED_COMBAT_RANGE_MULTIPLIER
     : null;
-  const baseDamage = hpDamageFromWeaponDamage(participant.weapon?.damage);
+  const baseDamage = hpDamageFromWeaponDamage(weapon?.damage);
   // 근접은 가까이 가야 하는 위험을 감수하므로 원거리보다 세다 — 다만 보정을 곱한 뒤에도
   // 한 방 상한(HP_DAMAGE_MAX)은 반드시 지킨다. 이 clamp가 "최소 5대"를 보장한다.
   const hpDamage = Math.min(HP_DAMAGE_MAX, isRanged ? baseDamage : Math.round(baseDamage * MELEE_DAMAGE_MULTIPLIER * 10) / 10);
 
   return {
-    id: participant.id,
-    name: participant.name ?? null,
-    characterId: CHARACTER_IDS[index % CHARACTER_IDS.length],
-    x: spawn.x,
-    y: spawn.y,
-    // 기본 조준 방향(아래쪽) — 기존 facing:'down' 기본값과 같은 의미.
-    aimX: 0,
-    aimY: 1,
+    id,
+    name,
+    characterId,
+    x,
+    y,
+    aimX,
+    aimY,
     hp: HP_MAX,
     alive: true,
     respawnAt: 0,
@@ -288,17 +304,16 @@ function buildPlayer(participant, index) {
     hpDamage,
     isRanged,
     rangeDistance,
-    weaponParts: participant.weapon?.parts ?? [],
-    connected: true,
+    weaponParts: weapon?.parts ?? [],
+    connected,
     lastAttackAt: 0,
     attackRequested: false,
     input: { moveX: 0, moveY: 0, aimX: 0, aimY: 0 },
-    // 서버가 추첨한 9개 후보 중 참가자가 4개를 고른다.
-    skillChoices: drawSkillChoices(SKILL_CHOICE_COUNT),
+    skillChoices,
     skillIds: [],
     skillSelectionConfirmed: false,
     skillReadyAts: {},
-    ...newPlayerSkillState(null),
+    ...newPlayerSkillState(skillId),
   };
 }
 
@@ -313,7 +328,18 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
 
   const players = {};
   participants.forEach((participant, i) => {
-    players[participant.id] = buildPlayer(participant, i);
+    const spawn = DEFAULT_MAP.spawnPoints[i % DEFAULT_MAP.spawnPoints.length];
+    players[participant.id] = buildPlayer({
+      id: participant.id,
+      name: participant.name ?? null,
+      characterId: CHARACTER_IDS[i % CHARACTER_IDS.length],
+      x: spawn.x,
+      y: spawn.y,
+      // 기본 조준 방향(아래쪽) — 기존 facing:'down' 기본값과 같은 의미.
+      aimX: 0,
+      aimY: 1,
+      weapon: participant.weapon,
+    });
   });
 
   const now = Date.now();

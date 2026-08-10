@@ -1,13 +1,12 @@
 import {
   stepSimulation,
-  hpDamageFromWeaponDamage,
   HP_MAX,
   DEFAULT_MOVE_SPEED,
 } from '../lib/battleSimulation.js';
 import { activateSkill, newPlayerSkillState } from '../lib/skillEngine.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 import { isValidSkillId } from '../../shapes/skills.js';
-import { buildBattleStatePayload } from './battle.js';
+import { buildBattleStatePayload, buildPlayer } from './battle.js';
 
 const TICK_MS = 50;
 const DEV_DURATION_MS = 60 * 60_000;
@@ -28,8 +27,12 @@ function weaponParts() {
   ];
 }
 
-function buildPlayer(id, name, characterId, position, { connected = true } = {}) {
-  return {
+// battle.js의 buildPlayer를 그대로 재사용한다 — 예전엔 이 파일이 ~20개 필드짜리 플레이어
+// 객체를 따로 손으로 복제해서, 실전 배틀 스키마가 바뀔 때마다(예: skillIds/
+// skillSelectionConfirmed/skillReadyAts 추가) 여기 반영을 잊기 쉬웠다(Opus 리뷰 Minor #8,
+// 2026-08-10 — 실제로 이미 빠져 있었고, MELEE_DAMAGE_MULTIPLIER도 안 붙어 있었다).
+function makeDevPlayer(id, name, characterId, position) {
+  return buildPlayer({
     id,
     name,
     characterId,
@@ -37,33 +40,20 @@ function buildPlayer(id, name, characterId, position, { connected = true } = {})
     y: position.y,
     aimX: 1,
     aimY: 0,
-    hp: HP_MAX,
-    alive: true,
-    respawnAt: 0,
-    kills: 0,
-    deaths: 0,
-    assists: 0,
-    recentDamagers: {},
-    hpDamage: hpDamageFromWeaponDamage(5000),
-    isRanged: false,
-    rangeDistance: null,
-    weaponParts: weaponParts(),
-    connected,
-    lastAttackAt: 0,
-    attackRequested: false,
-    input: { moveX: 0, moveY: 0, aimX: 1, aimY: 0 },
+    weapon: { damage: 5000, attackRange: 'melee', parts: weaponParts() },
+    skillId: 'heal',
+    // 룰렛(스킬 선택)을 거치지 않는 개발자 방이라 후보 9개가 필요 없다.
     skillChoices: [],
-    ...newPlayerSkillState('heal'),
-  };
+  });
 }
 
 export function createDevBattleRoom(socketId, now = Date.now()) {
   const players = {
-    [socketId]: buildPlayer(socketId, '개발자', 'char2', { x: 941, y: 808 }),
+    [socketId]: makeDevPlayer(socketId, '개발자', 'char2', { x: 941, y: 808 }),
   };
   TARGET_POSITIONS.forEach((position, index) => {
     const id = `dev-target-${socketId}-${index + 1}`;
-    players[id] = buildPlayer(id, `테스트 표적 ${index + 1}`, `char${index + 3}`, position);
+    players[id] = makeDevPlayer(id, `테스트 표적 ${index + 1}`, `char${index + 3}`, position);
   });
   return {
     status: 'active',

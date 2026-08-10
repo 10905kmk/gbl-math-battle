@@ -21,6 +21,16 @@ assert.strictEqual(Object.keys(room.players).length, 4, '개발자 1명과 테�
 assert.strictEqual(room.players[socket.id].skillId, 'heal');
 assert.strictEqual(getDevControlledPlayerId(socket.id), socket.id);
 
+// 회귀 테스트(Opus 리뷰 Minor #8, 2026-08-10): devBattle.js가 battle.js의 buildPlayer를
+// 공유하도록 리팩터한 뒤로는, 예전에 손으로 복제하다 빠뜨렸던 필드(skillIds/
+// skillSelectionConfirmed/skillReadyAts)도 실전 배틀과 똑같이 채워져야 한다. 근접
+// 데미지 배율(MELEE_DAMAGE_MULTIPLIER)도 이제 실전과 동일하게 적용된다.
+assert.deepStrictEqual(room.players[socket.id].skillIds, [], '실전 배틀과 같은 형태의 skillIds 필드가 있어야 함');
+assert.strictEqual(room.players[socket.id].skillSelectionConfirmed, false);
+assert.deepStrictEqual(room.players[socket.id].skillReadyAts, {});
+assert.ok(room.players[socket.id].hpDamage > 0, '근접 배율이 적용된 hpDamage여야 함(0보다 커야 함)');
+console.log('devBattle players share the same schema as real battle players: OK');
+
 for (const skill of SKILLS) {
   handlers.get('devBattle:selectSkill')(skill.id);
   room = getDevBattleRoom(socket.id);
