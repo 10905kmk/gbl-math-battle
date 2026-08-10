@@ -274,6 +274,46 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   console.log('admin:endBooth saves the last round and advances to the result stage: OK');
 }
 
+// 회귀 테스트(2026-08-10): 판이 자연 종료돼 순위 대시보드만 뜬 상태(아직 "부스 종료"를
+// 안 누른 상태)에서, 관리자가 "부스 종료" 대신 "다음 단계"를 눌러 battle을 벗어나는
+// 경우도 결과가 저장되어야 한다 — 실제로 겪은 문제: battleRoom이 이미 null이라
+// finishBattleRoomNow()가 조용히 no-op하고, 저장이 통째로 스킵된 채 result 화면만 떴다.
+{
+  handlers.p1['admin:reset']();
+  handlers.p1['admin:startSession'](); // -> name
+  handlers.p1['admin:nextStage'](); // -> learn
+  handlers.p1['admin:nextStage'](); // -> create
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
+  }
+  handlers.p1['admin:nextStage'](); // -> battle
+
+  skipCountdownAndExpire(getBattleRoom());
+  await new Promise((resolve) => setTimeout(resolve, 150)); // 자연 종료 -> 순위 대시보드만 뜬 상태
+
+  assert.strictEqual(getBattleRoom(), null, '테스트 전제: 라운드가 자연 종료되어 battleRoom이 없어야 함');
+  assert.ok(getLastStandings(), '테스트 전제: 순위 대시보드 데이터가 있어야 함');
+
+  const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args.join(' ')); };
+  handlers.p1['admin:nextStage'](); // "부스 종료" 대신 "다음 단계" -> result
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  console.warn = origWarn;
+
+  assert.deepStrictEqual(
+    emitted.filter(([ev]) => ev === 'stage:change').map(([, s]) => s).slice(-1),
+    ['result'],
+    '다음 단계를 누르면 그래도 result로는 넘어가야 함',
+  );
+  assert.strictEqual(
+    warnings.filter((w) => w.includes('mock 저장')).length,
+    5,
+    '순위 대시보드가 떠 있는 상태에서 "다음 단계"를 눌러도 참가자 5명 결과 저장이 시도되어야 함(부스 종료와 동일하게)',
+  );
+  console.log('advancing past an already-finished round via nextStage still saves results: OK');
+}
+
 // 회귀 테스트: 대전 도중 참가자가 연결을 끊어도(session.js의 disconnect 핸들러가
 // cohort.participants에서 그 참가자를 제거함) 결과 저장은 대전 시작 시점 스냅샷 기준으로
 // 여전히 전원에 대해 시도되어야 한다 — 안 그러면 연결이 끊긴 참가자는 결과를 영영 잃는다

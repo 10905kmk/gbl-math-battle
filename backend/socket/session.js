@@ -68,6 +68,10 @@ function makeSaveResultsCallback(io, roster) {
 }
 
 function goToStage(io, nextStage) {
+  // battle을 실제로 "떠나는" 순간에만 아래 정리 로직을 태운다 — nextStage가 battle이
+  // 아닌 다른 두 단계 사이를 오갈 때마다(예: result -> thanks) 또 실행되면 이미 저장한
+  // 라운드를 중복 저장하게 된다.
+  const wasInBattle = cohort.stage === 'battle';
   cohort.stage = nextStage;
   cohort.slideIndex = 0;
   io.emit('stage:change', cohort.stage);
@@ -80,16 +84,22 @@ function goToStage(io, nextStage) {
     startBattleRoom(io, cohort.battleRoster, {
       onEnd: makeSaveResultsCallback(io, cohort.battleRoster),
     });
-  } else {
-    // battle이 아닌 다른 단계로 넘어가면 진행 중이던 대전은 더 이상 의미가 없으니 같이
-    // 정리해야 한다. stopBattleRoom()으로 그냥 중단시키면 tick interval만 죽고
-    // 결과 저장/battle:result/result:saved 경로 전체가 스킵된다 — create/battle 전환이
-    // 이제 관리자 수동이라(자동 전환 없음), "관리자가 타이머 만료를 기다리지 않고 다음
-    // 단계를 누른다"가 실제로 흔히 일어날 수 있는 정상 경로가 됐다(2026-08-07 Opus
-    // 리뷰). 그래서 finishBattleRoomNow()로 지금 시점 점수를 그대로 정상 종료 처리한다 —
-    // 라운드가 이미 자연 종료돼 battleRoom이 없으면 조용히 아무 일도 안 하므로 항상
-    // 안전하게 호출할 수 있다.
-    finishBattleRoomNow();
+  } else if (wasInBattle) {
+    // battle을 떠나면 진행 중이던 대전은 더 이상 의미가 없으니 같이 정리해야 한다.
+    // stopBattleRoom()으로 그냥 중단시키면 tick interval만 죽고 결과 저장/battle:result/
+    // result:saved 경로 전체가 스킵된다 — create/battle 전환이 관리자 수동이라(자동 전환
+    // 없음), "관리자가 타이머 만료를 기다리지 않고 다음 단계를 누른다"가 실제로 흔히
+    // 일어날 수 있는 정상 경로다(2026-08-07 Opus 리뷰).
+    if (getBattleRoom()) {
+      // 라운드가 아직 진행 중이었다 — 지금 시점 점수로 정상 종료 처리(결과 저장까지 포함).
+      finishBattleRoomNow();
+    } else {
+      // 라운드는 이미 자연 종료돼 순위 대시보드만 뜬 상태(관리자가 "새로운 판"을 누르길
+      // 기다리는 중)였는데, "부스 종료" 대신 실수로 "다음 단계"를 눌러 battle을 떠난
+      // 경우 — 이때 아무것도 안 하면 결과가 통째로 유실된 채 result 화면만 뜬다(실제로
+      // 겪은 문제, 2026-08-10). "부스 종료"와 똑같이 마지막 순위표로 저장해준다.
+      saveLastRoundResults(makeSaveResultsCallback(io, cohort.battleRoster));
+    }
   }
 }
 
@@ -247,14 +257,11 @@ export function registerSessionHandlers(io, socket) {
   });
 
   // "부스 종료" — 마지막 판의 점수로 결과를 저장하고 결과(QR/PDF) 단계로 넘긴다.
-  // 진행 중인 판이 있으면 그 시점 점수로 정상 종료시키고, 이미 대시보드가 떠 있으면
-  // 저장해둔 마지막 순위표로 저장만 한다.
+  // 진행 중인 판이 있는지/이미 대시보드만 떠 있는지에 따라 저장 방식이 달라지는데,
+  // goToStage가 battle을 떠나는 모든 경로(다음 단계/이전 단계/부스 종료)에 대해 이미
+  // 똑같은 분기를 갖고 있으므로 여기서 따로 처리하지 않는다 — 중복 처리하면 결과가
+  // 두 번 저장된다(2026-08-10 실측).
   socket.on('admin:endBooth', () => {
-    if (getBattleRoom()) {
-      finishBattleRoomNow({ saveResults: true });
-    } else {
-      saveLastRoundResults(makeSaveResultsCallback(io, cohort.battleRoster));
-    }
     goToStage(io, 'result');
   });
 
