@@ -101,6 +101,18 @@ console.log('battle room initialized from participants (HP model + countdown): O
 }
 console.log('battle state payload omits server-only and static data: OK');
 
+// 회귀 테스트(Opus 리뷰 Minor #9, 2026-08-10): 무기 모양은 캐릭터를 처음 그릴 때 딱
+// 한 번만 필요한데 매 틱 그대로 실려 나가 대역폭이 낭비됐다 — includeWeaponParts:false를
+// 명시하면 빠지고, 기본값(생략)은 하위 호환으로 계속 포함되어야 한다.
+{
+  const full = buildBattleStatePayload(room);
+  const trimmed = buildBattleStatePayload(room, { includeWeaponParts: false });
+  assert.ok(full.players.p1.weaponParts, '기본값은 여전히 무기 정보를 포함해야 함(하위 호환)');
+  assert.strictEqual(trimmed.players.p1.weaponParts, undefined, 'includeWeaponParts:false면 무기 정보가 빠져야 함');
+  assert.strictEqual(trimmed.players.p1.characterId, full.players.p1.characterId, '무기 정보 말고 다른 필드는 그대로 유지되어야 함');
+  console.log('buildBattleStatePayload can omit weaponParts on demand: OK');
+}
+
 assert.strictEqual(setBattleDuration(90_000), 90_000, '게임 시간은 30초 단위로 설정 가능');
 assert.strictEqual(getBattleDuration(), 90_000);
 assert.strictEqual(getBattleRoom().durationMs, 90_000, '룰렛 중 변경한 시간이 현재 판에 반영');

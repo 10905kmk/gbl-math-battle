@@ -50,7 +50,7 @@ let lastCountdownBroadcastSecond = null;
 // 전투 내부 판정에만 필요한 입력/최근 공격자/쿨타임 원본과 정적 맵 충돌 데이터는 매 50ms
 // 네트워크 패킷에 실어 보낼 필요가 없다. 클라이언트가 실제로 그리는 공개 상태만 전송해
 // 직렬화 비용과 참가자 수만큼 반복되는 송신량을 줄인다.
-export function buildBattleStatePayload(room) {
+export function buildBattleStatePayload(room, { includeWeaponParts = true } = {}) {
   if (!room) return room;
   // events는 activateSkill()이 스킬 발동 한 번마다 room에 남기는 일회성 신호일 뿐 —
   // 클라이언트는 battle:events 브로드캐스트로 받으므로 여기 실어 보낼 필요가 없다.
@@ -64,16 +64,23 @@ export function buildBattleStatePayload(room) {
       attackRequested,
       lastAttackAt,
       hpDamage,
+      // 무기 모양(weaponParts)은 대전 중 안 바뀌고 클라이언트도 캐릭터를 처음 그릴 때
+      // 딱 한 번만 읽는다(frontend/src/screens/battle.js) — 그런데도 매 틱 그대로
+      // 실려 나가 8명 기준 초당 20~60KB가 판 내내 낭비됐다(Opus 리뷰 Minor #9,
+      // 2026-08-10). includeWeaponParts=false인 반복 틱에서만 빼고, 재접속 시
+      // (battle:requestSync)/상태 전환 시에는 여전히 포함해 신규 접속 클라이언트가
+      // 무기 없이 그려지지 않게 한다.
+      weaponParts,
       ...publicPlayer
     } = player;
-    return [id, publicPlayer];
+    return [id, includeWeaponParts ? { ...publicPlayer, weaponParts } : publicPlayer];
   }));
   return { ...publicRoom, players, serverNow: Date.now() };
 }
 
-function emitBattleState(target, room, { volatile = false } = {}) {
+function emitBattleState(target, room, { volatile = false, includeWeaponParts = true } = {}) {
   const emitter = volatile && target?.volatile ? target.volatile : target;
-  emitter?.emit('battle:state', buildBattleStatePayload(room));
+  emitter?.emit('battle:state', buildBattleStatePayload(room, { includeWeaponParts }));
 }
 
 export function getBattleRoom() {
@@ -349,7 +356,11 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
       || (battleRoom.status === 'countdown' && countdownSecond !== lastCountdownBroadcastSecond);
     if (shouldEmit) {
       // 상태는 곧 다음 스냅샷으로 완전히 대체된다. 느린 네트워크에 옛 프레임을 쌓지 않는다.
-      emitBattleState(io, battleRoom, { volatile: battleRoom.status === 'active' });
+      // weaponParts는 active 상태가 "유지"되는 반복 틱에서만 뺀다 — 막 active로 전환된
+      // 첫 틱(그새 재접속한 클라이언트도 있을 수 있음)까지 빼면 무기가 하나도 안 보이는
+      // 채로 뜰 수 있다.
+      const includeWeaponParts = battleRoom.status !== 'active' || battleRoom.status !== previousStatus;
+      emitBattleState(io, battleRoom, { volatile: battleRoom.status === 'active', includeWeaponParts });
     }
     lastCountdownBroadcastSecond = countdownSecond;
     if (events && events.length > 0) io.emit('battle:events', events);
