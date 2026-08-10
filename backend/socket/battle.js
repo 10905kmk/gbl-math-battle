@@ -194,6 +194,14 @@ function concludeRound(winners, { saveResults }) {
 // 저장해야 하므로 saveResults=true).
 export function finishBattleRoomNow({ saveResults = true } = {}) {
   if (!battleRoom) return;
+  if (battleRoom.status !== 'active') {
+    // 룰렛(스킬 선택)/카운트다운 중에는 아직 아무도 싸우지 않아 전원 킬/데스/어시스트가
+    // 0이다 — 이 시점에 관리자가 battle을 벗어나면 그 "0-0-0 무승부"를 결과로 저장하면
+    // 안 된다(Opus 리뷰 Critical #1, 2026-08-10). 실제 대전이 시작도 안 했으므로 그냥
+    // 폐기한다 — admin:reset과 같은 "결과 저장 없는 순수 중단".
+    stopBattleRoom();
+    return;
+  }
   const allPlayers = Object.values(battleRoom.players);
   const maxScore = Math.max(...allPlayers.map((p) => computeScore(p)));
   const winners = allPlayers.filter((p) => computeScore(p) === maxScore).map((p) => p.id);

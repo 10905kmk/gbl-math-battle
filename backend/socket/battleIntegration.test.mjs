@@ -314,6 +314,44 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   console.log('advancing past an already-finished round via nextStage still saves results: OK');
 }
 
+// 회귀 테스트(2026-08-10, Opus 리뷰 Critical #1): battle 단계에 막 진입하면 방은 항상
+// status:'roulette'로 시작하고(참가자들이 스킬 4개를 고르는 중이라 아무도 안 싸움) —
+// 이 시점에 관리자가 "카운트다운 시작"을 누르기 전에 실수로 다음 단계를 눌러 battle을
+// 벗어나면, 예전엔 finishBattleRoomNow()가 status를 확인하지 않고 그대로 concludeRound를
+// 태워 전원 0킬-0데스-0점 "무승부"를 결과로 영구 저장해버렸다. 실제 대전은 시작도
+// 안 했으므로 저장 없이 그냥 폐기되어야 한다.
+{
+  handlers.p1['admin:reset']();
+  handlers.p1['admin:startSession'](); // -> name
+  handlers.p1['admin:nextStage'](); // -> learn
+  handlers.p1['admin:nextStage'](); // -> create
+  for (let i = 1; i <= 5; i += 1) {
+    handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
+  }
+  handlers.p1['admin:nextStage'](); // -> battle (룰렛 단계로 시작)
+
+  assert.strictEqual(getBattleRoom().status, 'roulette', '테스트 전제: battle 진입 직후는 룰렛 단계여야 함');
+
+  const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => { warnings.push(args.join(' ')); };
+  handlers.p1['admin:nextStage'](); // 룰렛 도중 실수로 다음 단계 -> result
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  console.warn = origWarn;
+
+  assert.strictEqual(getBattleRoom(), null, '룰렛 도중 battle을 벗어나면 방은 정리되어야 함');
+  assert.strictEqual(
+    warnings.filter((w) => w.includes('mock 저장')).length,
+    0,
+    '아직 아무도 안 싸웠으므로(룰렛 단계) 0-0-0 결과가 저장되면 안 됨',
+  );
+  assert.ok(
+    !getLastStandings() || getLastStandings().standings.every((p) => p.kills === 0 && p.deaths === 0),
+    '순위 대시보드에 남더라도 최소한 저장 시도는 없었어야 함',
+  );
+  console.log('leaving battle during roulette/countdown discards the round instead of saving a 0-0-0 result: OK');
+}
+
 // 회귀 테스트: 대전 도중 참가자가 연결을 끊어도(session.js의 disconnect 핸들러가
 // cohort.participants에서 그 참가자를 제거함) 결과 저장은 대전 시작 시점 스냅샷 기준으로
 // 여전히 전원에 대해 시도되어야 한다 — 안 그러면 연결이 끊긴 참가자는 결과를 영영 잃는다
@@ -472,7 +510,14 @@ console.log('battle room carries weaponParts from participant weapon: OK');
     handlers[`p${i}`]['create:done']({ damage: 1000 * i, parts: [] });
   }
   handlers.p1['admin:nextStage'](); // -> battle
-  assert.ok(getBattleRoom(), '수동 전환 테스트용 battle room이 있어야 함');
+  const midRoundRoom = getBattleRoom();
+  assert.ok(midRoundRoom, '수동 전환 테스트용 battle room이 있어야 함');
+  // 룰렛/카운트다운을 건너뛰고 라운드가 실제로 진행 중인 상태로 만든다 — Critical #1
+  // 수정(2026-08-10) 이후로는 status가 'active'가 아니면 battle 이탈 시 저장 없이
+  // 폐기되는 게 맞는 동작이라, "라운드 도중" 수동 전환을 검증하려는 이 테스트는 실제로
+  // active 상태를 만들어야 의도대로 동작한다.
+  midRoundRoom.status = 'active';
+  midRoundRoom.endsAt = Date.now() + 60000;
 
   for (const key of Object.keys(resultsSentTo)) delete resultsSentTo[key];
   const warnings = [];
