@@ -501,11 +501,13 @@ export function tickSkillWorld(room, now, events) {
   }
   room.mines = remainingMines;
 
-  // 독 도트 — 1초마다 1%씩.
+  // 독 도트 — 1초마다 1%씩. 블랙홀/지뢰와 같은 이유로 연결 끊긴 참가자는 제외한다 —
+  // 안 그러면 나가 있는 동안에도 계속 데미지를 받아 데스 카운트가 부당하게 늘어난다
+  // (Opus 리뷰 Important #4, 2026-08-10).
   const poisonSkill = getSkill('poison');
   for (const p of Object.values(room.players)) {
     const s = p.status;
-    if (!s || !p.alive) continue;
+    if (!s || !p.alive || !p.connected) continue;
     if ((s.poisonedUntil ?? 0) > now && now >= (s.poisonNextTickAt ?? 0)) {
       s.poisonNextTickAt = now + 1000;
       applySkillDamage(room, s.poisonedBy ?? p.id, p, poisonSkill.dotPercentPerSec, now, events);

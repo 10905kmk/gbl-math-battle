@@ -413,6 +413,22 @@ console.log('shield/cloak fully block incoming damage: OK');
   console.log('poison arms the next hit and then ticks damage over time: OK');
 }
 
+// 회귀 테스트(Opus 리뷰 Important #4, 2026-08-10): 독에 걸린 채로 연결이 끊기면 도트
+// 데미지가 멈춰야 한다 — 같은 파일의 블랙홀/지뢰, battleSimulation.js의 근접/투사체
+// 판정은 전부 !p.connected를 확인하는데 독 틱만 빠져 있었다. 나가 있는 동안에도 계속
+// 데미지를 받아 데스 카운트가 부당하게 늘어나면 안 된다.
+{
+  const poisoned = makePlayer('t2', null, {
+    connected: false,
+    status: { ...newPlayerSkillState(null).status, poisonedUntil: NOW + 5000, poisonedBy: 'a', poisonNextTickAt: NOW },
+  });
+  const room = makeRoom([poisoned]);
+  const hpBefore = poisoned.hp;
+  tickSkillWorld(room, NOW + 1000, []);
+  assert.strictEqual(poisoned.hp, hpBefore, '연결이 끊긴 참가자는 독 도트 데미지를 받으면 안 됨');
+  console.log('poison dot damage skips disconnected players: OK');
+}
+
 // 죽은/얼어붙은 상태에서는 스킬을 못 쓴다.
 {
   const dead = makePlayer('d', 'heal', { alive: false, hp: 0, respawnAt: NOW + 5000 });
