@@ -154,7 +154,15 @@ export function registerDevBattleHandlers(socket) {
   });
   socket.on('devBattle:skill', () => {
     const entry = devRooms.get(socket.id);
-    if (entry) activateSkill(entry.room, entry.controlledId, Date.now());
+    if (!entry) return;
+    const activated = activateSkill(entry.room, entry.controlledId, Date.now());
+    // battle.js의 battle:skill과 같은 이유(Opus 리뷰 Important #5, 2026-08-10) — 즉발 피해의
+    // 히트 이펙트는 room.events에만 남으므로 여기서 직접 꺼내 보내야 한다. 다만 개발자 방은
+    // 소켓별로 격리돼 있어 io.emit이 아니라 socket.emit으로 본인에게만 전달한다.
+    if (activated && entry.room.events?.length > 0) {
+      socket.emit('devBattle:events', entry.room.events);
+    }
+    entry.room.events = [];
   });
   socket.on('devBattle:controlPlayer', (playerId) => {
     const entry = devRooms.get(socket.id);

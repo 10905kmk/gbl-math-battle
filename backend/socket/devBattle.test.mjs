@@ -73,6 +73,24 @@ assert.strictEqual(getDevBattleRoom(socket.id).players[socket.id].hp, HP_MAX);
 assert.strictEqual(getDevBattleRoom(socket.id).players[socket.id].skillId, 'heal');
 assert.strictEqual(getDevControlledPlayerId(socket.id), socket.id);
 
+// 회귀 테스트(2026-08-10): battle:skill과 마찬가지로 devBattle:skill도 충격파처럼 즉발
+// 피해를 주는 스킬의 히트 이벤트를 devBattle:events로 전달해야 개발자 창에서 피격
+// 이펙트가 보인다 — 리셋 직후 기본 배치는 표적들이 충격파 반경(5m) 안에 있다.
+{
+  handlers.get('devBattle:selectSkill')('shockwave');
+  const beforeCount = emitted.length;
+  handlers.get('devBattle:skill')();
+  const newEmits = emitted.slice(beforeCount);
+  assert.ok(
+    newEmits.some(
+      ([ev, payload]) => ev === 'devBattle:events' && Array.isArray(payload) && payload.some((e) => e.type === 'hit'),
+    ),
+    '충격파의 즉발 히트 이벤트가 devBattle:events로 전달되어야 함',
+  );
+  assert.deepStrictEqual(getDevBattleRoom(socket.id).events, [], '전송 후에는 room.events가 비워져야 함(다음 틱에 낡은 값이 재전송되면 안 됨)');
+  console.log('devBattle:skill forwards immediate skill damage events via devBattle:events: OK');
+}
+
 handlers.get('devBattle:stop')();
 assert.strictEqual(getDevBattleRoom(socket.id), null, '창 종료 이벤트가 개발자 방을 제거해야 함');
 assert.ok(emitted.some(([event]) => event === 'devBattle:state'));
