@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { predictSelfMove } from './selfPrediction.js';
+import { predictSelfMove, reconcileSelfPosition } from './selfPrediction.js';
 
 const ARENA = { width: 1000, height: 1000 };
 const RADIUS = 20;
@@ -43,3 +43,32 @@ console.log('predictSelfMove: 아레나 경계 clamp OK');
 console.log('predictSelfMove: 벽 충돌 차단 OK');
 
 console.log('selfPrediction.test.mjs (predictSelfMove): all tests passed');
+
+// 오차가 작으면 그대로 둔다(매 상태 패킷마다 미세하게 흔들리는 것 방지).
+{
+  const result = reconcileSelfPosition({ x: 500, y: 500 }, { x: 502, y: 500 });
+  assert.deepStrictEqual(result, { x: 500, y: 500 }, '4px 미만 오차는 무시해야 함');
+}
+console.log('reconcileSelfPosition: 작은 오차 무시 OK');
+
+// 오차가 크면(리스폰/대시/넉백 등) 즉시 서버 값으로 스냅한다.
+{
+  const result = reconcileSelfPosition({ x: 500, y: 500 }, { x: 800, y: 500 });
+  assert.deepStrictEqual(result, { x: 800, y: 500 }, '150px 이상 오차는 즉시 스냅해야 함');
+}
+console.log('reconcileSelfPosition: 큰 오차 스냅 OK');
+
+// 중간 오차는 한 번에 다 당기지 않고 일부만 보정 — 반복 호출로 서버 위치에 수렴해야 한다.
+{
+  let predicted = { x: 500, y: 500 };
+  const server = { x: 550, y: 500 };
+  predicted = reconcileSelfPosition(predicted, server);
+  assert.ok(predicted.x > 500 && predicted.x < 550, '한 번에 다 당기지 않고 일부만 보정해야 함');
+  // 4px 미만으로 좁혀지면 그 뒤로는 "작은 오차는 무시" 규칙이 발동해 더 이상 안 당긴다 —
+  // 그래서 정확히 0이 아니라 무시 임계값(RECONCILE_IGNORE_PX) 안쪽까지만 수렴하면 된다.
+  for (let i = 0; i < 30; i += 1) predicted = reconcileSelfPosition(predicted, server);
+  assert.ok(Math.abs(predicted.x - 550) < 4, '반복 보정하면 무시 임계값 안쪽까지 수렴해야 함');
+}
+console.log('reconcileSelfPosition: 중간 오차 점진 수렴 OK');
+
+console.log('selfPrediction.test.mjs (reconcileSelfPosition): all tests passed');

@@ -36,3 +36,21 @@ export function predictSelfMove(pos, input, moveSpeed, walls, arenaSize, radius,
 
   return { x, y };
 }
+
+// 오차 판정 임계값 — 작을수록 서버와 자주 미세 보정하고, 클수록(리스폰/대시/넉백 등) 슬라이딩
+// 없이 즉시 순간이동한다. 원인별로 분기하지 않고 "오차 크기"만으로 판단한다(YAGNI).
+const RECONCILE_IGNORE_PX = 4;
+const RECONCILE_SNAP_PX = 150;
+const RECONCILE_CORRECTION_RATE = 0.3;
+
+export function reconcileSelfPosition(predicted, serverPos) {
+  const dx = serverPos.x - predicted.x;
+  const dy = serverPos.y - predicted.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < RECONCILE_IGNORE_PX) return predicted;
+  if (dist >= RECONCILE_SNAP_PX) return { x: serverPos.x, y: serverPos.y };
+  return {
+    x: predicted.x + dx * RECONCILE_CORRECTION_RATE,
+    y: predicted.y + dy * RECONCILE_CORRECTION_RATE,
+  };
+}
