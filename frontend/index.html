@@ -2,7 +2,11 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 대전 화면 조준 스틱을 연타하면 모바일 브라우저의 더블탭 확대 제스처가 같이 발동해서
+       화면이 확대돼버리는 문제가 있었다 — 이 앱은 핀치/더블탭 확대가 필요한 화면이 없으므로
+       뷰포트 단계에서 아예 막는다(요소별 touch-action:none만으로는 일부 모바일 브라우저에서
+       더블탭 확대까지 완전히 막히지 않는 경우가 있음). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>수학 도형 무기 온라인 베틀</title>
   <!-- KaTeX 스타일시트 — AI 채팅 답변의 LaTeX 수식 렌더링용(src/screens/create/Markdown.js).
        웹폰트(.woff2)도 이 CSS가 같은 CDN에서 상대경로로 받아온다. -->

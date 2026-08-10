@@ -516,6 +516,15 @@ export function BattleScreen({ socket, state }) {
     return () => socket.off('battle:standings', setStandings);
   }, [socket]);
 
+  // 마우스 같은 정밀 포인터가 있는 기기인지 — 대전 시작 시 한 번만 확인한다(중간에 마우스를
+  // 뽑았다 꽂는 극단적인 경우는 고려하지 않음, YAGNI). 터치 전용 기기(폰/태블릿)에서는
+  // updateAimFromPointer를 아예 끈다 — 안 그러면 손가락이 캔버스를 스치기만 해도 Konva가
+  // 그 좌표를 "포인터 위치"로 기억해뒀다가, 캐릭터가 움직일 때마다 그 고정된 화면 좌표를
+  // 향해 매 프레임 조준을 다시 계산해서 보내버려 가상 조이스틱 입력과 계속 충돌한다(모바일
+  // 조준이 "가끔 고정된 각도로 가려는" 것처럼 느껴지던 원인, 2026-08-11 실기기 테스트 피드백).
+  const hasFinePointerRef = useRef(
+    typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches === true,
+  );
   const inputRef = useRef({ moveX: 0, moveY: 0, aimX: 0, aimY: 0 });
   const keysRef = useRef({ up: false, down: false, left: false, right: false });
 
@@ -608,6 +617,9 @@ export function BattleScreen({ socket, state }) {
   // 시점의 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다
   // 다시 클릭해야 함).
   function updateAimFromPointer() {
+    // 터치 전용 기기에서는 아예 아무 것도 안 한다 — 조준은 가상 조이스틱(onAimStick)만
+    // 담당한다(위 hasFinePointerRef 주석 참고).
+    if (!hasFinePointerRef.current) return;
     const stage = stageRef.current;
     if (!stage || !renderSelfRef.current) return;
     const pointer = stage.getPointerPosition();
@@ -714,10 +726,14 @@ export function BattleScreen({ socket, state }) {
     sendInput({ moveX: x, moveY: y });
   }
   function onAimStick({ x, y }) {
-    // 스틱이 중앙 근처(길이 거의 0)면 조준을 보내지 않는다 — 서버의 데드존과 같은 이유로,
-    // 손을 떼는 순간 조준이 (0,0)으로 무너져 공격 위치가 캐릭터 자기 자신으로 붕괴하는 것 방지.
+    // 정확히 중앙(len===0)이면 정규화(x/len)가 0으로 나누기가 되므로만 막는다 — 그 외엔
+    // 아무리 작은 편차라도 조준으로 반영한다. 예전엔 이 임계값이 0.05(반지름 40px 기준 2px)로
+    // 커서, 브롤스타즈처럼 조이스틱 중앙 부근을 연달아 톡톡 두드려 조준을 미세 조정하려 해도
+    // 대부분 무시됐다 — 실기기 피드백으로 낮췄다(2026-08-11). 손을 뗄 때는 VirtualJoystick이
+    // {x:0,y:0}을 주지만 그때도 len이 정확히 0이라 이 가드에 걸려 조준이 (0,0)으로 무너지지
+    // 않고 마지막 방향을 유지한다.
     const len = Math.hypot(x, y);
-    if (len < 0.05) return;
+    if (len < 1e-6) return;
     // 스틱 벡터를 그대로 보내면 살짝 민 입력(길이가 짧음)일수록 각도 변화 감지 임계값
     // (INPUT_EPSILON)을 넘기려면 더 큰 각도 변화가 필요해져 조준이 뭉툭해진다 — PC 마우스
     // 조준(단위벡터)과 똑같이 정규화해서 보낸다(Opus 리뷰 Important I5).
