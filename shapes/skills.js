@@ -148,6 +148,21 @@ export function isValidSkillId(skillId) {
   return Boolean(SKILL_BY_ID[skillId]);
 }
 
+// 이동 속도 배율 — 버프(속도증가/최후의 발악)와 디버프(속도지옥)가 함께 걸릴 수 있으므로
+// 곱해서 합친다. 얼면 0. shapes/에 둔 이유: 서버(battleSimulation.js의 moveOne)와 프론트
+// 대전 화면(본인 캐릭터 이동 클라이언트 예측)이 완전히 같은 계산식을 써야 스킬 지속시간
+// 내내 예측이 어긋나 떨리는 문제가 없다(Opus 리뷰 Important #3, 2026-08-11) — 이 함수는
+// player.status와 이 파일의 getSkill만 참조하므로 두 런타임이 그대로 같이 쓸 수 있다.
+export function speedMultiplier(player, now) {
+  const s = player.status ?? {};
+  if ((s.frozenUntil ?? 0) > now) return 0;
+  let mul = 1;
+  if ((s.speedUntil ?? 0) > now) mul *= s.speedMul ?? 1;
+  if ((s.lastStandUntil ?? 0) > now) mul *= getSkill('lastStand').speedMultiplier;
+  if ((s.slowUntil ?? 0) > now) mul /= s.slowMul ?? 1;
+  return mul;
+}
+
 // 룰렛 후보에 서로 다른 스킬을 채운다.
 export function drawSkillChoices(count = 3, random = Math.random) {
   const pool = [...SKILLS];

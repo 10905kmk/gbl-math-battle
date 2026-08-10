@@ -6,7 +6,7 @@
 //   - tickSkillWorld() : 매 틱(지뢰/블랙홀/진주/독 도트)
 //   - 데미지 계산 훅   : outgoingMultiplier / incomingMultiplier / onDamaged
 // 세 곳뿐이라 서로 간섭하지 않는다.
-import { getSkill, METER } from '../../shapes/skills.js';
+import { getSkill, METER, speedMultiplier } from '../../shapes/skills.js';
 import { MAX_HP } from '../../shapes/combatRules.js';
 import { circleRectOverlap, resolveCircleFromWalls } from '../../shapes/collision.js';
 
@@ -104,17 +104,10 @@ export function isCloaked(player, now) {
   return (player.status?.cloakUntil ?? 0) > now;
 }
 
-// 이동 속도 배율 — 버프(속도증가/최후의 발악)와 디버프(속도지옥)가 함께 걸릴 수 있으므로
-// 곱해서 합친다. 얼면 0.
-export function speedMultiplier(player, now) {
-  const s = player.status ?? {};
-  if ((s.frozenUntil ?? 0) > now) return 0;
-  let mul = 1;
-  if ((s.speedUntil ?? 0) > now) mul *= s.speedMul ?? 1;
-  if ((s.lastStandUntil ?? 0) > now) mul *= getSkill('lastStand').speedMultiplier;
-  if ((s.slowUntil ?? 0) > now) mul /= s.slowMul ?? 1;
-  return mul;
-}
+// shapes/skills.js로 옮겼다(Opus 리뷰 Important #3, 2026-08-11) — 프론트 대전 화면의 본인
+// 캐릭터 이동 예측도 서버와 같은 배율 계산식을 써야 해서, 두 런타임이 공유하는 shapes/에
+// 두고 여기서는 기존 import 경로(`from './skillEngine.js'`)가 계속 통하도록 재수출만 한다.
+export { speedMultiplier };
 
 // 공격자가 주는 피해 배율 — 최후의 발악/사형선고 표식/운빨을 전부 여기서 합친다.
 export function outgoingDamageMultiplier(attacker, target, now, random = Math.random) {
