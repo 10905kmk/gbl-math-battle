@@ -5,6 +5,7 @@ import Konva from 'konva';
 import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
 import { DEFAULT_MAP } from '../../../shapes/battleMap.js';
 import { meleeHitboxRect, ATTACK_HITBOX_SIZE, PROJECTILE_RADIUS } from '../../../shapes/attackGeometry.js';
+import { MAX_HP } from '../../../shapes/combatRules.js';
 import { VirtualJoystick } from './VirtualJoystick.js';
 import { SkillRoulette } from './battle/SkillRoulette.js';
 import { SkillButton } from './battle/SkillButton.js';
@@ -34,10 +35,10 @@ function formatTimeRemaining(ms) {
 // CHARACTER_RADIUS(20)과 똑같이 하면 시에르핀스키/코흐눈꽃처럼 점이 많은 프랙탈은 뭉개져서
 // 거의 안 보인다(Opus 리뷰에서 실측: 20px 아이콘에 43픽셀만 칠해짐) — 조금 더 키운다.
 const WEAPON_ICON_SIZE = 28;
-// 머리 위 체력바 — 서버의 HP_MAX와 같은 값(90)을 기준으로 비율을 그린다. shapes/가 아니라
-// backend/lib에 있는 상수라 프론트가 직접 import할 수 없어(브라우저가 backend/를 서빙하지
-// 않음) 여기 같은 값을 둔다.
-const HP_MAX_CLIENT = 90;
+// 머리 위 체력바 — 서버의 HP_MAX(backend/lib/battleSimulation.js가 재수출)와 같은
+// shapes/combatRules.js를 그대로 가져다 쓴다. 밸런스 조정으로 MAX_HP가 바뀌어도
+// 이 값이 조용히 서버와 어긋날 일이 없다(Opus 리뷰 Minor #10, 2026-08-10).
+const HP_MAX_CLIENT = MAX_HP;
 const HP_BAR_WIDTH = 42;
 const HP_BAR_HEIGHT = 6;
 const HP_COLOR_FULL = '#5fe3a1';
