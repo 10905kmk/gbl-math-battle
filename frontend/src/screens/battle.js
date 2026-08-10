@@ -11,6 +11,7 @@ import { SkillRoulette } from './battle/SkillRoulette.js';
 import { SkillButton } from './battle/SkillButton.js';
 import { clearSkillEffects, drawSkillEffects, isPlayerHiddenByCloak } from './battle/skillEffects.js';
 import { hasLocalDamage } from './battle/battleFeedback.js';
+import { predictSelfMove, reconcileSelfPosition } from './battle/selfPrediction.js';
 
 const html = htm.bind(h);
 
@@ -54,6 +55,10 @@ const CHARACTER_COLORS = {
 // 흔들려도 매 프레임 emit되는 걸 방지).
 const INPUT_EPSILON = 0.02;
 const NETWORK_FRAME_MS = 50;
+// 서버 backend/lib/battleSimulation.js의 DEFAULT_MOVE_SPEED와 같은 값 — 첫 battle:state
+// 수신 전(아주 짧은 순간) 예측 이동에 쓸 값이 필요해서 폴백으로 하나 둔다. room.moveSpeed가
+// 도착하는 즉시 대체되므로 실제 영향은 첫 프레임 몇 개뿐이다.
+const SELF_PREDICT_MOVE_SPEED_FALLBACK = 8;
 
 function sameArray(a, b) {
   return a === b || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, i) => value === b[i]));
@@ -83,7 +88,15 @@ export function BattleScreen({ socket, state }) {
   const previewNodeRef = useRef(null);
   // PC 마우스 조준을 계산하려면 "내 캐릭터가 화면에서 어디 있는지"가 필요한데, battle:state로만
   // 갱신되는 서버 진실이라 여기 별도로 캐시해둔다(마우스 이벤트는 그 사이 계속 발생하므로).
-  const selfPosRef = useRef({ x: DEFAULT_MAP.arenaSize.width / 2, y: DEFAULT_MAP.arenaSize.height / 2 });
+  // 서버가 확인해준 마지막 내 위치에서 시작해 매 프레임 예측 이동한 결과 — null이면 아직 첫
+  // battle:state를 못 받은 것(그 전엔 예측할 입력 기준 위치가 없음).
+  const predictedSelfRef = useRef(null);
+  // 예측/미리보기 계산에 필요한, 서버가 준 내 최신 상태(조준/원거리 여부/사거리/생존 여부) —
+  // 위치 필드도 들어있지만 화면 렌더링에는 predictedSelfRef만 쓴다.
+  const selfPlayerRef = useRef(null);
+  // room.moveSpeed 캐시 — 관리자가 부스 현장에서 실시간으로 바꿀 수 있는 값이라 매 상태
+  // 패킷마다 갱신한다.
+  const moveSpeedRef = useRef(SELF_PREDICT_MOVE_SPEED_FALLBACK);
   // 현재 카메라가 월드 좌표계에서 어디를 보고 있는지(뷰포트 왼쪽 위 모서리의 월드 좌표).
   // 마우스 조준 좌표 변환(뷰포트 좌표 -> 월드 좌표)에도 이 값이 필요해서 ref로 공유한다.
   const cameraRef = useRef({ x: 0, y: 0 });
@@ -133,7 +146,7 @@ export function BattleScreen({ socket, state }) {
     stage.add(layer);
     layerRef.current = layer;
     stageRef.current = stage;
-    const motionAnimation = new Konva.Animation(() => {
+    const motionAnimation = new Konva.Animation((frame) => {
       const now = performance.now();
       for (const [node, motion] of motionTargetsRef.current) {
         const t = Math.min(1, Math.max(0, (now - motion.startedAt) / NETWORK_FRAME_MS));
@@ -143,6 +156,10 @@ export function BattleScreen({ socket, state }) {
         });
         if (t >= 1) motionTargetsRef.current.delete(node);
       }
+      // updateSelfPrediction은 컴포넌트 본문 아래쪽에 함수 선언(hoisting)으로 정의돼 있어
+      // 여기서 참조 가능하다 — 이 마운트 이펙트가 실제로 실행되는 시점엔 컴포넌트 함수 전체가
+      // 이미 평가된 뒤이므로 선언 순서와 무관하게 최신 클로저를 참조한다.
+      updateSelfPrediction(frame?.timeDiff ?? 16);
     }, layer);
     motionAnimation.start();
 
@@ -202,6 +219,11 @@ export function BattleScreen({ socket, state }) {
           : null,
       );
       if (me) {
+        selfPlayerRef.current = me;
+        moveSpeedRef.current = Number.isFinite(room.moveSpeed) ? room.moveSpeed : SELF_PREDICT_MOVE_SPEED_FALLBACK;
+        predictedSelfRef.current = predictedSelfRef.current
+          ? reconcileSelfPosition(predictedSelfRef.current, { x: me.x, y: me.y })
+          : { x: me.x, y: me.y };
         setSkillChoices((previous) => {
           const next = me.skillChoices ?? [];
           return sameArray(previous, next) ? previous : next;
@@ -223,55 +245,27 @@ export function BattleScreen({ socket, state }) {
       // 벽은 배경 이미지에 실제 그림으로 이미 표현돼 있다고 가정하고, 여기서는 시각적으로
       // 그리지 않는다 — room.walls는 서버 충돌판정 전용 데이터.
       Object.values(room.players).forEach((p) => {
-        if (p.id === socket.id) {
-          selfPosRef.current = { x: p.x, y: p.y };
-          updateCamera(p.x, p.y);
-          // 마우스가 가만히 있어도 내 캐릭터는 서버 틱마다 움직이므로, "캐릭터 -> 마우스"
-          // 조준 방향도 그때마다 다시 계산해야 한다 — mousemove 이벤트에서만 갱신하면
-          // 이동 중엔 조준이 마지막으로 마우스가 움직였던 순간에 멈춰버린다(Opus 리뷰
-          // Important I2). updateCamera가 먼저 실행돼서 cameraRef가 이 틱 기준으로
-          // 최신 상태여야 아래 updateAimFromPointer의 좌표 변환이 정확하다.
-          updateAimFromPointer();
-
-          // 공격 미리보기(텔레그래프) — 내 캐릭터 것만 보여준다(브롤스타즈처럼 상대 조준은
-          // 화면에 안 보임). 무기 종류(근접/원거리)는 대전 중 안 바뀌므로 노드 타입은 한 번만
-          // 정하고, 이후엔 위치/방향만 갱신한다. meleeHitboxRect는 서버(battleSimulation.js)와
-          // 똑같은 계산식을 shapes/attackGeometry.js에서 그대로 가져다 쓴 것이라, 여기 보이는
-          // 자리가 실제 판정 자리와 항상 일치한다.
-          const previewAimX = p.aimX ?? 0;
-          const previewAimY = p.aimY ?? 1;
-          if (!previewNodeRef.current) {
-            previewNodeRef.current = p.isRanged
-              ? new Konva.Line({ points: [0, 0, 0, 0], stroke: 'rgba(255,255,255,0.5)', strokeWidth: 3 })
-              : new Konva.Rect({
-                  width: ATTACK_HITBOX_SIZE,
-                  height: ATTACK_HITBOX_SIZE,
-                  // 회전축을 중심에 맞춘다 — 기본값(좌상단 기준 회전)이면 rotation()을 걸었을 때
-                  // 실제 판정 자리(meleeHitboxRect의 centerX/centerY 중심)와 어긋나 보인다.
-                  offsetX: ATTACK_HITBOX_SIZE / 2,
-                  offsetY: ATTACK_HITBOX_SIZE / 2,
-                  fill: 'rgba(255,255,255,0.25)',
-                });
-            layer.add(previewNodeRef.current);
-          }
-          if (p.isRanged) {
-            const range = p.rangeDistance ?? 0;
-            previewNodeRef.current.points([p.x, p.y, p.x + previewAimX * range, p.y + previewAimY * range]);
-          } else {
-            // meleeHitboxRect가 중심좌표+회전각을 주므로, 미리보기도 캐릭터가 든 무기 방향과
-            // 똑같이 회전시킨다 — 서버 판정(battleSimulation.js)이 쓰는 값과 완전히 같은
-            // 계산식이라 여기 보이는 자리가 실제 판정 자리와 항상 일치한다.
-            const hitbox = meleeHitboxRect(p.x, p.y, previewAimX, previewAimY, CHARACTER_RADIUS);
-            previewNodeRef.current.x(hitbox.centerX);
-            previewNodeRef.current.y(hitbox.centerY);
-            previewNodeRef.current.rotation((hitbox.angle * 180) / Math.PI);
-          }
+        const isSelf = p.id === socket.id;
+        // 공격 미리보기(텔레그래프) 노드는 여기서 한 번만 만든다 — 위치/방향 갱신은
+        // updateSelfPrediction()이 매 프레임 담당한다(아래 useEffect 밖에 정의).
+        if (isSelf && !previewNodeRef.current) {
+          previewNodeRef.current = p.isRanged
+            ? new Konva.Line({ points: [0, 0, 0, 0], stroke: 'rgba(255,255,255,0.5)', strokeWidth: 3 })
+            : new Konva.Rect({
+                width: ATTACK_HITBOX_SIZE,
+                height: ATTACK_HITBOX_SIZE,
+                // 회전축을 중심에 맞춘다 — 기본값(좌상단 기준 회전)이면 rotation()을 걸었을 때
+                // 실제 판정 자리(meleeHitboxRect의 centerX/centerY 중심)와 어긋나 보인다.
+                offsetX: ATTACK_HITBOX_SIZE / 2,
+                offsetY: ATTACK_HITBOX_SIZE / 2,
+                fill: 'rgba(255,255,255,0.25)',
+              });
+          layer.add(previewNodeRef.current);
         }
         let entry = nodesRef.current[p.id];
         let isNewEntry = false;
         if (!entry) {
           isNewEntry = true;
-          const isSelf = p.id === socket.id;
           const circle = new Konva.Circle({
             x: p.x, y: p.y, radius: CHARACTER_RADIUS,
             fill: CHARACTER_COLORS[p.characterId] ?? '#999',
@@ -340,14 +334,14 @@ export function BattleScreen({ socket, state }) {
         // 대상이 아니다"라는 같은 뜻이라 같은 표현을 쓴다.
         const opacity = (!isConnected ? 0.2 : isAlive ? 1 : 0.28) * selfCloakOpacity;
 
-        const localHitFlash = p.id === socket.id && hitFlashUntilRef.current > receivedAt;
-        moveNodeSmoothly(entry.circle, p.x, p.y, isNewEntry);
+        const localHitFlash = isSelf && hitFlashUntilRef.current > receivedAt;
+        if (!isSelf) moveNodeSmoothly(entry.circle, p.x, p.y, isNewEntry);
         entry.circle.visible(!hiddenByCloak);
         entry.circle.fill(localHitFlash ? '#ff4d4d' : CHARACTER_COLORS[p.characterId] ?? '#999');
         entry.circle.shadowColor(localHitFlash ? '#ff1f1f' : 'transparent');
         entry.circle.shadowBlur(localHitFlash ? 18 : 0);
         entry.circle.opacity(opacity);
-        moveNodeSmoothly(entry.label, p.x - CHARACTER_RADIUS, p.y - 7, isNewEntry);
+        if (!isSelf) moveNodeSmoothly(entry.label, p.x - CHARACTER_RADIUS, p.y - 7, isNewEntry);
         entry.label.visible(!hiddenByCloak);
         entry.label.opacity(opacity);
 
@@ -355,16 +349,16 @@ export function BattleScreen({ socket, state }) {
         const hpRatio = Math.max(0, Math.min(1, (p.hp ?? HP_MAX_CLIENT) / HP_MAX_CLIENT));
         const barX = p.x - HP_BAR_WIDTH / 2;
         const barY = Math.max(0, p.y - CHARACTER_RADIUS - 22);
-        moveNodeSmoothly(entry.hpBarBg, barX, barY, isNewEntry);
+        if (!isSelf) moveNodeSmoothly(entry.hpBarBg, barX, barY, isNewEntry);
         entry.hpBarBg.visible(isAlive && !hiddenByCloak);
-        moveNodeSmoothly(entry.hpBarFill, barX, barY, isNewEntry);
+        if (!isSelf) moveNodeSmoothly(entry.hpBarFill, barX, barY, isNewEntry);
         entry.hpBarFill.width(HP_BAR_WIDTH * hpRatio);
         entry.hpBarFill.fill(hpRatio > 0.5 ? HP_COLOR_FULL : hpRatio > 0.25 ? HP_COLOR_MID : HP_COLOR_LOW);
         entry.hpBarFill.visible(isAlive && hpRatio > 0 && !hiddenByCloak);
         entry.hpBarBg.opacity(isConnected ? 1 : 0.2);
         entry.hpBarFill.opacity(isConnected ? 1 : 0.2);
 
-        moveNodeSmoothly(entry.nameLabel, p.x - 60, barY - 15, isNewEntry);
+        if (!isSelf) moveNodeSmoothly(entry.nameLabel, p.x - 60, barY - 15, isNewEntry);
         entry.nameLabel.text(p.name ?? `캐릭터 ${(p.characterId ?? '').replace('char', '')}`);
         entry.nameLabel.visible(!hiddenByCloak);
         entry.nameLabel.opacity(opacity);
@@ -373,7 +367,7 @@ export function BattleScreen({ socket, state }) {
         const showRespawn = !isAlive && Number.isFinite(p.respawnAt);
         entry.respawnLabel.visible(showRespawn && !hiddenByCloak);
         if (showRespawn) {
-          moveNodeSmoothly(entry.respawnLabel, p.x - 60, barY - 2, isNewEntry);
+          if (!isSelf) moveNodeSmoothly(entry.respawnLabel, p.x - 60, barY - 2, isNewEntry);
           entry.respawnLabel.text(`부활 ${Math.max(0, Math.ceil((p.respawnAt - serverNow) / 1000))}`);
         }
 
@@ -394,10 +388,10 @@ export function BattleScreen({ socket, state }) {
           DEFAULT_MAP.arenaSize.height,
           Math.max(0, p.y + aimY * handForward + aimX * handSide),
         );
-        moveNodeSmoothly(entry.rightHand, handX, handY, isNewEntry);
+        if (!isSelf) moveNodeSmoothly(entry.rightHand, handX, handY, isNewEntry);
         entry.rightHand.visible(!hiddenByCloak);
         entry.rightHand.opacity(opacity);
-        moveNodeSmoothly(entry.weaponGroup, handX, handY, isNewEntry);
+        if (!isSelf) moveNodeSmoothly(entry.weaponGroup, handX, handY, isNewEntry);
         entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
         entry.weaponGroup.visible(!hiddenByCloak);
         entry.weaponGroup.opacity(opacity);
@@ -571,18 +565,18 @@ export function BattleScreen({ socket, state }) {
     moveNodeSmoothly(layer, -cameraX, -cameraY);
   }
 
-  // PC 조준 — 아레나 위 마지막 마우스 위치와 내 캐릭터 위치(selfPosRef)의 차이를 방향벡터로
-  // 보낸다. mousemove(마우스가 움직였을 때)뿐 아니라 battle:state 갱신(내 캐릭터가 움직였을
-  // 때)에서도 호출된다 — 마우스가 가만히 있어도 캐릭터가 이동 중이면 조준 방향이 계속
-  // 새로 계산돼야 하기 때문(Opus 리뷰 Important I2). mousedown(누르는 순간)은 그 시점의
-  // 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다
-  // 다시 클릭해야 함).
+  // PC 조준 — 아레나 위 마지막 마우스 위치와 내 캐릭터 예측 위치(predictedSelfRef)의 차이를
+  // 방향벡터로 보낸다. mousemove(마우스가 움직였을 때)뿐 아니라 updateSelfPrediction이 매
+  // 프레임(내 캐릭터가 이동 중일 때)에도 호출한다 — 마우스가 가만히 있어도 캐릭터가 이동
+  // 중이면 조준 방향이 계속 새로 계산돼야 하기 때문(Opus 리뷰 Important I2). mousedown(누르는
+  // 순간)은 그 시점의 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지
+  // 않는다(쿨다운마다 다시 클릭해야 함).
   function updateAimFromPointer() {
     const stage = stageRef.current;
-    if (!stage) return;
+    if (!stage || !predictedSelfRef.current) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
-    const { x: sx, y: sy } = selfPosRef.current;
+    const { x: sx, y: sy } = predictedSelfRef.current;
     // getPointerPosition()은 뷰포트(스테이지) 기준 좌표(0~800, 0~600)를 반환한다 —
     // 카메라 오프셋을 더해서 월드 좌표로 변환한 뒤에야 내 캐릭터(월드 좌표)와 정확히
     // 비교할 수 있다. 안 그러면 카메라가 원점(0,0)에서 벗어나는 순간 조준 방향이 어긋난다.
@@ -594,6 +588,66 @@ export function BattleScreen({ socket, state }) {
     const len = Math.hypot(dx, dy);
     if (len < 1) return; // 캐릭터 위치와 거의 겹치면(1px 미만) 조준을 갱신하지 않음
     sendInput({ aimX: dx / len, aimY: dy / len });
+  }
+
+  // 내 캐릭터만 서버 응답을 기다리지 않고 매 애니메이션 프레임(rAF) 미리 이동시켜 그린다 —
+  // 다른 참가자는 그대로 moveNodeSmoothly 보간(50ms 목표)을 쓴다. 체력바 채움/색/텍스트 같은
+  // "위치가 아닌" 값은 여기서 안 건드리고 onState의 일반 루프가 그대로 담당한다 — 같은 값을
+  // 서로 다른 주기(여기는 매 프레임, onState는 20Hz)로 건드리면 두 갱신이 부딪혀 떨린다.
+  function updateSelfPrediction(dtMs) {
+    const me = selfPlayerRef.current;
+    if (!me || !predictedSelfRef.current) return;
+    // 사망 중엔 서버도 입력을 비우므로(recordDeath) 예측도 멈춘다 — 로컬 inputRef에 죽기
+    // 직전 입력이 남아 있어도 캐릭터가 제자리에서 계속 밀리지 않게 방어.
+    if (me.alive !== false) {
+      predictedSelfRef.current = predictSelfMove(
+        predictedSelfRef.current,
+        inputRef.current,
+        moveSpeedRef.current,
+        DEFAULT_MAP.walls,
+        DEFAULT_MAP.arenaSize,
+        CHARACTER_RADIUS,
+        dtMs,
+      );
+    }
+    const { x, y } = predictedSelfRef.current;
+    updateCamera(x, y);
+    updateAimFromPointer();
+
+    const entry = nodesRef.current[socket.id];
+    if (entry) {
+      entry.circle.position({ x, y });
+      entry.label.position({ x: x - CHARACTER_RADIUS, y: y - 7 });
+      const barX = x - HP_BAR_WIDTH / 2;
+      const barY = Math.max(0, y - CHARACTER_RADIUS - 22);
+      entry.hpBarBg.position({ x: barX, y: barY });
+      entry.hpBarFill.position({ x: barX, y: barY });
+      entry.nameLabel.position({ x: x - 60, y: barY - 15 });
+      if (entry.respawnLabel.visible()) entry.respawnLabel.position({ x: x - 60, y: barY - 2 });
+
+      const aimX = me.aimX ?? 0;
+      const aimY = me.aimY ?? 1;
+      const handForward = CHARACTER_RADIUS * 0.45;
+      const handSide = CHARACTER_RADIUS * 0.78;
+      const handX = Math.min(DEFAULT_MAP.arenaSize.width, Math.max(0, x + aimX * handForward - aimY * handSide));
+      const handY = Math.min(DEFAULT_MAP.arenaSize.height, Math.max(0, y + aimY * handForward + aimX * handSide));
+      entry.rightHand.position({ x: handX, y: handY });
+      entry.weaponGroup.position({ x: handX, y: handY });
+    }
+
+    if (previewNodeRef.current) {
+      const aimX = me.aimX ?? 0;
+      const aimY = me.aimY ?? 1;
+      if (me.isRanged) {
+        const range = me.rangeDistance ?? 0;
+        previewNodeRef.current.points([x, y, x + aimX * range, y + aimY * range]);
+      } else {
+        const hitbox = meleeHitboxRect(x, y, aimX, aimY, CHARACTER_RADIUS);
+        previewNodeRef.current.x(hitbox.centerX);
+        previewNodeRef.current.y(hitbox.centerY);
+        previewNodeRef.current.rotation((hitbox.angle * 180) / Math.PI);
+      }
+    }
   }
 
   useEffect(() => {
