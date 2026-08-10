@@ -52,7 +52,11 @@ let lastCountdownBroadcastSecond = null;
 // 직렬화 비용과 참가자 수만큼 반복되는 송신량을 줄인다.
 export function buildBattleStatePayload(room) {
   if (!room) return room;
-  const { walls, spawnPoints, ...publicRoom } = room;
+  // events는 activateSkill()이 스킬 발동 한 번마다 room에 남기는 일회성 신호일 뿐 —
+  // 클라이언트는 battle:events 브로드캐스트로 받으므로 여기 실어 보낼 필요가 없다.
+  // 빼놓지 않으면 다음 스킬이 발동될 때까지 매 틱(20Hz) 낡은 값이 불필요하게
+  // 재전송된다(Opus 리뷰 Important #5, 2026-08-10).
+  const { walls, spawnPoints, events, ...publicRoom } = room;
   const players = Object.fromEntries(Object.entries(room.players ?? {}).map(([id, player]) => {
     const {
       input,
@@ -469,7 +473,16 @@ export function registerBattleHandlers(io, socket) {
   socket.on('battle:skill', (skillId) => {
     if (!battleRoom || battleRoom.status !== 'active') return;
     if (typeof skillId !== 'string') return;
-    activateSkill(battleRoom, socket.id, Date.now(), Math.random, skillId);
+    const activated = activateSkill(battleRoom, socket.id, Date.now(), Math.random, skillId);
+    // activateSkill은 즉발 피해(충격파/콜드플레이 등)의 히트 이벤트를 room.events에
+    // 남기는데, 매 틱(stepSimulation)이 자체 events 배열을 새로 만들어 도는 것과 달리
+    // 이건 그 틱 루프 밖(소켓 핸들러)에서 일어나므로 여기서 직접 꺼내 보내야 클라이언트의
+    // 피격 이펙트(hit-flash)가 뜬다 — 예전엔 아무도 안 읽어서 조용히 버려졌다(Opus 리뷰
+    // Important #5, 2026-08-10).
+    if (activated && battleRoom.events?.length > 0) {
+      io.emit('battle:events', battleRoom.events);
+    }
+    battleRoom.events = [];
   });
 
   socket.on('admin:setMoveSpeed', (value) => {

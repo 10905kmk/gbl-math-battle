@@ -191,6 +191,30 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   assert.strictEqual(current.players.p1.skillReadyAts.dash, undefined, '장착하지 않은 스킬은 발동 불가');
   battleHandlers['battle:skill']('mine');
   assert.ok(current.players.p1.skillReadyAts.mine > Date.now(), '다른 스킬은 힐 쿨타임과 무관하게 발동');
+
+  // 회귀 테스트(Opus 리뷰 Important #5, 2026-08-10): 충격파처럼 즉발 피해를 주는 스킬의
+  // 히트 이벤트가 battle:events로 브로드캐스트되어야 클라이언트가 피격 이펙트를 띄운다 —
+  // 예전엔 activateSkill이 room.events에 남기기만 하고 아무도 안 읽어서 조용히 버려졌다.
+  {
+    current.status = 'active';
+    current.players.p1.x = 500;
+    current.players.p1.y = 500;
+    current.players.p2.x = 500;
+    current.players.p2.y = 500;
+    current.players.p1.skillIds = ['shockwave', 'heal', 'shield', 'dash'];
+    current.players.p1.skillReadyAts = {};
+    const beforeCount = emitted.length;
+    battleHandlers['battle:skill']('shockwave');
+    const newEmits = emitted.slice(beforeCount);
+    assert.ok(
+      newEmits.some(
+        ([ev, payload]) => ev === 'battle:events' && Array.isArray(payload) && payload.some((e) => e.type === 'hit'),
+      ),
+      '충격파의 즉발 히트 이벤트가 battle:events로 브로드캐스트되어야 함',
+    );
+    assert.deepStrictEqual(current.events, [], '전송 후에는 room.events가 비워져야 함(다음 틱에 낡은 값이 재전송되면 안 됨)');
+    console.log('battle:skill forwards immediate skill damage events via battle:events: OK');
+  }
   current.status = savedStatus;
 
   // 빈 payload/undefined/null이 와도 크래시하지 않아야 함
