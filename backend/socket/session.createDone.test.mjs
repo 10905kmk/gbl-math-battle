@@ -230,6 +230,25 @@ console.log('participant:join atomically restores a persisted nickname: OK');
   console.log('admin:forceFinish assigns a fixed fallback weapon and ignores already-done/unknown participants: OK');
 }
 
+// 회귀 테스트(Opus 리뷰 Important #6, 2026-08-10): admin:forceFinish는 create 단계에서만
+// 허용되어야 한다 — 가드가 없으면 battle 단계 중에도 눌러서 cohort.battleRoster 안의
+// 같은 참가자 객체를 그 자리에서 바꿔버릴 수 있었다(admin:reopenCreate와 같은 이유로
+// create 단계에서만 허용).
+{
+  handlers.f1['admin:nextStage'](); // -> battle
+  const f3Before = latestParticipants().find((p) => p.id === 'f3');
+  assert.strictEqual(f3Before.createDone, false, '테스트 전제: f3은 여전히 미완료 상태');
+
+  const beforeCount = countAdminParticipantsEmits();
+  handlers.f1['admin:forceFinish']('f3');
+  assert.strictEqual(countAdminParticipantsEmits(), beforeCount, 'battle 단계에서는 강제 마감을 눌러도 아무 일도 없어야 함');
+  const f3After = latestParticipants().find((p) => p.id === 'f3');
+  assert.strictEqual(f3After.createDone, false, 'battle 단계에서는 참가자 무기가 바뀌면 안 됨');
+  console.log('admin:forceFinish is a no-op outside the create stage: OK');
+
+  handlers.f1['admin:reset']();
+}
+
 // 회귀 테스트: 세션 시작 시점의 접속 인원이 목표가 되어야 한다(5명 고정 아님).
 {
   handlers.f1['admin:reset']();

@@ -287,7 +287,13 @@ export function registerSessionHandlers(io, socket) {
   // 마감시킬 때 쓴다 — create -> battle 전환이 이제 전원 완료를 기다리지 않고 관리자
   // 수동으로 일어나므로, 이걸 안 만들면 미완료 참가자는 무기 없이 battle에서 통째로
   // 빠진다(대전 참여도 결과 저장도 못 함).
+  // create 단계에서만 허용한다 — admin:reopenCreate와 같은 이유(292행 참고)로, 이 가드가
+  // 없으면 battle 단계 중에도 눌러서 cohort.battleRoster 안의 같은 참가자 객체를 그
+  // 자리에서 바꿔버릴 수 있었다. 지금 진행 중인 판에는 영향 없지만(buildPlayer가 이미
+  // 스냅샷을 떴으므로), 관리자가 이후 "새로운 판"을 누르면 아무 명시적 조치 없이 조용히
+  // 무기가 바뀐 채로 시작된다(Opus 리뷰 Important #6, 2026-08-10).
   socket.on('admin:forceFinish', (participantId) => {
+    if (cohort.stage !== 'create') return;
     const entry = cohort.participants.find((p) => p.id === participantId);
     if (!entry || entry.createDone) return;
     entry.createDone = true;
