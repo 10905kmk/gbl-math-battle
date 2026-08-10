@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { evaluateWeapon, DAMAGE_MIN, DAMAGE_MAX } from '../lib/aiClient.js';
-import { getShapeById } from '../../shapes/registry.js';
+import { getShapeById, partScale } from '../../shapes/registry.js';
 import { statsFromShape } from '../../shapes/stats.js';
 import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
 import {
@@ -25,9 +25,14 @@ export function fallbackDamage(weaponState) {
   const total = parts.reduce((sum, p) => {
     const shape = getShapeById(p?.shapeId);
     if (!shape) return sum;
-    const scale = Number.isFinite(Number(p?.scale)) ? Number(p.scale) : 1;
+    // 가로/세로를 따로 늘릴 수 있게 된 뒤로(자유 변형) 옛 단일 scale 필드는 클라이언트가
+    // 더 이상 보내지 않는다 — partScale()로 읽어야 실제 크기가 반영된다. 안 그러면 이
+    // 폴백은 항상 sx=sy=1로 취급해, 부품을 아무리 키워도 데미지가 안 오른다(Opus 리뷰
+    // Critical #2, 2026-08-10). 면적 개념으로 sx*sy를 곱한다 — 다른 곳(aiClient.js 등)의
+    // partScale 사용과 같은 축이다.
+    const { sx, sy } = partScale(p);
     const stats = statsFromShape(shape);
-    return sum + (stats.attack + stats.defense) * scale;
+    return sum + (stats.attack + stats.defense) * sx * sy;
   }, 0);
   const damage = Math.sqrt(total) * 450;
   if (!Number.isFinite(damage)) return DAMAGE_MIN;
