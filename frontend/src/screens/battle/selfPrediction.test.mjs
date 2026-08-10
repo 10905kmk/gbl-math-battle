@@ -19,6 +19,15 @@ console.log('predictSelfMove: 평지 이동 OK');
 }
 console.log('predictSelfMove: dtMs 비례 이동 OK');
 
+// 프레임 간격이 비정상적으로 크면(탭 백그라운드 복귀 등) dtMs를 상한으로 clamp해야 한다 —
+// 안 그러면 한 프레임에 맵을 가로지르는 순간이동이 생긴다(Opus 리뷰 Important #1, 2026-08-11).
+{
+  const normal = predictSelfMove({ x: 500, y: 500 }, { moveX: 1, moveY: 0 }, 8, [], ARENA, RADIUS, 100);
+  const huge = predictSelfMove({ x: 500, y: 500 }, { moveX: 1, moveY: 0 }, 8, [], ARENA, RADIUS, 100000);
+  assert.deepStrictEqual(huge, normal, 'dtMs가 아무리 커도 상한(100ms) 이상 이동해서는 안 됨');
+}
+console.log('predictSelfMove: dtMs 상한 clamp OK');
+
 // 대각선 입력은 정규화되어 축 이동과 같은 속도로 움직여야 한다(서버 normalizeIfLong과 동일 규칙).
 {
   const result = predictSelfMove({ x: 500, y: 500 }, { moveX: 1, moveY: 1 }, 8, [], ARENA, RADIUS, 50);

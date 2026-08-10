@@ -8,6 +8,10 @@ import { circleOverlapsAnyWall, resolveCircleFromWalls } from '../../../../shape
 
 // 서버 moveSpeed 단위 기준(틱당 픽셀) — 이 값으로 dtMs 기반 속도로 환산한다.
 const SERVER_TICK_MS = 50;
+// 탭이 백그라운드로 갔다가 돌아오거나 브라우저가 rAF를 멈췄다 재개하면 frame.timeDiff가
+// 수 초~수십 초로 튈 수 있다 — 그대로 쓰면 한 프레임에 맵을 가로지르는 순간이동이 생긴다
+// (Opus 리뷰 Important #1, 2026-08-11). 서버 두 틱 정도로 상한을 둔다.
+const MAX_DT_MS = 100;
 
 function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v));
@@ -23,7 +27,8 @@ function normalizeIfLong(x, y) {
 
 export function predictSelfMove(pos, input, moveSpeed, walls, arenaSize, radius, dtMs) {
   const move = normalizeIfLong(input?.moveX ?? 0, input?.moveY ?? 0);
-  const effective = (moveSpeed / SERVER_TICK_MS) * dtMs;
+  const clampedDtMs = clamp(dtMs, 0, MAX_DT_MS);
+  const effective = (moveSpeed / SERVER_TICK_MS) * clampedDtMs;
   const dx = move.x * effective;
   const dy = move.y * effective;
 
