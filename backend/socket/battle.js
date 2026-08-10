@@ -223,6 +223,22 @@ export function saveLastRoundResults(onEnd) {
   return true;
 }
 
+// battle 단계를 "지금 상태가 무엇이든" 안전하게 벗어난다 — 호출자(session.js)가
+// battleRoom의 내부 상태(활성/룰렛/카운트다운/이미 자연 종료돼 대시보드만 남은 상태)를
+// 직접 몰라도 이 함수 하나만 부르면 된다. 예전엔 session.js가 getBattleRoom()의
+// truthy/falsy만으로 두 함수 중 하나를 직접 골라 불렀는데, status까지는 몰라 라운드가
+// 실제로 진행 중인지 룰렛 중인지 구분하지 못했다 — 그 사각지대가 Critical #1의 원인이었다
+// (Opus 리뷰 Important #7, 2026-08-10). onEnd는 battleRoom이 없어 라운드가 이미 끝나
+// 있던 경우에만 쓰인다 — 진행 중이었다면 startBattleRoom 때 등록해둔 콜백을
+// finishBattleRoomNow가 알아서 쓴다.
+export function leaveBattleStage(onEnd) {
+  if (battleRoom) {
+    finishBattleRoomNow();
+    return;
+  }
+  saveLastRoundResults(onEnd);
+}
+
 function buildPlayer(participant, index) {
   const spawn = DEFAULT_MAP.spawnPoints[index % DEFAULT_MAP.spawnPoints.length];
   // AI(또는 실패 시 폴백)가 판단한 근접/원거리 — 서버가 신뢰하지 않고 항상 재검증한다

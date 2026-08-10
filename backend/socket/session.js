@@ -1,10 +1,8 @@
 import {
   startBattleRoom,
-  finishBattleRoomNow,
   startNextRound,
-  saveLastRoundResults,
+  leaveBattleStage,
   resetBattleHistory,
-  getBattleRoom,
 } from './battle.js';
 import { saveParticipantResults } from '../lib/resultStorage.js';
 import { fallbackDamage, fallbackAttackRange } from '../routes/weaponEvaluate.js';
@@ -85,21 +83,12 @@ function goToStage(io, nextStage) {
       onEnd: makeSaveResultsCallback(io, cohort.battleRoster),
     });
   } else if (wasInBattle) {
-    // battle을 떠나면 진행 중이던 대전은 더 이상 의미가 없으니 같이 정리해야 한다.
-    // stopBattleRoom()으로 그냥 중단시키면 tick interval만 죽고 결과 저장/battle:result/
-    // result:saved 경로 전체가 스킵된다 — create/battle 전환이 관리자 수동이라(자동 전환
-    // 없음), "관리자가 타이머 만료를 기다리지 않고 다음 단계를 누른다"가 실제로 흔히
-    // 일어날 수 있는 정상 경로다(2026-08-07 Opus 리뷰).
-    if (getBattleRoom()) {
-      // 라운드가 아직 진행 중이었다 — 지금 시점 점수로 정상 종료 처리(결과 저장까지 포함).
-      finishBattleRoomNow();
-    } else {
-      // 라운드는 이미 자연 종료돼 순위 대시보드만 뜬 상태(관리자가 "새로운 판"을 누르길
-      // 기다리는 중)였는데, "부스 종료" 대신 실수로 "다음 단계"를 눌러 battle을 떠난
-      // 경우 — 이때 아무것도 안 하면 결과가 통째로 유실된 채 result 화면만 뜬다(실제로
-      // 겪은 문제, 2026-08-10). "부스 종료"와 똑같이 마지막 순위표로 저장해준다.
-      saveLastRoundResults(makeSaveResultsCallback(io, cohort.battleRoster));
-    }
+    // battle을 떠나면 진행 중이던 대전은 더 이상 의미가 없으니 같이 정리해야 한다 —
+    // 진행 중이었는지/룰렛·카운트다운 중이었는지/이미 자연 종료돼 대시보드만 남았는지는
+    // battle.js만 알고 있으므로 그 판단을 여기서 직접 하지 않는다(Opus 리뷰 Important #7,
+    // 2026-08-10 — 예전엔 여기서 getBattleRoom() truthy/falsy로 직접 분기했는데 status까지는
+    // 몰라 Critical #1 사각지대가 생겼었다).
+    leaveBattleStage(makeSaveResultsCallback(io, cohort.battleRoster));
   }
 }
 
