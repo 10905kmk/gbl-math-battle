@@ -11,7 +11,8 @@ import { SkillRoulette } from './battle/SkillRoulette.js';
 import { SkillButton } from './battle/SkillButton.js';
 import { clearSkillEffects, drawSkillEffects, isPlayerHiddenByCloak } from './battle/skillEffects.js';
 import { hasLocalDamage } from './battle/battleFeedback.js';
-import { predictSelfMove, reconcileSelfPosition } from './battle/selfPrediction.js';
+import { predictSelfMove, reconcileSelfPosition, decayRenderOffset } from './battle/selfPrediction.js';
+import { speedMultiplier } from '../../../shapes/skills.js';
 
 const html = htm.bind(h);
 
@@ -86,17 +87,31 @@ export function BattleScreen({ socket, state }) {
   // 내 캐릭터의 공격 미리보기(텔레그래프) 노드 — 무기 종류(근접 Rect/원거리 Line)는 대전
   // 중 안 바뀌므로 한 번만 만들고 이후 위치만 갱신한다.
   const previewNodeRef = useRef(null);
-  // PC 마우스 조준을 계산하려면 "내 캐릭터가 화면에서 어디 있는지"가 필요한데, battle:state로만
-  // 갱신되는 서버 진실이라 여기 별도로 캐시해둔다(마우스 이벤트는 그 사이 계속 발생하므로).
-  // 서버가 확인해준 마지막 내 위치에서 시작해 매 프레임 예측 이동한 결과 — null이면 아직 첫
-  // battle:state를 못 받은 것(그 전엔 예측할 입력 기준 위치가 없음).
+  // 서버가 확인해준 마지막 내 위치에서 시작해 매 프레임 예측 이동한 논리 위치 — null이면
+  // 아직 첫 battle:state를 못 받은 것(그 전엔 예측할 입력 기준 위치가 없음). 화면에 그대로
+  // 그리지는 않는다 — 실제로 그리는 위치는 renderSelfRef(아래) 쪽이다.
   const predictedSelfRef = useRef(null);
   // 예측/미리보기 계산에 필요한, 서버가 준 내 최신 상태(조준/원거리 여부/사거리/생존 여부) —
-  // 위치 필드도 들어있지만 화면 렌더링에는 predictedSelfRef만 쓴다.
+  // 위치 필드도 들어있지만 화면 렌더링에는 predictedSelfRef/renderSelfRef만 쓴다.
   const selfPlayerRef = useRef(null);
   // room.moveSpeed 캐시 — 관리자가 부스 현장에서 실시간으로 바꿀 수 있는 값이라 매 상태
   // 패킷마다 갱신한다.
   const moveSpeedRef = useRef(SELF_PREDICT_MOVE_SPEED_FALLBACK);
+  // 예측 이동을 실제로 돌려도 되는 단계인지 — 'active'가 아니면(룰렛/카운트다운/종료 등)
+  // 서버도 아무도 안 움직이므로 예측도 멈춰야 한다. WASD 리스너는 화면 전환과 무관하게 항상
+  // 켜져 있어서, 이 가드가 없으면 룰렛/카운트다운 중에도 내 캐릭터 혼자 맵을 뛰어다닌다
+  // (Opus 리뷰 Critical #1, 2026-08-11). roundStatus state가 아니라 ref로 두는 이유는, 아래
+  // 마운트 이펙트의 애니메이션 콜백이 첫 렌더 시점의 클로저를 계속 참조해서 state 값이
+  // 갱신되어도 그 안에서는 최신값을 못 보기 때문(Opus 리뷰에서도 지적됨).
+  const roomStatusRef = useRef('countdown');
+  // reconcileSelfPosition의 보정은 predictedSelfRef(논리 위치)를 onState 시점에 즉시
+  // 갈아끼운다 — 그 즉시-갈아끼움을 화면에 그대로 그리면 프레임 하나짜리 순간이동으로
+  // 보인다. 그 점프분을 여기 잠깐 담아뒀다가 매 프레임 decayRenderOffset으로 지수감쇠시켜서,
+  // 화면(renderSelfRef)만 부드럽게 따라잡게 한다(Opus 리뷰 Important #4, 2026-08-11).
+  const renderOffsetRef = useRef({ x: 0, y: 0 });
+  // 이번 프레임에 실제로 화면에 그린 위치(predictedSelfRef - renderOffsetRef) — 마우스 조준
+  // 계산(updateAimFromPointer)이 "화면에 보이는 내 캐릭터 위치"를 알아야 해서 별도로 둔다.
+  const renderSelfRef = useRef(null);
   // 현재 카메라가 월드 좌표계에서 어디를 보고 있는지(뷰포트 왼쪽 위 모서리의 월드 좌표).
   // 마우스 조준 좌표 변환(뷰포트 좌표 -> 월드 좌표)에도 이 값이 필요해서 ref로 공유한다.
   const cameraRef = useRef({ x: 0, y: 0 });
@@ -205,6 +220,7 @@ export function BattleScreen({ socket, state }) {
         setRemainingMs(Math.ceil(Math.max(0, room.endsAt - serverNow) / 1000) * 1000);
       }
       setRoundStatus(room.status);
+      roomStatusRef.current = room.status;
       // 시작 카운트다운(5,4,3,2,1) — 0 이하가 되면 오버레이를 내린다. Math.ceil이라
       // 4001ms 남은 순간에도 "5"가 보인다(사람이 세는 방식과 같음).
       setCountdownSec(
@@ -219,11 +235,30 @@ export function BattleScreen({ socket, state }) {
           : null,
       );
       if (me) {
+        // 서버는 죽는 순간 player.input을 0으로 비운다(recordDeath) — 클라이언트 inputRef는
+        // 그대로 남아 있고, sendInput은 "값이 바뀔 때만" 보내므로 죽기 전에 누르고 있던 방향을
+        // 계속 쥐고 있으면 부활 후에도 서버에 그 입력을 다시 보내지 않는다. 그러면 예측은
+        // 계속 움직이는데 서버는 제자리라 매 상태 패킷마다 뒤로 튕기며 떤다 — 부활을 감지한
+        // 즉시 지금 쥐고 있는 입력을 강제로 다시 보낸다(Opus 리뷰 Important #2, 2026-08-11).
+        if (selfPlayerRef.current?.alive === false && me.alive !== false) {
+          socket.emit('battle:input', inputRef.current);
+        }
         selfPlayerRef.current = me;
         moveSpeedRef.current = Number.isFinite(room.moveSpeed) ? room.moveSpeed : SELF_PREDICT_MOVE_SPEED_FALLBACK;
-        predictedSelfRef.current = predictedSelfRef.current
-          ? reconcileSelfPosition(predictedSelfRef.current, { x: me.x, y: me.y })
-          : { x: me.x, y: me.y };
+        if (predictedSelfRef.current) {
+          const previous = predictedSelfRef.current;
+          const next = reconcileSelfPosition(previous, { x: me.x, y: me.y });
+          // 보정으로 논리 위치가 갑자기 옮겨진 만큼을 시각 오프셋에 쌓아둔다 — 논리 위치
+          // 자체는 즉시 정확해지되(다음 예측의 기준점), 화면은 updateSelfPrediction이 매
+          // 프레임 decayRenderOffset으로 서서히 따라잡는다.
+          renderOffsetRef.current = {
+            x: renderOffsetRef.current.x + (next.x - previous.x),
+            y: renderOffsetRef.current.y + (next.y - previous.y),
+          };
+          predictedSelfRef.current = next;
+        } else {
+          predictedSelfRef.current = { x: me.x, y: me.y };
+        }
         setSkillChoices((previous) => {
           const next = me.skillChoices ?? [];
           return sameArray(previous, next) ? previous : next;
@@ -565,18 +600,19 @@ export function BattleScreen({ socket, state }) {
     moveNodeSmoothly(layer, -cameraX, -cameraY);
   }
 
-  // PC 조준 — 아레나 위 마지막 마우스 위치와 내 캐릭터 예측 위치(predictedSelfRef)의 차이를
-  // 방향벡터로 보낸다. mousemove(마우스가 움직였을 때)뿐 아니라 updateSelfPrediction이 매
-  // 프레임(내 캐릭터가 이동 중일 때)에도 호출한다 — 마우스가 가만히 있어도 캐릭터가 이동
-  // 중이면 조준 방향이 계속 새로 계산돼야 하기 때문(Opus 리뷰 Important I2). mousedown(누르는
-  // 순간)은 그 시점의 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지
-  // 않는다(쿨다운마다 다시 클릭해야 함).
+  // PC 조준 — 아레나 위 마지막 마우스 위치와 화면에 실제로 그려진 내 캐릭터 위치
+  // (renderSelfRef — predictedSelfRef에서 시각 보정 오프셋을 뺀 값)의 차이를 방향벡터로
+  // 보낸다. mousemove(마우스가 움직였을 때)뿐 아니라 updateSelfPrediction이 매 프레임(내
+  // 캐릭터가 이동 중일 때)에도 호출한다 — 마우스가 가만히 있어도 캐릭터가 이동 중이면 조준
+  // 방향이 계속 새로 계산돼야 하기 때문(Opus 리뷰 Important I2). mousedown(누르는 순간)은 그
+  // 시점의 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다
+  // 다시 클릭해야 함).
   function updateAimFromPointer() {
     const stage = stageRef.current;
-    if (!stage || !predictedSelfRef.current) return;
+    if (!stage || !renderSelfRef.current) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
-    const { x: sx, y: sy } = predictedSelfRef.current;
+    const { x: sx, y: sy } = renderSelfRef.current;
     // getPointerPosition()은 뷰포트(스테이지) 기준 좌표(0~800, 0~600)를 반환한다 —
     // 카메라 오프셋을 더해서 월드 좌표로 변환한 뒤에야 내 캐릭터(월드 좌표)와 정확히
     // 비교할 수 있다. 안 그러면 카메라가 원점(0,0)에서 벗어나는 순간 조준 방향이 어긋난다.
@@ -597,20 +633,30 @@ export function BattleScreen({ socket, state }) {
   function updateSelfPrediction(dtMs) {
     const me = selfPlayerRef.current;
     if (!me || !predictedSelfRef.current) return;
-    // 사망 중엔 서버도 입력을 비우므로(recordDeath) 예측도 멈춘다 — 로컬 inputRef에 죽기
-    // 직전 입력이 남아 있어도 캐릭터가 제자리에서 계속 밀리지 않게 방어.
-    if (me.alive !== false) {
+    // 'active'가 아니면(룰렛/카운트다운/종료 등) 서버도 아무도 안 움직이므로 예측도 멈춘다 —
+    // WASD 리스너는 화면 전환과 무관하게 항상 켜져 있어서 이 가드가 없으면 룰렛 중에도 혼자
+    // 맵을 뛰어다닌다(Opus 리뷰 Critical #1). 사망 중엔 서버도 입력을 비우므로(recordDeath)
+    // 마찬가지로 멈춘다 — 로컬 inputRef에 죽기 직전 입력이 남아 있어도 방어된다.
+    if (roomStatusRef.current === 'active' && me.alive !== false) {
+      // 스킬로 인한 가속/감속/시간정지(speedMultiplier)까지 서버와 똑같이 반영해야 그 지속
+      // 시간 내내 예측이 어긋나 떨리지 않는다(Opus 리뷰 Important #3) — shapes/skills.js가
+      // 서버(skillEngine.js가 재수출)와 이 파일이 공유하는 같은 함수다.
+      const now = Date.now() + serverClockOffsetRef.current;
+      const effectiveMoveSpeed = moveSpeedRef.current * speedMultiplier(me, now);
       predictedSelfRef.current = predictSelfMove(
         predictedSelfRef.current,
         inputRef.current,
-        moveSpeedRef.current,
+        effectiveMoveSpeed,
         DEFAULT_MAP.walls,
         DEFAULT_MAP.arenaSize,
         CHARACTER_RADIUS,
         dtMs,
       );
     }
-    const { x, y } = predictedSelfRef.current;
+    renderOffsetRef.current = decayRenderOffset(renderOffsetRef.current, dtMs);
+    const x = predictedSelfRef.current.x - renderOffsetRef.current.x;
+    const y = predictedSelfRef.current.y - renderOffsetRef.current.y;
+    renderSelfRef.current = { x, y };
     updateCamera(x, y);
     updateAimFromPointer();
 
