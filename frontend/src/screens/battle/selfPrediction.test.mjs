@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { predictSelfMove, reconcileSelfPosition } from './selfPrediction.js';
+import { predictSelfMove, reconcileSelfPosition, decayRenderOffset } from './selfPrediction.js';
 
 const ARENA = { width: 1000, height: 1000 };
 const RADIUS = 20;
@@ -81,3 +81,33 @@ console.log('reconcileSelfPosition: 큰 오차 스냅 OK');
 console.log('reconcileSelfPosition: 중간 오차 점진 수렴 OK');
 
 console.log('selfPrediction.test.mjs (reconcileSelfPosition): all tests passed');
+
+// reconcileSelfPosition의 보정은 onState(20Hz)에서 논리 위치를 즉시 갈아끼우는데, 화면은
+// 그 즉시-갈아끼움을 그대로 그리면 프레임 하나짜리 순간이동으로 보인다(Opus 리뷰 Important #4,
+// 2026-08-11). decayRenderOffset은 그 순간이동분을 "시각 오프셋"으로 잠깐 붙잡아 두었다가
+// 몇 프레임에 걸쳐 서서히 지워서, 실제 논리 위치는 즉시 정확해지되 화면은 부드럽게 따라가게
+// 한다.
+
+// 절반 감쇠 시간(반감기)이 지나면 오프셋이 절반으로 줄어야 한다.
+{
+  const result = decayRenderOffset({ x: 20, y: 0 }, 50);
+  assert.ok(Math.abs(result.x - 10) < 1e-9, `50ms(반감기) 뒤엔 오프셋이 절반이어야 함(실제: ${result.x})`);
+}
+console.log('decayRenderOffset: 반감기 OK');
+
+// dt=0이면 전혀 안 줄어야 한다(정지 프레임에서 순간이동하듯 사라지면 안 됨).
+{
+  const result = decayRenderOffset({ x: 20, y: -8 }, 0);
+  assert.deepStrictEqual(result, { x: 20, y: -8 }, 'dt=0이면 오프셋이 그대로여야 함');
+}
+console.log('decayRenderOffset: dt=0 OK');
+
+// 여러 반감기가 지나면 거의 0으로 수렴해야 한다(완전히 0은 지수감쇠 특성상 될 수 없음).
+{
+  let offset = { x: 100, y: 0 };
+  for (let i = 0; i < 10; i += 1) offset = decayRenderOffset(offset, 50);
+  assert.ok(Math.abs(offset.x) < 1, `반감기 10번(500ms) 뒤엔 거의 0이어야 함(실제: ${offset.x})`);
+}
+console.log('decayRenderOffset: 장시간 수렴 OK');
+
+console.log('selfPrediction.test.mjs (decayRenderOffset): all tests passed');

@@ -59,3 +59,14 @@ export function reconcileSelfPosition(predicted, serverPos) {
     y: predicted.y + dy * RECONCILE_CORRECTION_RATE,
   };
 }
+
+// reconcileSelfPosition은 논리 위치를 onState(20Hz) 시점에 즉시 갈아끼운다 — 그 즉시-갈아끼움을
+// 화면에 그대로 그리면 60fps 렌더에서 프레임 하나짜리 순간이동으로 보인다. 그 순간이동분을
+// "시각 오프셋"으로 잠깐 붙잡아 두었다가 이 함수로 매 프레임 지수감쇠시키면, 논리 위치(다음
+// 예측의 기준점)는 즉시 정확한 채로 화면만 부드럽게 따라잡는다.
+const OFFSET_HALF_LIFE_MS = 50;
+
+export function decayRenderOffset(offset, dtMs) {
+  const factor = 0.5 ** (dtMs / OFFSET_HALF_LIFE_MS);
+  return { x: offset.x * factor, y: offset.y * factor };
+}
