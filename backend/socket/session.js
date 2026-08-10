@@ -237,9 +237,15 @@ export function registerSessionHandlers(io, socket) {
   // 제작 단계로 되돌아가지 않으므로 한 시간대에 여러 판을 빠르게 돌릴 수 있다.
   socket.on('admin:newRound', () => {
     if (cohort.stage !== 'battle') return;
-    // 대전 중 완전히 나간 기기는 새 판에서 빼고, 그 사이 새로 들어온 기기는 넣는다 —
-    // 다만 결과 저장은 battleRoster(첫 판 기준)로 하므로 그쪽은 건드리지 않는다.
-    const roster = cohort.battleRoster.filter((p) => cohort.participants.some((c) => c.id === p.id));
+    // 대전 중 완전히 나간 기기는 새 판에서 빼고, 그 사이 재접속했거나(새 socket.id) 새로
+    // 무기를 완성한 기기는 넣는다 — 예전엔 filter(제거)만 하고 추가하는 로직이 없어서
+    // 재접속한 참가자가 그 이후 모든 판에서 영구히 배제됐다(Opus 리뷰 Important #3,
+    // 2026-08-10). 다만 결과 저장은 battleRoster(첫 판 기준)로 하므로 그쪽은 건드리지 않는다.
+    const stayed = cohort.battleRoster.filter((p) => cohort.participants.some((c) => c.id === p.id));
+    const newcomers = cohort.participants.filter(
+      (c) => c.weapon != null && !stayed.some((p) => p.id === c.id),
+    );
+    const roster = [...stayed, ...newcomers];
     startNextRound(io, roster.length > 0 ? roster : cohort.battleRoster, {
       onEnd: makeSaveResultsCallback(io, cohort.battleRoster),
     });

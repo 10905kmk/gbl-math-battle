@@ -420,6 +420,20 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   assert.strictEqual(getLastStandings(), null, '새 판이 시작되면 이전 대시보드는 내려간다');
   console.log('admin:newRound restarts the same roster for another round: OK');
 
+  // 회귀 테스트(Opus 리뷰 Important #3, 2026-08-10): 주석은 "그 사이 새로 들어온 기기는
+  // 넣는다"고 했지만 실제로는 battleRoster를 participants 기준으로 filter(제거)만 하고
+  // 추가하는 로직이 없었다 — 대전 도중 재접속하거나 새로 무기를 완성한 참가자가 다음
+  // 판부터 영구히 배제됐다.
+  registerSessionHandlers(io, makeSocket('newcomer'));
+  handlers.newcomer['participant:join']();
+  handlers.newcomer['create:done']({ damage: 3000, parts: [] });
+
+  handlers.p1['admin:newRound']();
+  const thirdRound = getBattleRoom();
+  assert.ok(thirdRound.players.newcomer, '대전 중 새로 무기를 완성한 참가자가 다음 판에 포함되어야 함');
+  console.log('admin:newRound includes newcomers who joined/finished crafting mid-battle: OK');
+  handlers.newcomer['disconnect']();
+
   // 이동 속도는 판이 바뀌어도 유지된다 — 관리자가 매 판 다시 맞출 이유가 없다.
   const { registerBattleHandlers } = await import('./battle.js');
   const bh = {};
