@@ -144,7 +144,7 @@ function ResultPage() {
         ? html`<p class="save-note">PDF를 만들지 못해 이미지로 저장했어요.</p>`
         : html`<p class="save-note">저장한 파일은 휴대폰 다운로드 폴더에 있어요</p>`}
 
-      <p class="page-footer">대전대신고등학교 GBL · 36조</p>
+      <p class="page-footer">대전대신고등학교 GBL</p>
     </div>
   `;
 }

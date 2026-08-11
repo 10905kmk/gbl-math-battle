@@ -8,7 +8,7 @@ const html = htm.bind(h);
 export function ThanksScreen({ resultId }) {
   return html`
     <div class="card thanks-card">
-      <p class="eyebrow">36조 · 수학 도형 무기 배틀</p>
+      <p class="eyebrow">수학 도형 무기 배틀</p>
       <h2 class="title">체험해주셔서<br />감사합니다!</h2>
       <p class="subtitle">아직 QR을 못 찍었다면 지금 찍어주세요</p>
       <${ResultQrPanel} resultId=${resultId} />

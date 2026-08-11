@@ -119,7 +119,7 @@ function drawSeal(ctx, cx, cy, rank) {
   ctx.font = `800 ${rank === 1 ? 46 : 40}px ${FONT}`;
   ctx.fillText(rank === 1 ? '우승' : `${rank}위`, cx, cy - 4);
   ctx.font = `600 20px ${FONT}`;
-  ctx.fillText('36조 인증', cx, cy + 36);
+  ctx.fillText('참가 인증', cx, cy + 36);
   ctx.restore();
 }
 
@@ -159,7 +159,7 @@ export async function buildCertificateCanvas(result) {
   ctx.stroke();
 
   // 헤더
-  drawCenteredText(ctx, '대전대신고등학교 GBL · 36조', 178, { size: 26, weight: 600, color: COLORS.muted });
+  drawCenteredText(ctx, '대전대신고등학교 GBL', 178, { size: 26, weight: 600, color: COLORS.muted });
   drawCenteredText(ctx, '무기 증서', 262, { size: 76, weight: 800, color: COLORS.ink });
   ctx.strokeStyle = COLORS.accent;
   ctx.lineWidth = 3;
@@ -256,7 +256,7 @@ export async function buildCertificateCanvas(result) {
   ctx.fillText('수학 도형 무기 온라인 베틀', MARGIN, footerY + 52);
   ctx.fillStyle = COLORS.muted;
   ctx.font = `500 24px ${FONT}`;
-  ctx.fillText('대전대신고등학교 GBL 36조', MARGIN, footerY + 96);
+  ctx.fillText('대전대신고등학교 GBL', MARGIN, footerY + 96);
 
   return canvas;
 }
