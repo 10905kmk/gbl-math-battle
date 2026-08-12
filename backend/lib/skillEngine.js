@@ -77,6 +77,7 @@ export function newPlayerSkillState(skillId) {
       luckyUntil: 0, luckyReadyAt: 0,
       dashBonusUntil: 0,
       dashCooldownUntil: 0,
+      dashChainCount: 0,
     },
   };
 }
@@ -298,7 +299,12 @@ export function activateSkill(room, playerId, now, random = Math.random, request
       break;
     }
     case 'dash': {
+      // 연속 대쉬는 초기 1회 + 보너스 최대 2회, 총 3회로 제한한다 — 매번 40% 초과
+      // 절단이 나오면 이론상 무한 연쇄가 가능해지는 것을 막는다.
+      const chainCount = dashBonusPending ? (s.dashChainCount ?? 1) + 1 : 1;
+      s.dashChainCount = chainCount;
       s.dashBonusUntil = 0;
+      const dashDamageMultiplier = (s.speedUntil ?? 0) > now || (s.lastStandUntil ?? 0) > now ? 1.5 : 1;
       const from = { x: player.x, y: player.y };
       const to = moveToward(
         player,
@@ -313,11 +319,11 @@ export function activateSkill(room, playerId, now, random = Math.random, request
         if (target.id === playerId || !target.alive || !target.connected || isCloaked(target, now)) continue;
         const damagePercent = dashSliceDamagePercent(from.x, from.y, to.x, to.y, target.x, target.y);
         if (damagePercent <= 0) continue;
-        applySkillDamage(room, playerId, target, damagePercent * MAX_HP / 100, now, events);
+        applySkillDamage(room, playerId, target, damagePercent * MAX_HP / 100 * dashDamageMultiplier, now, events);
         strongestSliceDamage = Math.max(strongestSliceDamage, damagePercent);
       }
       s.dashCooldownUntil = now + skill.cooldownMs;
-      if (strongestSliceDamage > 40) s.dashBonusUntil = now + 10_000;
+      if (strongestSliceDamage > 40 && chainCount < 3) s.dashBonusUntil = now + 10_000;
       s.invulnUntil = Math.max(s.invulnUntil, now + skill.activationDurationMs);
       pushEffect(room, { type: 'dash', fromX: from.x, fromY: from.y, x: to.x, y: to.y, endsAt: now + skill.activationDurationMs, color: skill.color });
       break;
