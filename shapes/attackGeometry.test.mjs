@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import {
   ATTACK_HITBOX_SIZE,
+  MELEE_ATTACK_LENGTH,
   RANGE_DISTANCE_MIN,
   RANGE_DISTANCE_MAX,
   RANGED_COMBAT_RANGE_MULTIPLIER,
@@ -16,9 +17,10 @@ assert.strictEqual(RANGED_COMBAT_RANGE_MULTIPLIER, 1.5, '원거리 실전 사거
 // 조준 방향으로 회전(angle)까지 반환
 {
   const rect = meleeHitboxRect(400, 300, 1, 0, 20);
-  assert.strictEqual(rect.centerX, 435, 'centerX=400+(20+15)*1=435');
+  assert.strictEqual(MELEE_ATTACK_LENGTH, 45, '근접 공격 길이는 기존 30px의 1.5배');
+  assert.strictEqual(rect.centerX, 442.5, 'centerX=400+(20+22.5)*1=442.5');
   assert.strictEqual(rect.centerY, 300, 'centerY=300+(20+15)*0=300');
-  assert.strictEqual(rect.width, ATTACK_HITBOX_SIZE);
+  assert.strictEqual(rect.width, MELEE_ATTACK_LENGTH);
   assert.strictEqual(rect.height, ATTACK_HITBOX_SIZE);
   assert.strictEqual(rect.angle, 0, 'aimX=1,aimY=0(오른쪽) -> angle 0');
   console.log('meleeHitboxRect computes offset+rotated rect in aim direction: OK');
@@ -26,7 +28,7 @@ assert.strictEqual(RANGED_COMBAT_RANGE_MULTIPLIER, 1.5, '원거리 실전 사거
 {
   const rect = meleeHitboxRect(400, 300, 0, 1, 20);
   assert.strictEqual(rect.centerX, 400, 'centerX=400+(20+15)*0=400');
-  assert.strictEqual(rect.centerY, 335, 'centerY=300+(20+15)*1=335');
+  assert.strictEqual(rect.centerY, 342.5, 'centerY=300+(20+22.5)*1=342.5');
   assert.strictEqual(rect.angle, Math.PI / 2, 'aimX=0,aimY=1(아래) -> angle 90도');
   console.log('meleeHitboxRect angle follows aim direction: OK');
 }

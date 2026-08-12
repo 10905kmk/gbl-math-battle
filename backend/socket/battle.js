@@ -8,6 +8,7 @@ import {
   COUNTDOWN_MS,
   BATTLE_DURATION_MS,
   MELEE_DAMAGE_MULTIPLIER,
+  RANGED_DAMAGE_MULTIPLIER,
   HP_DAMAGE_MAX,
   HP_MAX,
   DEFAULT_MOVE_SPEED,
@@ -283,7 +284,8 @@ export function buildPlayer({
   const baseDamage = hpDamageFromWeaponDamage(weapon?.damage);
   // 근접은 가까이 가야 하는 위험을 감수하므로 원거리보다 세다 — 다만 보정을 곱한 뒤에도
   // 한 방 상한(HP_DAMAGE_MAX)은 반드시 지킨다. 이 clamp가 "최소 5대"를 보장한다.
-  const hpDamage = Math.min(HP_DAMAGE_MAX, isRanged ? baseDamage : Math.round(baseDamage * MELEE_DAMAGE_MULTIPLIER * 10) / 10);
+  const damageMultiplier = isRanged ? RANGED_DAMAGE_MULTIPLIER : MELEE_DAMAGE_MULTIPLIER;
+  const hpDamage = Math.min(HP_DAMAGE_MAX, Math.round(baseDamage * damageMultiplier * 10) / 10);
 
   return {
     id,

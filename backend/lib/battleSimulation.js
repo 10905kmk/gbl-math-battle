@@ -44,6 +44,8 @@ export const HP_MAX = MAX_HP;
 export const HP_DAMAGE_MIN = 3;
 export const HP_DAMAGE_MAX = 24;
 export const MELEE_DAMAGE_MULTIPLIER = 1.3;
+// AI 평가 점수는 그대로 보존하고, 실제 전투에서 원거리 무기의 HP 피해만 75% 감소시킨다.
+export const RANGED_DAMAGE_MULTIPLIER = 0.25;
 
 // ── 점수 ───────────────────────────────────────────────────────────────
 export const SCORE_PER_KILL = 20;

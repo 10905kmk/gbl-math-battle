@@ -4,7 +4,7 @@ import htm from 'htm';
 import Konva from 'konva';
 import { drawWeaponGroup } from '../../../shapes/weaponRenderer.js';
 import { DEFAULT_MAP } from '../../../shapes/battleMap.js';
-import { meleeHitboxRect, ATTACK_HITBOX_SIZE, PROJECTILE_RADIUS } from '../../../shapes/attackGeometry.js';
+import { meleeHitboxRect, ATTACK_HITBOX_SIZE, MELEE_ATTACK_LENGTH, PROJECTILE_RADIUS } from '../../../shapes/attackGeometry.js';
 import { MAX_HP } from '../../../shapes/combatRules.js';
 import { VirtualJoystick } from './VirtualJoystick.js';
 import { SkillRoulette } from './battle/SkillRoulette.js';
@@ -326,11 +326,11 @@ export function BattleScreen({ socket, state }) {
             previewNodeRef.current = p.isRanged
               ? new Konva.Line({ points: [0, 0, 0, 0], stroke: 'rgba(255,255,255,0.5)', strokeWidth: 3 })
               : new Konva.Rect({
-                width: ATTACK_HITBOX_SIZE,
+                  width: MELEE_ATTACK_LENGTH,
                 height: ATTACK_HITBOX_SIZE,
                 // 회전축을 중심에 맞춘다 — 기본값(좌상단 기준 회전)이면 rotation()을 걸었을 때
                 // 실제 판정 자리(meleeHitboxRect의 centerX/centerY 중심)와 어긋나 보인다.
-                offsetX: ATTACK_HITBOX_SIZE / 2,
+                  offsetX: MELEE_ATTACK_LENGTH / 2,
                 offsetY: ATTACK_HITBOX_SIZE / 2,
                 fill: 'rgba(255,255,255,0.25)',
                 });

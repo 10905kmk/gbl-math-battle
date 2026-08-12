@@ -14,6 +14,7 @@ import {
 } from './battle.js';
 import { DEFAULT_MAP } from '../../shapes/battleMap.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX, RANGED_COMBAT_RANGE_MULTIPLIER } from '../../shapes/attackGeometry.js';
+import { RANGED_DAMAGE_MULTIPLIER } from '../lib/battleSimulation.js';
 
 // 매 판은 5초 카운트다운으로 시작한다 — 테스트에서 라운드를 끝내려면 먼저 카운트다운을
 // 지나 'active'로 만들어야 한다. 제한시간을 과거로 옮기는 것만으로는 카운트다운 중인
@@ -523,13 +524,14 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   const room = getBattleRoom();
   assert.strictEqual(room.players.r1.isRanged, true);
   assert.strictEqual(room.players.r1.rangeDistance, 400 * RANGED_COMBAT_RANGE_MULTIPLIER);
-  assert.strictEqual(room.players.r1.hpDamage, 5.1, '원거리는 배율 없이 HP 5.1% 그대로');
+  assert.strictEqual(RANGED_DAMAGE_MULTIPLIER, 0.25, '원거리 실전 피해는 AI 평가 환산값에서 75% 감소');
+  assert.strictEqual(room.players.r1.hpDamage, 1.3, '원거리는 HP 5.1%의 25%인 1.275를 1.3%로 반올림');
 
   assert.strictEqual(room.players.m1.isRanged, false);
   assert.strictEqual(room.players.m1.rangeDistance, null);
   assert.strictEqual(room.players.m1.hpDamage, 6.6, '근접은 5.1 * 1.3 = 6.6(반올림)');
   assert.deepStrictEqual(room.projectiles, [], 'projectiles는 빈 배열로 시작');
-  console.log('startBattleRoom applies isRanged/rangeDistance/melee damage multiplier from weapon.attackRange: OK');
+  console.log('startBattleRoom applies ranged reduction and melee multiplier from weapon.attackRange: OK');
 }
 
 // 방어: attackRange가 이상한 값이거나 attackRangeDistance가 범위 밖/비숫자여도 안전하게

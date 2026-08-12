@@ -75,6 +75,8 @@ export function newPlayerSkillState(skillId) {
       savedX: null, savedY: null, savedUntil: 0,
       lastStandUntil: 0,
       luckyUntil: 0, luckyReadyAt: 0,
+      dashBonusUntil: 0,
+      dashCooldownUntil: 0,
     },
   };
 }
@@ -189,6 +191,23 @@ function moveToward(player, targetX, targetY, room) {
   return { x: lastX, y: lastY };
 }
 
+// 돌진 선분이 원형 아바타를 자를 때 생기는 작은 원 조각의 면적 비율(0~50%).
+// 중심 관통은 50%, 가장자리 접선은 0%가 된다.
+export function dashSliceDamagePercent(fromX, fromY, toX, toY, targetX, targetY, radius = CHARACTER_RADIUS) {
+  const vx = toX - fromX;
+  const vy = toY - fromY;
+  const lengthSq = vx * vx + vy * vy;
+  if (lengthSq <= 0 || radius <= 0) return 0;
+  const t = clamp(((targetX - fromX) * vx + (targetY - fromY) * vy) / lengthSq, 0, 1);
+  const closestX = fromX + vx * t;
+  const closestY = fromY + vy * t;
+  const distance = Math.hypot(targetX - closestX, targetY - closestY);
+  if (distance >= radius) return 0;
+  const ratio = distance / radius;
+  const fraction = (Math.acos(ratio) - ratio * Math.sqrt(1 - ratio * ratio)) / Math.PI;
+  return round1(fraction * 100);
+}
+
 // 스킬이 직접 주는 피해(충격파/콜드플레이/지뢰/독 도트)는 무기 데미지와 별개로 "HP %"다.
 // 실드/투명(무적)은 여기서도 막고, 반사도 여기서 함께 처리한다.
 export function applySkillDamage(room, attackerId, target, percent, now, events) {
@@ -232,7 +251,12 @@ export function activateSkill(room, playerId, now, random = Math.random, request
   if (!skill || skill.kind === 'passive') return false;
   // 텔레포트 백은 "저장 대기 중"일 때 쿨타임을 무시하고 두 번째 입력을 받아야 한다.
   const recallPending = skill.id === 'recall' && (player.status.savedUntil ?? 0) > now;
-  if (!recallPending && now < skillReadyAt(player, skill.id)) return false;
+  if (skill.id === 'dash' && (player.status.dashBonusUntil ?? 0) > 0 && player.status.dashBonusUntil <= now) {
+    player.status.dashBonusUntil = 0;
+    setSkillReadyAt(player, skill.id, player.status.dashCooldownUntil ?? 0);
+  }
+  const dashBonusPending = skill.id === 'dash' && (player.status.dashBonusUntil ?? 0) > now;
+  if (!recallPending && !dashBonusPending && now < skillReadyAt(player, skill.id)) return false;
 
   const events = [];
   const s = player.status;
@@ -274,6 +298,7 @@ export function activateSkill(room, playerId, now, random = Math.random, request
       break;
     }
     case 'dash': {
+      s.dashBonusUntil = 0;
       const from = { x: player.x, y: player.y };
       const to = moveToward(
         player,
@@ -283,6 +308,16 @@ export function activateSkill(room, playerId, now, random = Math.random, request
       );
       player.x = to.x;
       player.y = to.y;
+      let strongestSliceDamage = 0;
+      for (const target of Object.values(room.players)) {
+        if (target.id === playerId || !target.alive || !target.connected || isCloaked(target, now)) continue;
+        const damagePercent = dashSliceDamagePercent(from.x, from.y, to.x, to.y, target.x, target.y);
+        if (damagePercent <= 0) continue;
+        applySkillDamage(room, playerId, target, damagePercent * MAX_HP / 100, now, events);
+        strongestSliceDamage = Math.max(strongestSliceDamage, damagePercent);
+      }
+      s.dashCooldownUntil = now + skill.cooldownMs;
+      if (strongestSliceDamage > 40) s.dashBonusUntil = now + 10_000;
       s.invulnUntil = Math.max(s.invulnUntil, now + skill.activationDurationMs);
       pushEffect(room, { type: 'dash', fromX: from.x, fromY: from.y, x: to.x, y: to.y, endsAt: now + skill.activationDurationMs, color: skill.color });
       break;
@@ -417,7 +452,9 @@ export function activateSkill(room, playerId, now, random = Math.random, request
       return false;
   }
 
-  setSkillReadyAt(player, skill.id, now + skill.cooldownMs);
+  setSkillReadyAt(player, skill.id, skill.id === 'dash'
+    ? (s.dashBonusUntil > now ? 0 : s.dashCooldownUntil)
+    : now + skill.cooldownMs);
   room.events = events;
   return true;
 }
@@ -428,6 +465,15 @@ export function tickSkillWorld(room, now, events) {
   // 스킬 월드 배열이 없는 room(예전 형식/단위 테스트가 만든 최소 room)도 크래시 없이
   // 그냥 "스킬이 아무것도 없는 판"으로 돌아가야 한다 — 전투 자체가 스킬 때문에 멈추면 안 된다.
   ensureSkillWorld(room);
+
+  // 10초 안에 쓰지 않은 보너스 대쉬는 소멸하고, Z 버튼도 남아 있던 원래 쿨타임으로 복귀한다.
+  for (const player of Object.values(room.players ?? {})) {
+    const bonusUntil = player.status?.dashBonusUntil ?? 0;
+    if (bonusUntil > 0 && bonusUntil <= now) {
+      player.status.dashBonusUntil = 0;
+      setSkillReadyAt(player, 'dash', player.status.dashCooldownUntil ?? now);
+    }
+  }
 
   // 만료된 시각 효과 제거
   room.effects = room.effects.filter((e) => e.endsAt > now);

@@ -44,8 +44,8 @@ export const SKILLS = [
     speedMultiplier: 3, color: '#5fe3a1',
   },
   {
-    id: 'dash', name: '대쉬', icon: '💨', kind: 'self', activationDurationMs: 500, cooldownMs: 20000,
-    desc: '바라보는 방향으로 7m 순간 돌진합니다. 돌진 중 0.5초 무적.',
+    id: 'dash', name: '대쉬', icon: '💨', kind: 'self', activationDurationMs: 500, cooldownMs: 60000,
+    desc: '7m 돌진하며 상대 원을 가른 작은 조각의 면적 비율만큼 피해를 줍니다. 40% 초과 피해면 10초 안에 보너스 대쉬를 쓸 수 있습니다. 대기시간 60초.',
     distance: 7 * METER, color: '#7cc4ff',
   },
   {

@@ -10,6 +10,7 @@ import {
   outgoingDamageMultiplier,
   incomingDamageMultiplier,
   ensureSkillWorld,
+  dashSliceDamagePercent,
 } from './skillEngine.js';
 import { stepSimulation, HP_MAX } from './battleSimulation.js';
 import { SKILLS, getSkill, drawSkillChoices, METER } from '../../shapes/skills.js';
@@ -153,6 +154,7 @@ console.log('shield/cloak fully block incoming damage: OK');
 
 // 대쉬 — 조준 방향으로 7m 이동 + 짧은 무적. 벽은 못 뚫는다.
 {
+  assert.strictEqual(getSkill('dash').cooldownMs, 60_000, '대쉬 기본 쿨타임은 60초');
   const p = makePlayer('p1', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
   activateSkill(makeRoom([p]), 'p1', NOW);
   assert.ok(p.x > 500 + 6 * METER, `7m 가까이 이동해야 함 (실제 ${p.x - 500}px)`);
@@ -164,6 +166,31 @@ console.log('shield/cloak fully block incoming damage: OK');
   activateSkill(walled, 'p2', NOW);
   assert.ok(blocked.x < 560, '벽을 뚫고 돌진하면 안 됨');
   console.log('dash moves forward with brief invulnerability and respects walls: OK');
+}
+
+// 대쉬 절단 피해 — 중앙 관통은 원의 절반이며, 40% 초과마다 10초짜리 보너스 대쉬를 다시 얻는다.
+{
+  assert.strictEqual(dashSliceDamagePercent(0, 0, 100, 0, 50, 0), 50, '중앙 관통은 50%');
+  assert.strictEqual(dashSliceDamagePercent(0, 0, 100, 0, 50, 20), 0, '접선은 0%');
+  const caster = makePlayer('dash-caster', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
+  const first = makePlayer('dash-first', 'heal', { x: 570, y: 500 });
+  const second = makePlayer('dash-second', 'heal', { x: 850, y: 500 });
+  const room = makeRoom([caster, first, second]);
+  assert.strictEqual(activateSkill(room, caster.id, NOW), true);
+  assert.strictEqual(first.hp, HP_MAX * 0.5, '중앙 관통은 최대 체력의 50% 피해');
+  assert.strictEqual(caster.status.dashBonusUntil, NOW + 10_000, '보너스 대쉬는 10초 유지');
+  assert.strictEqual(caster.status.dashCooldownUntil, NOW + 60_000, '기본 60초 쿨타임도 함께 진행');
+  assert.strictEqual(activateSkill(room, caster.id, NOW + 1), true, '보너스 대쉬 즉시 사용 가능');
+  assert.strictEqual(second.hp, HP_MAX * 0.5, '보너스 대쉬도 절단 피해 적용');
+  assert.strictEqual(caster.status.dashBonusUntil, NOW + 10_001, '다시 40% 초과면 새 보너스 획득');
+
+  const expired = makePlayer('dash-expired', 'dash', { status: { ...newPlayerSkillState('dash').status, dashBonusUntil: NOW + 10_000, dashCooldownUntil: NOW + 60_000 }, skillReadyAt: 0 });
+  const expiredRoom = makeRoom([expired]);
+  tickSkillWorld(expiredRoom, NOW + 10_001, []);
+  assert.strictEqual(expired.status.dashBonusUntil, 0, '10초가 지나면 보너스 소멸');
+  assert.strictEqual(expired.skillReadyAt, NOW + 60_000, '보너스 만료 후 원래 60초 쿨타임 표시 복귀');
+  assert.strictEqual(activateSkill(expiredRoom, expired.id, NOW + 10_001), false, '만료된 보너스는 사용할 수 없음');
+  console.log('dash slices avatars and chains 10-second bonus dashes over 40%: OK');
 }
 
 // 충격파 — 밀쳐내고 피해.

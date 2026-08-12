@@ -21,7 +21,7 @@ import {
   SCORE_PER_DEATH,
   SCORE_PER_ASSIST,
 } from './battleSimulation.js';
-import { ATTACK_HITBOX_SIZE, PROJECTILE_SPEED, PROJECTILE_RADIUS } from '../../shapes/attackGeometry.js';
+import { MELEE_ATTACK_LENGTH, PROJECTILE_SPEED, PROJECTILE_RADIUS } from '../../shapes/attackGeometry.js';
 
 function approxEqual(a, b, eps = 1e-6, msg = '') {
   assert.ok(Math.abs(a - b) < eps, `${msg} expected ${a} ≈ ${b}`);
@@ -226,7 +226,7 @@ console.log('wall collision: OK');
 }
 
 {
-  const offset = CHARACTER_RADIUS + ATTACK_HITBOX_SIZE / 2;
+  const offset = CHARACTER_RADIUS + MELEE_ATTACK_LENGTH / 2;
   const attacker = makePlayer({
     id: 'p1', x: 400, y: 300, aimX: Math.SQRT1_2, aimY: Math.SQRT1_2, hpDamage: 20, attackRequested: true,
   });
