@@ -28,24 +28,24 @@ export const SKILLS = [
   },
   {
     id: 'shield', name: '실드', icon: '🛡', kind: 'self', activationDurationMs: 5000, cooldownMs: 35000,
-    desc: '5초 동안 모든 피해를 받지 않습니다.',
+    desc: '5초 동안 모든 피해를 받지 않습니다. 대쉬와 강화 대쉬 피해도 완전히 막습니다.',
     color: '#a98bff',
   },
   {
     id: 'reflect', name: '반사', icon: '🔯', kind: 'self', activationDurationMs: 3000, cooldownMs: 40000,
-    desc: '3초 동안 받은 피해의 50%를 공격자에게 돌려줍니다. (자신도 피해는 받습니다)',
+    desc: '3초 동안 받은 피해의 50%를 공격자에게 돌려줍니다. 자신도 원래 피해를 받으며 대쉬에도 적용됩니다.',
     reflectRatio: 0.5, color: '#c08bff',
   },
 
   // ── 이동 ───────────────────────────────────────────────────────────
   {
     id: 'speedUp', name: '속도증가', icon: '⚡', kind: 'self', activationDurationMs: 5000, cooldownMs: 40000,
-    desc: '5초 동안 이동 속도가 3배가 됩니다.',
+    desc: '5초 동안 이동 속도가 3배가 됩니다. 속도증가 중 대쉬를 사용할 경우 대쉬 피해가 1.5배가 됩니다.',
     speedMultiplier: 3, color: '#5fe3a1',
   },
   {
     id: 'dash', name: '대쉬', icon: '💨', kind: 'self', activationDurationMs: 500, cooldownMs: 60000,
-    desc: '7m 돌진하며 상대 원을 가른 작은 조각의 면적 비율만큼 피해를 줍니다. 40% 초과 피해면 10초 안에 보너스 대쉬를 쓸 수 있습니다. 대기시간 60초.',
+    desc: '7m 돌진하며 상대 원의 작은 절단 조각 면적 비율만큼 피해를 줍니다. 절단 피해가 40%를 넘으면 보너스 대쉬를 얻으며, 획득 후 10초 안에 쓰지 않으면 소멸합니다. 보너스는 최대 2회, 최초 대쉬까지 총 3회 가능합니다. 속도증가 또는 최후의 발악 중 대쉬를 사용할 경우 대쉬 피해가 1.5배입니다.',
     distance: 7 * METER, color: '#7cc4ff',
   },
   {
@@ -72,7 +72,7 @@ export const SKILLS = [
   },
   {
     id: 'shockwave', name: '충격파', icon: '💥', kind: 'aura', activationDurationMs: 600, cooldownMs: 35000,
-    desc: '반경 5m 안의 적을 강하게 밀쳐내고 20% 피해를 줍니다.',
+    desc: '반경 5m 안의 모든 적을 강하게 밀쳐내고 최대 HP의 20% 피해를 줍니다.',
     radius: 5 * METER, knockback: 4 * METER, damagePercent: 20, color: '#ffffff',
   },
   {
@@ -82,7 +82,7 @@ export const SKILLS = [
   },
   {
     id: 'warrant', name: '연행영장', icon: '🚔', kind: 'cone', activationDurationMs: 500, cooldownMs: 25000,
-    desc: '앞쪽 부채꼴의 적 한 명을 자신 앞으로 끌고 옵니다.',
+    desc: '적 한 명을 자신 앞으로 끌고 옵니다.',
     range: 8 * METER, halfAngle: Math.PI / 5, color: '#ffa94d',
   },
   {
@@ -99,7 +99,7 @@ export const SKILLS = [
   },
   {
     id: 'deathMark', name: '사형선고', icon: '🎯', kind: 'cone', activationDurationMs: 60000, cooldownMs: 40000,
-    desc: '앞쪽의 적 한 명에게 60초 동안 표식을 남깁니다. 그동안 그 적에게 주는 피해 20% 증가.',
+    desc: '앞쪽의 적 한 명에게 모든 화면에서 보이는 과녁을 60초 동안 남깁니다. 시전자가 그 적에게 주는 피해가 20% 증가합니다.',
     range: 9 * METER, halfAngle: Math.PI / 5, damageBonus: 1.2, color: '#ff6b6b',
   },
 
@@ -123,8 +123,8 @@ export const SKILLS = [
   },
   {
     id: 'lastStand', name: '최후의 발악', icon: '🩸', kind: 'passive', activationDurationMs: 0, cooldownMs: 0,
-    desc: 'HP가 20 이하인 동안 이동 속도 2.5배, 공격력 2.5배. HP가 회복되거나 부활하면 해제. (자동 발동)',
-    thresholdHp: 20, speedMultiplier: 2.5, damageOut: 2.5, color: '#ff6b6b',
+    desc: 'HP가 20 이하인 동안 이동 속도는 3배, 공격력은 2.5배가 됩니다. 최후의 발악 중 대쉬를 사용할 경우 대쉬 피해가 1.5배가 됩니다. HP가 20을 넘거나 부활하면 해제되며, 대기시간 없이 자동 발동합니다.',
+    thresholdHp: 20, speedMultiplier: 3, damageOut: 2.5, color: '#ff6b6b',
   },
 ];
 

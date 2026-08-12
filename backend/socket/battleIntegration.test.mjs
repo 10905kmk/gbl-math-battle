@@ -524,8 +524,8 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   const room = getBattleRoom();
   assert.strictEqual(room.players.r1.isRanged, true);
   assert.strictEqual(room.players.r1.rangeDistance, 400 * RANGED_COMBAT_RANGE_MULTIPLIER);
-  assert.strictEqual(RANGED_DAMAGE_MULTIPLIER, 0.25, '원거리 실전 피해는 AI 평가 환산값에서 75% 감소');
-  assert.strictEqual(room.players.r1.hpDamage, 1.3, '원거리는 HP 5.1%의 25%인 1.275를 1.3%로 반올림');
+  assert.strictEqual(RANGED_DAMAGE_MULTIPLIER, 0.75, '원거리 실전 피해는 AI 평가 환산값의 75%');
+  assert.strictEqual(room.players.r1.hpDamage, 3.8, '원거리는 HP 5.1%의 75%인 3.825를 3.8%로 반올림');
 
   assert.strictEqual(room.players.m1.isRanged, false);
   assert.strictEqual(room.players.m1.rangeDistance, null);

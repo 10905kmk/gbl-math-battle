@@ -10,6 +10,7 @@ import { buildBattleStatePayload, buildPlayer } from './battle.js';
 
 const TICK_MS = 50;
 const DEV_DURATION_MS = 60 * 60_000;
+const DEV_DEFAULT_SKILLS = ['heal', 'speedUp', 'dash'];
 const TARGET_POSITIONS = [
   { x: 1100, y: 808 },
   { x: 1050, y: 760 },
@@ -45,8 +46,11 @@ function makeDevPlayer(id, name, characterId, position) {
     // 룰렛(스킬 선택)을 거치지 않는 개발자 방이라 후보 9개가 필요 없다.
     skillChoices: [],
   });
-  // 개발자 전투는 룰렛 없이 선택한 스킬 하나를 항상 Z 슬롯에서 즉시 시험한다.
-  player.skillIds = [player.skillId];
+  // 개발자 전투는 룰렛 없이 Z/X/C 세 슬롯을 항상 유지한다. BattleScreen이 이 배열을
+  // 그대로 원형 버튼으로 그리므로 처음 열었을 때부터 아래에 세 버튼이 모두 나타난다.
+  player.skillId = DEV_DEFAULT_SKILLS[0];
+  player.skillIds = [...DEV_DEFAULT_SKILLS];
+  player.skillReadyAts = Object.fromEntries(DEV_DEFAULT_SKILLS.map((id) => [id, 0]));
   player.skillSelectionConfirmed = true;
   return player;
 }
@@ -179,10 +183,10 @@ export function registerDevBattleHandlers(socket) {
     player.lastAttackAt = 0;
     emitState(socket, getDevBattleRoom(socket.id));
   });
-  socket.on('devBattle:skill', () => {
+  socket.on('devBattle:skill', (skillId) => {
     const entry = devRooms.get(socket.id);
     if (!entry) return;
-    const activated = activateSkill(entry.room, entry.controlledId, Date.now());
+    const activated = activateSkill(entry.room, entry.controlledId, Date.now(), Math.random, skillId);
     // battle.js의 battle:skill과 같은 이유(Opus 리뷰 Important #5, 2026-08-10) — 즉발 피해의
     // 히트 이펙트는 room.events에만 남으므로 여기서 직접 꺼내 보내야 한다. 다만 개발자 방은
     // 소켓별로 격리돼 있어 io.emit이 아니라 socket.emit으로 본인에게만 전달한다.
@@ -200,7 +204,9 @@ export function registerDevBattleHandlers(socket) {
     socket.emit('devBattle:controlled', { playerId });
     emitState(socket, entry.room);
   });
-  socket.on('devBattle:selectSkill', (skillId) => {
+  socket.on('devBattle:selectSkill', (payload) => {
+    const skillId = typeof payload === 'string' ? payload : payload?.skillId;
+    const slot = typeof payload === 'string' ? 0 : Math.max(0, Math.min(2, Number(payload?.slot) || 0));
     if (!isValidSkillId(skillId)) return;
     const entry = devRooms.get(socket.id);
     const room = entry?.room;
@@ -208,12 +214,22 @@ export function registerDevBattleHandlers(socket) {
     if (!player) return;
     // 여러 스킬을 빠르게 시험할 때 이전 테스트의 긴 지속효과가 화면에 겹쳐 남지 않게 한다.
     clearDevCombatArtifacts(room);
+    const skillIds = [...DEV_DEFAULT_SKILLS];
+    (player.skillIds ?? []).slice(0, 3).forEach((id, index) => {
+      if (isValidSkillId(id)) skillIds[index] = id;
+    });
+    const previousSkill = skillIds[slot];
+    const occupiedSlot = skillIds.findIndex((id, index) => index !== slot && id === skillId);
+    // Z/X/C에는 서로 다른 스킬만 둔다. 이미 장착된 스킬을 고르면 두 슬롯을 교환한다.
+    if (occupiedSlot >= 0) skillIds[occupiedSlot] = previousSkill;
+    skillIds[slot] = skillId;
+    const equipped = skillIds;
     room.players[entry.controlledId] = {
       ...player,
-      ...newPlayerSkillState(skillId),
-      skillIds: [skillId],
+      ...newPlayerSkillState(equipped[0]),
+      skillIds: equipped,
       skillSelectionConfirmed: true,
-      skillReadyAts: { [skillId]: 0 },
+      skillReadyAts: Object.fromEntries(equipped.map((id) => [id, 0])),
     };
     emitState(socket, room);
   });
@@ -226,9 +242,9 @@ export function registerDevBattleHandlers(socket) {
     room.players[entry.controlledId] = {
       ...player,
       ...newPlayerSkillState(player.skillId),
-      skillIds: [player.skillId],
+      skillIds: [...player.skillIds],
       skillSelectionConfirmed: true,
-      skillReadyAts: { [player.skillId]: 0 },
+      skillReadyAts: Object.fromEntries(player.skillIds.map((id) => [id, 0])),
     };
     emitState(socket, room);
   });

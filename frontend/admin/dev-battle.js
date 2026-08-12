@@ -36,10 +36,11 @@ function DevBattleApp() {
   const [connected, setConnected] = useState(false);
   const [controlledId, setControlledId] = useState(null);
   const [players, setPlayers] = useState([]);
-  const [selectedSkill, setSelectedSkill] = useState('heal');
+  const [selectedSkills, setSelectedSkills] = useState(['heal', 'speedUp', 'dash']);
+  const [activeSlot, setActiveSlot] = useState(0);
   const [hp, setHp] = useState(null);
   const [weaponType, setWeaponType] = useState('melee');
-  const selected = SKILLS.find((skill) => skill.id === selectedSkill);
+  const selected = SKILLS.find((skill) => skill.id === selectedSkills[activeSlot]);
 
   useEffect(() => {
     function start() {
@@ -55,7 +56,7 @@ function DevBattleApp() {
       setPlayers(Object.values(room?.players ?? {}));
       const me = room?.players?.[controlledIdRef.current ?? realSocket.id];
       if (!me) return;
-      setSelectedSkill(me.skillId ?? 'heal');
+      setSelectedSkills(me.skillIds ?? (me.skillId ? [me.skillId, 'speedUp', 'dash'] : ['heal', 'speedUp', 'dash']));
       setHp(me.hp);
       setWeaponType(me.isRanged ? 'ranged' : 'melee');
     }
@@ -78,8 +79,16 @@ function DevBattleApp() {
   }, [realSocket]);
 
   function chooseSkill(skillId) {
-    setSelectedSkill(skillId);
-    realSocket.emit('devBattle:selectSkill', skillId);
+    setSelectedSkills((previous) => {
+      const next = [...previous];
+      const previousSkill = next[activeSlot];
+      const occupiedSlot = next.findIndex((id, index) => index !== activeSlot && id === skillId);
+      // 같은 스킬을 두 키에 중복 배정하지 않는다. 이미 다른 키에 있으면 두 슬롯을 교환한다.
+      if (occupiedSlot >= 0) next[occupiedSlot] = previousSkill;
+      next[activeSlot] = skillId;
+      realSocket.emit('devBattle:selectSkill', { slot: activeSlot, skillId });
+      return next;
+    });
   }
 
   function controlPlayer(playerId) {
@@ -109,7 +118,7 @@ function DevBattleApp() {
           <div class="dev-help">
             <span><kbd>WASD</kbd> 이동</span>
             <span><kbd>마우스</kbd> 조준·클릭 공격</span>
-            <span><kbd>Z</kbd> 선택한 스킬 사용</span>
+            <span><kbd>Z X C</kbd> 장착한 3개 스킬 사용</span>
             <span>현재 HP <strong>${hp ?? '-'}</strong></span>
           </div>
           <div class="dev-avatar-switcher">
@@ -129,6 +138,16 @@ function DevBattleApp() {
         </div>
 
         <aside class="dev-sidebar">
+          <div class="dev-slot-picker">
+            ${['Z', 'X', 'C'].map((key, index) => {
+              const skill = SKILLS.find((item) => item.id === selectedSkills[index]);
+              return html`
+                <button type="button" class=${activeSlot === index ? 'is-active' : ''} onClick=${() => setActiveSlot(index)}>
+                  <kbd>${key}</kbd><span>${skill ? `${skill.icon} ${skill.name}` : '선택하기'}</span>
+                </button>
+              `;
+            })}
+          </div>
           <div class="dev-selected" style=${`--skill-color:${selected?.color ?? '#2b7fd4'}`}>
             <span>${selected?.icon}</span>
             <div>
@@ -159,18 +178,19 @@ function DevBattleApp() {
           <div class="dev-skill-grid">
             ${SKILLS.map((skill) => html`
               <button
-                class="dev-skill ${selectedSkill === skill.id ? 'is-selected' : ''}"
+                class="dev-skill ${selectedSkills.includes(skill.id) ? 'is-selected' : ''}"
                 style=${`--skill-color:${skill.color}`}
                 title=${skill.desc}
                 onClick=${() => chooseSkill(skill.id)}
               >
                 <span>${skill.icon}</span>
                 <strong>${skill.name}</strong>
+                <p>${skill.desc}</p>
                 <small>${formatSkillTiming(skill)}</small>
               </button>
             `)}
           </div>
-          <p class="dev-passive-note">패시브 테스트: ‘최후의 발악’을 고른 뒤 <b>내 체력 15%로</b>를 누르세요.</p>
+          <p class="dev-passive-note">조합 테스트: Z·X·C 슬롯을 누른 뒤 각 스킬을 배정하세요. ‘최후의 발악’은 <b>내 체력 15%로</b>를 눌러 발동합니다.</p>
         </aside>
       </section>
     </main>
