@@ -168,28 +168,34 @@ console.log('shield/cloak fully block incoming damage: OK');
   console.log('dash moves forward with brief invulnerability and respects walls: OK');
 }
 
-// 대쉬 절단 피해 — 중앙 관통은 원의 절반이며, 40% 초과마다 10초짜리 보너스 대쉬를 다시 얻는다.
-// 단, 한 번의 연속 대쉬(초기 1회 + 보너스 2회)는 총 3회를 넘을 수 없다.
+// 대쉬 절단 피해 — 중앙 관통은 원의 절반이며, 40% 초과 시 보너스를 최대 2회까지 얻는다.
 {
   assert.strictEqual(dashSliceDamagePercent(0, 0, 100, 0, 50, 0), 50, '중앙 관통은 50%');
   assert.strictEqual(dashSliceDamagePercent(0, 0, 100, 0, 50, 20), 0, '접선은 0%');
   const caster = makePlayer('dash-caster', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
   const first = makePlayer('dash-first', 'heal', { x: 570, y: 500 });
   const second = makePlayer('dash-second', 'heal', { x: 850, y: 500 });
-  const third = makePlayer('dash-third', 'heal', { x: 1130, y: 500 });
-  const room = makeRoom([caster, first, second, third]);
+  const room = makeRoom([caster, first, second]);
   assert.strictEqual(activateSkill(room, caster.id, NOW), true);
   assert.strictEqual(first.hp, HP_MAX * 0.5, '중앙 관통은 최대 체력의 50% 피해');
   assert.strictEqual(caster.status.dashBonusUntil, NOW + 10_000, '보너스 대쉬는 10초 유지');
   assert.strictEqual(caster.status.dashCooldownUntil, NOW + 60_000, '기본 60초 쿨타임도 함께 진행');
-  assert.strictEqual(activateSkill(room, caster.id, NOW + 1), true, '보너스 대쉬 즉시 사용 가능(2회차)');
+  assert.strictEqual(activateSkill(room, caster.id, NOW + 1), true, '보너스 대쉬 즉시 사용 가능');
   assert.strictEqual(second.hp, HP_MAX * 0.5, '보너스 대쉬도 절단 피해 적용');
-  assert.strictEqual(caster.status.dashBonusUntil, NOW + 10_001, '2회차도 40% 초과면 새 보너스 획득(3회차 예약)');
-  assert.strictEqual(activateSkill(room, caster.id, NOW + 2), true, '3회차 보너스 대쉬도 즉시 사용 가능');
-  assert.strictEqual(third.hp, HP_MAX * 0.5, '3회차도 절단 피해 적용');
-  assert.strictEqual(caster.status.dashBonusUntil, 0, '연속 대쉬는 3회가 최대라 40% 초과여도 4회차 보너스는 주지 않음');
-  assert.strictEqual(caster.skillReadyAt, NOW + 2 + 60_000, '3회 소진 후에는 60초 재사용 대기로 복귀');
-  assert.strictEqual(activateSkill(room, caster.id, NOW + 3), false, '3회를 넘겨 즉시 재사용하는 우회 경로는 차단되어야 함');
+  assert.strictEqual(caster.status.dashBonusUntil, NOW + 10_001, '다시 40% 초과면 새 보너스 획득');
+
+  caster.x = 500;
+  caster.y = 500;
+  caster.aimX = 1;
+  caster.aimY = 0;
+  second.x = 570;
+  second.y = 500;
+  second.hp = HP_MAX;
+  assert.strictEqual(activateSkill(room, caster.id, NOW + 2), true, '두 번째 보너스 대쉬도 사용 가능');
+  assert.strictEqual(caster.status.dashBonusUses, 2, '보너스 대쉬는 두 번 사용한 것으로 기록');
+  assert.strictEqual(caster.status.dashBonusUntil, 0, '두 번째 보너스 뒤에는 40% 초과여도 세 번째 보너스를 주지 않음');
+  assert.strictEqual(caster.skillReadyAt, NOW + 60_002, '총 3회 뒤에는 60초 재사용 대기로 전환');
+  assert.strictEqual(activateSkill(room, caster.id, NOW + 3), false, '한 연속 대쉬에서 총 3회를 넘길 수 없음');
 
   const expired = makePlayer('dash-expired', 'dash', { status: { ...newPlayerSkillState('dash').status, dashBonusUntil: NOW + 10_000, dashCooldownUntil: NOW + 60_000 }, skillReadyAt: 0 });
   const expiredRoom = makeRoom([expired]);
@@ -197,30 +203,36 @@ console.log('shield/cloak fully block incoming damage: OK');
   assert.strictEqual(expired.status.dashBonusUntil, 0, '10초가 지나면 보너스 소멸');
   assert.strictEqual(expired.skillReadyAt, NOW + 60_000, '보너스 만료 후 원래 60초 쿨타임 표시 복귀');
   assert.strictEqual(activateSkill(expiredRoom, expired.id, NOW + 10_001), false, '만료된 보너스는 사용할 수 없음');
-  console.log('dash slices avatars, chains bonus dashes over 40%, and caps at 3 total uses: OK');
+  console.log('dash slices avatars and limits 10-second bonus dashes to two: OK');
 }
 
-// 대쉬 x 속도증가/최후의발악 — 발동 중이면 대쉬 피해 1.5배, 두 효과가 겹쳐도 중복 적용되지 않는다.
+// 속도 버프와 대쉬의 연계 피해. 실드는 완전 방어하고, 반사는 대상 피해와 시전자 반사 피해가 함께 난다.
 {
-  const speedCaster = makePlayer('dash-speed', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
-  speedCaster.status.speedUntil = NOW + 5000;
-  const speedTarget = makePlayer('dash-speed-target', 'heal', { x: 570, y: 500 });
-  activateSkill(makeRoom([speedCaster, speedTarget]), speedCaster.id, NOW);
-  assert.strictEqual(speedTarget.hp, HP_MAX - HP_MAX * 0.5 * 1.5, '속도증가 발동 중 대쉬 피해는 1.5배');
+  for (const activeStatus of ['speedUntil', 'lastStandUntil']) {
+    const caster = makePlayer(`dash-${activeStatus}`, 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
+    caster.status[activeStatus] = NOW + 5_000;
+    const target = makePlayer(`target-${activeStatus}`, 'heal', { x: 570, y: 500 });
+    activateSkill(makeRoom([caster, target]), caster.id, NOW);
+    assert.strictEqual(target.hp, HP_MAX * 0.25, `${activeStatus} 중 중앙 대쉬는 50% × 1.5 = 75% 피해`);
+  }
 
-  const lastStandCaster = makePlayer('dash-laststand', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
-  lastStandCaster.status.lastStandUntil = NOW + 5000;
-  const lastStandTarget = makePlayer('dash-laststand-target', 'heal', { x: 570, y: 500 });
-  activateSkill(makeRoom([lastStandCaster, lastStandTarget]), lastStandCaster.id, NOW);
-  assert.strictEqual(lastStandTarget.hp, HP_MAX - HP_MAX * 0.5 * 1.5, '최후의 발악 발동 중 대쉬 피해도 1.5배');
+  const shieldCaster = makePlayer('shield-dasher', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
+  shieldCaster.status.speedUntil = NOW + 5_000;
+  const shielded = makePlayer('shielded', 'shield', { x: 570, y: 500 });
+  const shieldRoom = makeRoom([shieldCaster, shielded]);
+  activateSkill(shieldRoom, shielded.id, NOW);
+  activateSkill(shieldRoom, shieldCaster.id, NOW + 1);
+  assert.strictEqual(shielded.hp, HP_MAX, '실드 중에는 강화 대쉬도 피해가 0');
 
-  const bothCaster = makePlayer('dash-both', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
-  bothCaster.status.speedUntil = NOW + 5000;
-  bothCaster.status.lastStandUntil = NOW + 5000;
-  const bothTarget = makePlayer('dash-both-target', 'heal', { x: 570, y: 500 });
-  activateSkill(makeRoom([bothCaster, bothTarget]), bothCaster.id, NOW);
-  assert.strictEqual(bothTarget.hp, HP_MAX - HP_MAX * 0.5 * 1.5, '두 효과가 동시에 있어도 대쉬 배율은 1.5배로 중복되지 않음');
-  console.log('dash damage is 1.5x during speedUp/lastStand and does not stack: OK');
+  const reflectCaster = makePlayer('reflect-dasher', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
+  reflectCaster.status.speedUntil = NOW + 5_000;
+  const reflecting = makePlayer('reflecting', 'reflect', { x: 570, y: 500 });
+  const reflectRoom = makeRoom([reflectCaster, reflecting]);
+  activateSkill(reflectRoom, reflecting.id, NOW);
+  activateSkill(reflectRoom, reflectCaster.id, NOW + 1);
+  assert.strictEqual(reflecting.hp, HP_MAX * 0.25, '반사 대상도 강화 대쉬 원래 피해를 받음');
+  assert.strictEqual(reflectCaster.hp, 56.2, '대쉬 시전자는 실제 강화 대쉬 피해 67.5의 50%를 반사 피해로 받음');
+  console.log('speed-buffed dash damage respects shield and reflect: OK');
 }
 
 // 충격파 — 밀쳐내고 피해.
@@ -326,7 +338,7 @@ console.log('shield/cloak fully block incoming damage: OK');
   const room = makeRoom([p, makePlayer('p2', 'lucky')]);
   tickSkillWorld(room, NOW, []);
   assert.ok(p.status.lastStandUntil > NOW, 'HP 20 이하에서 자동 발동해야 함');
-  assert.strictEqual(speedMultiplier(p, NOW), 2.5, '최후의 발악 이동속도는 2.5배');
+  assert.strictEqual(speedMultiplier(p, NOW), 3, '최후의 발악 이동속도는 3배');
   assert.strictEqual(outgoingDamageMultiplier(p, room.players.p2, NOW, () => 1).multiplier, 2.5, '공격력 2.5배');
   assert.strictEqual(outgoingDamageMultiplier(p, room.players.p2, NOW + 600_000, () => 1).multiplier, 2.5, 'HP 20 이하면 시간 제한 없이 유지');
   assert.ok(room.effects.some((fx) => fx.type === 'lastStand' && fx.playerId === p.id), '발동 파티클 유지');

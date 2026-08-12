@@ -77,7 +77,8 @@ export function newPlayerSkillState(skillId) {
       luckyUntil: 0, luckyReadyAt: 0,
       dashBonusUntil: 0,
       dashCooldownUntil: 0,
-      dashChainCount: 0,
+      // 최초 대쉬 뒤 이어서 실제 사용한 보너스 횟수. 한 연속 대쉬에서 최대 2회까지만 허용한다.
+      dashBonusUses: 0,
     },
   };
 }
@@ -257,6 +258,10 @@ export function activateSkill(room, playerId, now, random = Math.random, request
     setSkillReadyAt(player, skill.id, player.status.dashCooldownUntil ?? 0);
   }
   const dashBonusPending = skill.id === 'dash' && (player.status.dashBonusUntil ?? 0) > now;
+  // 보너스가 없는 대쉬는 일반 스킬 쿨타임뿐 아니라 연속 대쉬 전용 원본 쿨타임도
+  // 통과해야 한다. 총 3회를 다 쓴 직후 readyAt 표시가 갱신되는 한 틱 사이에 새 일반
+  // 대쉬로 오인되어 제한을 우회하는 경로를 서버에서 한 번 더 막는다.
+  if (skill.id === 'dash' && !dashBonusPending && now < (player.status.dashCooldownUntil ?? 0)) return false;
   if (!recallPending && !dashBonusPending && now < skillReadyAt(player, skill.id)) return false;
 
   const events = [];
@@ -299,12 +304,10 @@ export function activateSkill(room, playerId, now, random = Math.random, request
       break;
     }
     case 'dash': {
-      // 연속 대쉬는 초기 1회 + 보너스 최대 2회, 총 3회로 제한한다 — 매번 40% 초과
-      // 절단이 나오면 이론상 무한 연쇄가 가능해지는 것을 막는다.
-      const chainCount = dashBonusPending ? (s.dashChainCount ?? 1) + 1 : 1;
-      s.dashChainCount = chainCount;
+      // 일반 대쉬는 새 연속 대쉬의 시작이고, 보너스 대쉬를 실제로 눌렀을 때만 사용 횟수를
+      // 올린다. 따라서 최초 1회 + 보너스 2회 = 한 연속 동작에서 최대 총 3회다.
+      s.dashBonusUses = dashBonusPending ? (s.dashBonusUses ?? 0) + 1 : 0;
       s.dashBonusUntil = 0;
-      const dashDamageMultiplier = (s.speedUntil ?? 0) > now || (s.lastStandUntil ?? 0) > now ? 1.5 : 1;
       const from = { x: player.x, y: player.y };
       const to = moveToward(
         player,
@@ -319,11 +322,15 @@ export function activateSkill(room, playerId, now, random = Math.random, request
         if (target.id === playerId || !target.alive || !target.connected || isCloaked(target, now)) continue;
         const damagePercent = dashSliceDamagePercent(from.x, from.y, to.x, to.y, target.x, target.y);
         if (damagePercent <= 0) continue;
-        applySkillDamage(room, playerId, target, damagePercent * MAX_HP / 100 * dashDamageMultiplier, now, events);
+        // 속도증가 또는 최후의 발악이 실제로 켜진 상태의 돌진은 운동 에너지가 더 큰
+        // 연계 공격으로 취급해 절단 피해를 1.5배로 만든다. 실드/반사는 아래 공용
+        // applySkillDamage를 그대로 통과하므로 다른 피해와 동일한 방어 규칙이 적용된다.
+        const speedDashBonus = (s.speedUntil ?? 0) > now || (s.lastStandUntil ?? 0) > now ? 1.5 : 1;
+        applySkillDamage(room, playerId, target, damagePercent * speedDashBonus * MAX_HP / 100, now, events);
         strongestSliceDamage = Math.max(strongestSliceDamage, damagePercent);
       }
       s.dashCooldownUntil = now + skill.cooldownMs;
-      if (strongestSliceDamage > 40 && chainCount < 3) s.dashBonusUntil = now + 10_000;
+      if (strongestSliceDamage > 40 && s.dashBonusUses < 2) s.dashBonusUntil = now + 10_000;
       s.invulnUntil = Math.max(s.invulnUntil, now + skill.activationDurationMs);
       pushEffect(room, { type: 'dash', fromX: from.x, fromY: from.y, x: to.x, y: to.y, endsAt: now + skill.activationDurationMs, color: skill.color });
       break;

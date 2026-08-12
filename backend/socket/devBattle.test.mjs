@@ -40,9 +40,9 @@ assert.ok(room.players[socket.id].hpDamage > rangedDamage, '실전과 같은 근
 // 공유하도록 리팩터한 뒤로는, 예전에 손으로 복제하다 빠뜨렸던 필드(skillIds/
 // skillSelectionConfirmed/skillReadyAts)도 실전 배틀과 똑같이 채워져야 한다. 근접
 // 데미지 배율(MELEE_DAMAGE_MULTIPLIER)도 이제 실전과 동일하게 적용된다.
-assert.deepStrictEqual(room.players[socket.id].skillIds, ['heal'], '개발자 화면은 현재 스킬을 Z 슬롯에 표시해야 함');
+assert.deepStrictEqual(room.players[socket.id].skillIds, ['heal', 'speedUp', 'dash'], '개발자 화면은 Z/X/C 세 원형 버튼을 항상 표시해야 함');
 assert.strictEqual(room.players[socket.id].skillSelectionConfirmed, true);
-assert.deepStrictEqual(room.players[socket.id].skillReadyAts, {});
+assert.deepStrictEqual(room.players[socket.id].skillReadyAts, { heal: 0, speedUp: 0, dash: 0 });
 assert.ok(room.players[socket.id].hpDamage > 0, '근접 배율이 적용된 hpDamage여야 함(0보다 커야 함)');
 console.log('devBattle players share the same schema as real battle players: OK');
 
@@ -50,10 +50,41 @@ for (const skill of SKILLS) {
   handlers.get('devBattle:selectSkill')(skill.id);
   room = getDevBattleRoom(socket.id);
   assert.strictEqual(room.players[socket.id].skillId, skill.id, `${skill.id}를 개발자 모드에서 선택 가능해야 함`);
-  assert.deepStrictEqual(room.players[socket.id].skillIds, [skill.id], `${skill.id} 선택 후에도 Z 슬롯이 유지돼야 함`);
+  assert.strictEqual(room.players[socket.id].skillIds[0], skill.id, `${skill.id}가 선택한 Z 슬롯에 배정되어야 함`);
+  assert.strictEqual(room.players[socket.id].skillIds.length, 3, `${skill.id} 선택 후에도 Z/X/C 세 슬롯이 유지돼야 함`);
+  assert.strictEqual(new Set(room.players[socket.id].skillIds).size, 3, 'Z/X/C에는 중복 스킬이 없어야 함');
 }
 assert.strictEqual(SKILLS.length, 19, '광전사 제거 후 등록된 19개 스킬을 모두 테스트해야 함');
 assert.ok(!SKILLS.some((skill) => skill.id === 'berserk'), '광전사는 개발자 테스트 목록에서도 제거');
+
+// Z/X/C 세 슬롯에 서로 다른 스킬을 장착하고 id를 지정해 독립적으로 발동할 수 있어야 한다.
+handlers.get('devBattle:selectSkill')({ slot: 0, skillId: 'lastStand' });
+handlers.get('devBattle:selectSkill')({ slot: 1, skillId: 'speedUp' });
+handlers.get('devBattle:selectSkill')({ slot: 2, skillId: 'dash' });
+room = getDevBattleRoom(socket.id);
+assert.deepStrictEqual(room.players[socket.id].skillIds, ['lastStand', 'speedUp', 'dash'], '개발자 테스트 Z/X/C 슬롯 조합');
+
+handlers.get('devBattle:selectSkill')({ slot: 2, skillId: 'speedUp' });
+assert.deepStrictEqual(
+  room.players[socket.id].skillIds,
+  ['lastStand', 'dash', 'speedUp'],
+  '다른 슬롯에 장착된 스킬을 고르면 중복되지 않고 두 슬롯이 교환되어야 함',
+);
+handlers.get('devBattle:selectSkill')({ slot: 1, skillId: 'speedUp' });
+assert.deepStrictEqual(
+  room.players[socket.id].skillIds,
+  ['lastStand', 'speedUp', 'dash'],
+  '교환 후에도 Z/X/C 슬롯은 서로 독립적으로 유지되어야 함',
+);
+handlers.get('devBattle:lowHp')();
+handlers.get('devBattle:skill')('speedUp');
+assert.ok(room.players[socket.id].status.speedUntil > Date.now(), 'X 슬롯 속도증가를 지정 발동');
+await new Promise((resolve) => setTimeout(resolve, 70));
+room = getDevBattleRoom(socket.id);
+assert.ok(room.players[socket.id].status.lastStandUntil > Date.now(), '최후의 발악은 저체력에서 자동 발동');
+handlers.get('devBattle:skill')('dash');
+assert.ok(room.players[socket.id].skillReadyAts.dash >= 0, 'C 슬롯 대쉬를 지정 발동');
+console.log('devBattle equips and activates Z/X/C skill combinations: OK');
 
 const targetId = Object.keys(room.players).find((id) => id !== socket.id);
 handlers.get('devBattle:controlPlayer')(targetId);
