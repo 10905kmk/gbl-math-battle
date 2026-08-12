@@ -471,8 +471,8 @@ export function registerBattleHandlers(io, socket) {
   });
 
   // 공격은 더 이상 "누르고 있는 상태"가 아니라 1회성 요청이다 — PC는 마우스 클릭, 모바일은
-  // 조준 스틱을 놓는 순간 한 번만 emit된다(조작방식 재설계 스펙 참고). stepSimulation이 다음
-  // 틱에서 이 요청을 소비한다.
+  // 별도의 공격 버튼을 누를 때 한 번만 emit된다. stepSimulation이 다음 틱에서 이 요청을
+  // 소비한다.
   socket.on('battle:attack', () => {
     if (!battleRoom || !battleRoom.players[socket.id]) return;
     battleRoom.players[socket.id].attackRequested = true;

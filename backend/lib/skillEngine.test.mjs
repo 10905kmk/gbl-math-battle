@@ -126,8 +126,8 @@ console.log('shield/cloak fully block incoming damage: OK');
 {
   const p = makePlayer('p1', 'speedUp');
   activateSkill(makeRoom([p]), 'p1', NOW);
-  assert.strictEqual(speedMultiplier(p, NOW), 2, '속도증가는 2배');
-  assert.strictEqual(speedMultiplier(p, NOW + 4999), 2, '5초 전까지는 2배 유지');
+  assert.strictEqual(speedMultiplier(p, NOW), 3, '속도증가는 3배');
+  assert.strictEqual(speedMultiplier(p, NOW + 4999), 3, '5초 전까지는 3배 유지');
   assert.strictEqual(speedMultiplier(p, NOW + 5000), 1, '5초가 지나면 원래대로');
 
   const caster = makePlayer('c', 'slowHell', { x: 500, y: 500 });
@@ -168,6 +168,7 @@ console.log('shield/cloak fully block incoming damage: OK');
 
 // 충격파 — 밀쳐내고 피해.
 {
+  assert.strictEqual(getSkill('shockwave').damagePercent, 20, '충격파 피해는 최대 체력의 20%여야 함');
   const caster = makePlayer('c', 'shockwave', { x: 500, y: 500 });
   const victim = makePlayer('v', 'lucky', { x: 500 + 2 * METER, y: 500 });
   activateSkill(makeRoom([caster, victim]), 'c', NOW);
@@ -222,18 +223,18 @@ console.log('shield/cloak fully block incoming damage: OK');
   const coneFx = room.effects.find((fx) => fx.type === 'cone' && fx.skillId === 'deathMark');
   assert.ok(markFx, '사형선고 과녕 표식이 공용 효과로 생성돼야 함');
   assert.strictEqual(coneFx, undefined, '사형선고는 사용 즉시 대상 과녁만 남고 시전자 부채꼴은 생성하지 않음');
-  assert.strictEqual(markFx.endsAt, NOW + 15000, '선택된 대상의 과녁만 15초 유지');
+  assert.strictEqual(markFx.endsAt, NOW + 60000, '선택된 대상의 과녁만 60초 유지');
   assert.notStrictEqual(markFx.ownerOnly, true, '사형선고 표식은 모든 참가자에게 보여야 함');
   const bonus = outgoingDamageMultiplier(caster, target, NOW, () => 1).multiplier;
   const none = outgoingDamageMultiplier(other, target, NOW, () => 1).multiplier;
   assert.strictEqual(bonus, getSkill('deathMark').damageBonus, '표식을 남긴 사람은 20% 증뎀');
   assert.strictEqual(none, 1, '다른 사람에게는 효과 없음');
   assert.strictEqual(
-    outgoingDamageMultiplier(caster, target, NOW + 14999, () => 1).multiplier,
+    outgoingDamageMultiplier(caster, target, NOW + 59999, () => 1).multiplier,
     getSkill('deathMark').damageBonus,
-    '15초 직전까지 표식 피해 증가 유지',
+    '60초 직전까지 표식 피해 증가 유지',
   );
-  assert.strictEqual(outgoingDamageMultiplier(caster, target, NOW + 15000, () => 1).multiplier, 1, '15초가 되면 표식 만료');
+  assert.strictEqual(outgoingDamageMultiplier(caster, target, NOW + 60000, () => 1).multiplier, 1, '60초가 되면 표식 만료');
   console.log('deathMark amplifies damage only from the caster: OK');
 }
 
@@ -268,9 +269,9 @@ console.log('shield/cloak fully block incoming damage: OK');
   const room = makeRoom([p, makePlayer('p2', 'lucky')]);
   tickSkillWorld(room, NOW, []);
   assert.ok(p.status.lastStandUntil > NOW, 'HP 20 이하에서 자동 발동해야 함');
-  assert.strictEqual(speedMultiplier(p, NOW), getSkill('lastStand').speedMultiplier);
-  assert.strictEqual(outgoingDamageMultiplier(p, room.players.p2, NOW, () => 1).multiplier, 3, '공격력 3배');
-  assert.strictEqual(outgoingDamageMultiplier(p, room.players.p2, NOW + 600_000, () => 1).multiplier, 3, 'HP 20 이하면 시간 제한 없이 유지');
+  assert.strictEqual(speedMultiplier(p, NOW), 2.5, '최후의 발악 이동속도는 2.5배');
+  assert.strictEqual(outgoingDamageMultiplier(p, room.players.p2, NOW, () => 1).multiplier, 2.5, '공격력 2.5배');
+  assert.strictEqual(outgoingDamageMultiplier(p, room.players.p2, NOW + 600_000, () => 1).multiplier, 2.5, 'HP 20 이하면 시간 제한 없이 유지');
   assert.ok(room.effects.some((fx) => fx.type === 'lastStand' && fx.playerId === p.id), '발동 파티클 유지');
 
   p.hp = 30;

@@ -20,6 +20,21 @@ assert.strictEqual(room.status, 'active');
 assert.strictEqual(Object.keys(room.players).length, 4, '개발자 1명과 테스트 표적 3명이 있어야 함');
 assert.strictEqual(room.players[socket.id].skillId, 'heal');
 assert.strictEqual(getDevControlledPlayerId(socket.id), socket.id);
+assert.strictEqual(room.players[socket.id].isRanged, false, '개발자 테스트의 기본 무기는 근거리여야 한다');
+
+handlers.get('devBattle:setWeaponType')('ranged');
+room = getDevBattleRoom(socket.id);
+assert.strictEqual(room.players[socket.id].isRanged, true, '원거리 무기로 전환할 수 있어야 한다');
+assert.ok(room.players[socket.id].rangeDistance > 0, '원거리 무기는 실제 투사체 사거리를 가져야 한다');
+const rangedDamage = room.players[socket.id].hpDamage;
+handlers.get('devBattle:attack')();
+assert.strictEqual(room.players[socket.id].attackRequested, true, '원거리 선택 후에도 실제 공격 요청 경로를 사용해야 한다');
+
+handlers.get('devBattle:setWeaponType')('melee');
+room = getDevBattleRoom(socket.id);
+assert.strictEqual(room.players[socket.id].isRanged, false, '근거리 무기로 다시 전환할 수 있어야 한다');
+assert.strictEqual(room.players[socket.id].rangeDistance, null);
+assert.ok(room.players[socket.id].hpDamage > rangedDamage, '실전과 같은 근거리 피해 보정이 적용돼야 한다');
 
 // 회귀 테스트(Opus 리뷰 Minor #8, 2026-08-10): devBattle.js가 battle.js의 buildPlayer를
 // 공유하도록 리팩터한 뒤로는, 예전에 손으로 복제하다 빠뜨렸던 필드(skillIds/

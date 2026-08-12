@@ -152,6 +152,29 @@ export function registerDevBattleHandlers(socket) {
     const player = controlledPlayer(socket.id);
     if (player) player.attackRequested = true;
   });
+  socket.on('devBattle:setWeaponType', (weaponType) => {
+    const player = controlledPlayer(socket.id);
+    if (!player || (weaponType !== 'melee' && weaponType !== 'ranged')) return;
+    // 실제 게임의 buildPlayer를 그대로 통과시켜 사거리·피해 보정도 본 전투와 동일하게 만든다.
+    const combatProfile = buildPlayer({
+      id: player.id,
+      x: player.x,
+      y: player.y,
+      weapon: {
+        damage: 5000,
+        attackRange: weaponType,
+        attackRangeDistance: weaponType === 'ranged' ? 600 : null,
+        parts: player.weaponParts,
+      },
+      skillChoices: [],
+    });
+    player.isRanged = combatProfile.isRanged;
+    player.rangeDistance = combatProfile.rangeDistance;
+    player.hpDamage = combatProfile.hpDamage;
+    player.attackRequested = false;
+    player.lastAttackAt = 0;
+    emitState(socket, getDevBattleRoom(socket.id));
+  });
   socket.on('devBattle:skill', () => {
     const entry = devRooms.get(socket.id);
     if (!entry) return;

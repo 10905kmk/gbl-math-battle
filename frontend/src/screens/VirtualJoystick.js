@@ -7,10 +7,8 @@ const html = htm.bind(h);
 // 스틱 중심에서 이만큼(px) 벗어나면 벡터 길이가 1로 clamp된다.
 const DEFAULT_RADIUS = 40;
 
-// 터치/마우스 드래그로 -1~1 범위의 2D 벡터를 만들어내는 가상 스틱. 이동 스틱과 조준
-// 스틱 양쪽에서 재사용한다(브롤스타즈 스타일 듀얼스틱, 2026-08-06 조작방식 재설계 스펙) —
-// 조준 스틱은 onRelease로 "손을 뗀 순간"을 추가로 받아 battle.js가 그 시점에 공격을
-// 트리거하는 데 쓴다.
+// 터치/마우스 드래그로 -1~1 범위의 2D 벡터를 만들어내는 가상 스틱. onRelease는
+// 듀얼 조이스틱 모드에서 빨간 조준 스틱을 놓는 순간 공격하는 용도로 사용한다.
 export function VirtualJoystick({ radius = DEFAULT_RADIUS, onChange, onRelease, className = '' }) {
   const baseRef = useRef(null);
   const knobRef = useRef(null);
@@ -65,7 +63,7 @@ export function VirtualJoystick({ radius = DEFAULT_RADIUS, onChange, onRelease, 
     activeIdRef.current = null;
     if (knobRef.current) knobRef.current.style.transform = 'translate(0px, 0px)';
     onChange({ x: 0, y: 0 });
-    if (onRelease) onRelease();
+    onRelease?.();
   }
 
   return html`

@@ -15,6 +15,15 @@ import { predictSelfMove, reconcileSelfPosition, decayRenderOffset } from './bat
 import { speedMultiplier } from '../../../shapes/skills.js';
 
 const html = htm.bind(h);
+const MOBILE_CONTROL_MODE_KEY = 'gbl-mobile-control-mode';
+
+function loadMobileControlMode() {
+  try {
+    return localStorage.getItem(MOBILE_CONTROL_MODE_KEY) === 'single' ? 'single' : 'dual';
+  } catch {
+    return 'dual';
+  }
+}
 
 const CHARACTER_RADIUS = 20;
 // 화면에 실제로 보이는 영역(뷰포트) — 맵 전체 크기(DEFAULT_MAP.arenaSize, 지금 2176x1632)와는
@@ -87,6 +96,7 @@ export function BattleScreen({ socket, state }) {
   // 내 캐릭터의 공격 미리보기(텔레그래프) 노드 — 무기 종류(근접 Rect/원거리 Line)는 대전
   // 중 안 바뀌므로 한 번만 만들고 이후 위치만 갱신한다.
   const previewNodeRef = useRef(null);
+  const previewWeaponTypeRef = useRef(null);
   // 서버가 확인해준 마지막 내 위치에서 시작해 매 프레임 예측 이동한 논리 위치 — null이면
   // 아직 첫 battle:state를 못 받은 것(그 전엔 예측할 입력 기준 위치가 없음). 화면에 그대로
   // 그리지는 않는다 — 실제로 그리는 위치는 renderSelfRef(아래) 쪽이다.
@@ -115,6 +125,7 @@ export function BattleScreen({ socket, state }) {
   // 현재 카메라가 월드 좌표계에서 어디를 보고 있는지(뷰포트 왼쪽 위 모서리의 월드 좌표).
   // 마우스 조준 좌표 변환(뷰포트 좌표 -> 월드 좌표)에도 이 값이 필요해서 ref로 공유한다.
   const cameraRef = useRef({ x: 0, y: 0 });
+  const aimInputSourceRef = useRef('none');
   // endsAt/쿨타임은 서버 시각이다. 참가자 기기의 시계가 빠르거나 느려도 파티클이 즉시
   // 사라지지 않도록 매 상태 패킷의 serverNow로 현재 서버 시각을 복원한다.
   const serverClockOffsetRef = useRef(0);
@@ -134,6 +145,28 @@ export function BattleScreen({ socket, state }) {
   const [mySkillIds, setMySkillIds] = useState([]);
   const [skillsConfirmed, setSkillsConfirmed] = useState(false);
   const [skillReadyAts, setSkillReadyAts] = useState({});
+  const [mobileControlMode, setMobileControlMode] = useState(loadMobileControlMode);
+  const [controlSettingsOpen, setControlSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const previousRootOverflow = root.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousOverscroll = document.body.style.overscrollBehavior;
+    root.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    const preventZoom = (event) => event.cancelable && event.preventDefault();
+    document.addEventListener('gesturestart', preventZoom, { passive: false });
+    document.addEventListener('dblclick', preventZoom, { passive: false });
+    return () => {
+      root.style.overflow = previousRootOverflow;
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.overscrollBehavior = previousOverscroll;
+      document.removeEventListener('gesturestart', preventZoom);
+      document.removeEventListener('dblclick', preventZoom);
+    };
+  }, []);
 
   function moveNodeSmoothly(node, x, y, immediate = false) {
     if (!node || !Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -283,10 +316,16 @@ export function BattleScreen({ socket, state }) {
         const isSelf = p.id === socket.id;
         // 공격 미리보기(텔레그래프) 노드는 여기서 한 번만 만든다 — 위치/방향 갱신은
         // updateSelfPrediction()이 매 프레임 담당한다(아래 useEffect 밖에 정의).
-        if (isSelf && !previewNodeRef.current) {
-          previewNodeRef.current = p.isRanged
-            ? new Konva.Line({ points: [0, 0, 0, 0], stroke: 'rgba(255,255,255,0.5)', strokeWidth: 3 })
-            : new Konva.Rect({
+        if (isSelf) {
+          const previewWeaponType = p.isRanged ? 'ranged' : 'melee';
+          if (previewNodeRef.current && previewWeaponTypeRef.current !== previewWeaponType) {
+            previewNodeRef.current.destroy();
+            previewNodeRef.current = null;
+          }
+          if (!previewNodeRef.current) {
+            previewNodeRef.current = p.isRanged
+              ? new Konva.Line({ points: [0, 0, 0, 0], stroke: 'rgba(255,255,255,0.5)', strokeWidth: 3 })
+              : new Konva.Rect({
                 width: ATTACK_HITBOX_SIZE,
                 height: ATTACK_HITBOX_SIZE,
                 // 회전축을 중심에 맞춘다 — 기본값(좌상단 기준 회전)이면 rotation()을 걸었을 때
@@ -294,8 +333,10 @@ export function BattleScreen({ socket, state }) {
                 offsetX: ATTACK_HITBOX_SIZE / 2,
                 offsetY: ATTACK_HITBOX_SIZE / 2,
                 fill: 'rgba(255,255,255,0.25)',
-              });
-          layer.add(previewNodeRef.current);
+                });
+            previewWeaponTypeRef.current = previewWeaponType;
+            layer.add(previewNodeRef.current);
+          }
         }
         let entry = nodesRef.current[p.id];
         let isNewEntry = false;
@@ -670,7 +711,7 @@ export function BattleScreen({ socket, state }) {
     const y = predictedSelfRef.current.y - renderOffsetRef.current.y;
     renderSelfRef.current = { x, y };
     updateCamera(x, y);
-    updateAimFromPointer();
+    if (aimInputSourceRef.current === 'mouse') updateAimFromPointer();
 
     const entry = nodesRef.current[socket.id];
     if (entry) {
@@ -709,23 +750,43 @@ export function BattleScreen({ socket, state }) {
   }
 
   useEffect(() => {
+    function onMouseMove(e) {
+      if (e.sourceCapabilities?.firesTouchEvents) return;
+      aimInputSourceRef.current = 'mouse';
+      updateAimFromPointer();
+    }
     function onMouseDown(e) {
       if (e.button !== 0) return; // 좌클릭만 공격으로 취급(우클릭 컨텍스트 메뉴 등은 무시)
+      if (e.sourceCapabilities?.firesTouchEvents) return;
       socket.emit('battle:attack');
     }
     const el = containerRef.current;
-    el?.addEventListener('mousemove', updateAimFromPointer);
+    el?.addEventListener('mousemove', onMouseMove);
     el?.addEventListener('mousedown', onMouseDown);
     return () => {
-      el?.removeEventListener('mousemove', updateAimFromPointer);
+      el?.removeEventListener('mousemove', onMouseMove);
       el?.removeEventListener('mousedown', onMouseDown);
     };
   }, [socket]);
 
   function onMoveStick({ x, y }) {
-    sendInput({ moveX: x, moveY: y });
+    aimInputSourceRef.current = 'joystick';
+    const len = Math.hypot(x, y);
+    if (mobileControlMode === 'dual') {
+      sendInput({ moveX: x, moveY: y });
+      return;
+    }
+    if (len < 0.05) {
+      sendInput({ moveX: 0, moveY: 0 });
+      return;
+    }
+    sendInput({ moveX: x, moveY: y, aimX: x / len, aimY: y / len });
+  }
+  function onAttack() {
+    socket.emit('battle:attack');
   }
   function onAimStick({ x, y }) {
+    aimInputSourceRef.current = 'joystick';
     // 정확히 중앙(len===0)이면 정규화(x/len)가 0으로 나누기가 되므로만 막는다 — 그 외엔
     // 아무리 작은 편차라도 조준으로 반영한다. 예전엔 이 임계값이 0.05(반지름 40px 기준 2px)로
     // 커서, 브롤스타즈처럼 조이스틱 중앙 부근을 연달아 톡톡 두드려 조준을 미세 조정하려 해도
@@ -741,6 +802,15 @@ export function BattleScreen({ socket, state }) {
   }
   function onAimRelease() {
     socket.emit('battle:attack');
+  }
+  function chooseMobileControlMode(mode) {
+    const nextMode = mode === 'dual' ? 'dual' : 'single';
+    setMobileControlMode(nextMode);
+    setControlSettingsOpen(false);
+    sendInput({ moveX: 0, moveY: 0 });
+    try {
+      localStorage.setItem(MOBILE_CONTROL_MODE_KEY, nextMode);
+    } catch {}
   }
 
   // Konva Stage가 붙은 .battle-arena는 BattleScreen이 살아 있는 동안 절대 DOM에서 빼지
@@ -806,7 +876,7 @@ export function BattleScreen({ socket, state }) {
           : null}
       </div>
       <div class="battle-controls ${controlsEnabled ? '' : 'is-hidden'}" aria-hidden=${!controlsEnabled}>
-        <${VirtualJoystick} onChange=${onMoveStick} />
+        <${VirtualJoystick} key=${`move-${mobileControlMode}`} onChange=${onMoveStick} />
         <div class="battle-skill-slot">
           ${mySkillIds.map((skillId, index) => html`
             <${SkillButton}
@@ -818,7 +888,31 @@ export function BattleScreen({ socket, state }) {
             />
           `)}
         </div>
-        <${VirtualJoystick} onChange=${onAimStick} onRelease=${onAimRelease} className="aim" />
+        <div class="battle-control-actions">
+          <div class="battle-control-settings">
+            <button
+              type="button"
+              class="battle-control-settings-toggle"
+              aria-expanded=${controlSettingsOpen}
+              onClick=${() => setControlSettingsOpen((open) => !open)}
+            ><span>⚙</span><small>조이스틱</small></button>
+            ${controlSettingsOpen
+              ? html`
+                  <div class="battle-control-settings-menu" role="group" aria-label="모바일 조작 방식">
+                    <button type="button" class=${mobileControlMode === 'single' ? 'is-selected' : ''} onClick=${() => chooseMobileControlMode('single')}>
+                      <strong>단일 조이스틱</strong><small>이동 방향으로 조준 · 공격 버튼 사용</small>
+                    </button>
+                    <button type="button" class=${mobileControlMode === 'dual' ? 'is-selected' : ''} onClick=${() => chooseMobileControlMode('dual')}>
+                      <strong>듀얼 조이스틱</strong><small>흰색 이동 · 빨간색 조준 후 놓아서 공격</small>
+                    </button>
+                  </div>
+                `
+              : null}
+          </div>
+          ${mobileControlMode === 'dual'
+            ? html`<${VirtualJoystick} className="aim" onChange=${onAimStick} onRelease=${onAimRelease} />`
+            : html`<button type="button" class="battle-attack-button" onPointerDown=${onAttack} aria-label="현재 바라보는 방향으로 공격"><span>공격</span><small>ATTACK</small></button>`}
+        </div>
       </div>
     </div>
   `;

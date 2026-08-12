@@ -53,7 +53,7 @@ export const SCORE_PER_ASSIST = 5;
 export const ASSIST_WINDOW_MS = 8000;
 
 // 조준 벡터가 이 길이보다 짧으면 "조준 입력 없음"으로 보고 이전 조준을 유지한다 — 모바일
-// 조준 스틱이 중앙 근처에 있거나 마우스가 캐릭터 위에 있을 때, 히트박스가 캐릭터 자기
+// 이동 스틱이 중앙 근처에 있거나 마우스가 캐릭터 위에 있을 때, 히트박스가 캐릭터 자기
 // 자신 위치로 무너지는 것을 방지한다.
 const AIM_DEADZONE = 0.01;
 // aiClient.js의 DAMAGE_MAX와 같은 상한 — weapon.damage는 소켓으로 들어오는 클라이언트 제공
