@@ -40,12 +40,12 @@ export const SKILLS = [
   // ── 이동 ───────────────────────────────────────────────────────────
   {
     id: 'speedUp', name: '속도증가', icon: '⚡', kind: 'self', activationDurationMs: 5000, cooldownMs: 40000,
-    desc: '5초 동안 이동 속도가 2배가 됩니다.',
-    speedMultiplier: 2, color: '#5fe3a1',
+    desc: '5초 동안 이동 속도가 3배가 됩니다.',
+    speedMultiplier: 3, color: '#5fe3a1',
   },
   {
-    id: 'dash', name: '대쉬', icon: '💨', kind: 'self', activationDurationMs: 500, cooldownMs: 20000,
-    desc: '바라보는 방향으로 7m 순간 돌진합니다. 돌진 중 0.5초 무적.',
+    id: 'dash', name: '대쉬', icon: '💨', kind: 'self', activationDurationMs: 500, cooldownMs: 60000,
+    desc: '7m 돌진하며 상대 원을 가른 작은 조각의 면적 비율만큼 피해를 줍니다. 40% 초과 피해면 10초 안에 보너스 대쉬를 쓸 수 있습니다. 대기시간 60초.',
     distance: 7 * METER, color: '#7cc4ff',
   },
   {
@@ -72,8 +72,8 @@ export const SKILLS = [
   },
   {
     id: 'shockwave', name: '충격파', icon: '💥', kind: 'aura', activationDurationMs: 600, cooldownMs: 35000,
-    desc: '반경 5m 안의 적을 강하게 밀쳐내고 5% 피해를 줍니다.',
-    radius: 5 * METER, knockback: 4 * METER, damagePercent: 5, color: '#ffffff',
+    desc: '반경 5m 안의 적을 강하게 밀쳐내고 20% 피해를 줍니다.',
+    radius: 5 * METER, knockback: 4 * METER, damagePercent: 20, color: '#ffffff',
   },
   {
     id: 'blackhole', name: '블랙홀', icon: '🕳', kind: 'place', activationDurationMs: 3000, cooldownMs: 45000,
@@ -98,8 +98,8 @@ export const SKILLS = [
     dotMs: 5000, dotPercentPerSec: 1.5, color: '#7ddc6a',
   },
   {
-    id: 'deathMark', name: '사형선고', icon: '🎯', kind: 'cone', activationDurationMs: 15000, cooldownMs: 40000,
-    desc: '앞쪽의 적 한 명에게 15초 동안 표식을 남깁니다. 그동안 그 적에게 주는 피해 20% 증가.',
+    id: 'deathMark', name: '사형선고', icon: '🎯', kind: 'cone', activationDurationMs: 60000, cooldownMs: 40000,
+    desc: '앞쪽의 적 한 명에게 60초 동안 표식을 남깁니다. 그동안 그 적에게 주는 피해 20% 증가.',
     range: 9 * METER, halfAngle: Math.PI / 5, damageBonus: 1.2, color: '#ff6b6b',
   },
 
@@ -123,8 +123,8 @@ export const SKILLS = [
   },
   {
     id: 'lastStand', name: '최후의 발악', icon: '🩸', kind: 'passive', activationDurationMs: 0, cooldownMs: 0,
-    desc: 'HP가 20 이하인 동안 이동 속도 1.5배, 공격력 3배. HP가 회복되거나 부활하면 해제. (자동 발동)',
-    thresholdHp: 20, speedMultiplier: 1.5, damageOut: 3, color: '#ff6b6b',
+    desc: 'HP가 20 이하인 동안 이동 속도 2.5배, 공격력 2.5배. HP가 회복되거나 부활하면 해제. (자동 발동)',
+    thresholdHp: 20, speedMultiplier: 2.5, damageOut: 2.5, color: '#ff6b6b',
   },
 ];
 

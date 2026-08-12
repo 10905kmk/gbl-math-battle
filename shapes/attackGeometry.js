@@ -3,6 +3,9 @@
 // (텔레그래프)가 실제 판정과 어긋나지 않으려면 계산식이 한 곳에만 있어야 한다 — shapes/battleMap.js
 // 와 같은 이유의 단일 소스 원칙.
 export const ATTACK_HITBOX_SIZE = 30;
+// 근접 무기의 조준 방향 도달 길이. 기존 30px에서 1.5배인 45px로 확장한다.
+// 좌우 폭은 ATTACK_HITBOX_SIZE를 유지해 옆에 있는 대상까지 과도하게 맞지 않게 한다.
+export const MELEE_ATTACK_LENGTH = ATTACK_HITBOX_SIZE * 1.5;
 export const RANGE_DISTANCE_MIN = 150;
 export const RANGE_DISTANCE_MAX = 600;
 // AI 평가/저장 값은 유지하되, 원거리 우세를 줄이기 위해 실전 배율을 기존 3배의 절반으로 조정.
@@ -27,11 +30,11 @@ function clamp(v, min, max) {
 // battle.js의 무기 아이콘 회전(atan2(aimY,aimX))과 같은 좌표계라 미리보기가 캐릭터가 든
 // 무기 방향과 시각적으로도 맞아떨어진다.
 export function meleeHitboxRect(x, y, aimX, aimY, characterRadius) {
-  const offset = characterRadius + ATTACK_HITBOX_SIZE / 2;
+  const offset = characterRadius + MELEE_ATTACK_LENGTH / 2;
   return {
     centerX: x + aimX * offset,
     centerY: y + aimY * offset,
-    width: ATTACK_HITBOX_SIZE,
+    width: MELEE_ATTACK_LENGTH,
     height: ATTACK_HITBOX_SIZE,
     angle: Math.atan2(aimY, aimX),
   };

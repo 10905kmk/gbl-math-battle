@@ -32,7 +32,7 @@ function weaponParts() {
 // skillSelectionConfirmed/skillReadyAts 추가) 여기 반영을 잊기 쉬웠다(Opus 리뷰 Minor #8,
 // 2026-08-10 — 실제로 이미 빠져 있었고, MELEE_DAMAGE_MULTIPLIER도 안 붙어 있었다).
 function makeDevPlayer(id, name, characterId, position) {
-  return buildPlayer({
+  const player = buildPlayer({
     id,
     name,
     characterId,
@@ -45,6 +45,10 @@ function makeDevPlayer(id, name, characterId, position) {
     // 룰렛(스킬 선택)을 거치지 않는 개발자 방이라 후보 9개가 필요 없다.
     skillChoices: [],
   });
+  // 개발자 전투는 룰렛 없이 선택한 스킬 하나를 항상 Z 슬롯에서 즉시 시험한다.
+  player.skillIds = [player.skillId];
+  player.skillSelectionConfirmed = true;
+  return player;
 }
 
 export function createDevBattleRoom(socketId, now = Date.now()) {
@@ -152,6 +156,29 @@ export function registerDevBattleHandlers(socket) {
     const player = controlledPlayer(socket.id);
     if (player) player.attackRequested = true;
   });
+  socket.on('devBattle:setWeaponType', (weaponType) => {
+    const player = controlledPlayer(socket.id);
+    if (!player || (weaponType !== 'melee' && weaponType !== 'ranged')) return;
+    // 실제 게임의 buildPlayer를 그대로 통과시켜 사거리·피해 보정도 본 전투와 동일하게 만든다.
+    const combatProfile = buildPlayer({
+      id: player.id,
+      x: player.x,
+      y: player.y,
+      weapon: {
+        damage: 5000,
+        attackRange: weaponType,
+        attackRangeDistance: weaponType === 'ranged' ? 600 : null,
+        parts: player.weaponParts,
+      },
+      skillChoices: [],
+    });
+    player.isRanged = combatProfile.isRanged;
+    player.rangeDistance = combatProfile.rangeDistance;
+    player.hpDamage = combatProfile.hpDamage;
+    player.attackRequested = false;
+    player.lastAttackAt = 0;
+    emitState(socket, getDevBattleRoom(socket.id));
+  });
   socket.on('devBattle:skill', () => {
     const entry = devRooms.get(socket.id);
     if (!entry) return;
@@ -181,7 +208,13 @@ export function registerDevBattleHandlers(socket) {
     if (!player) return;
     // 여러 스킬을 빠르게 시험할 때 이전 테스트의 긴 지속효과가 화면에 겹쳐 남지 않게 한다.
     clearDevCombatArtifacts(room);
-    room.players[entry.controlledId] = { ...player, ...newPlayerSkillState(skillId) };
+    room.players[entry.controlledId] = {
+      ...player,
+      ...newPlayerSkillState(skillId),
+      skillIds: [skillId],
+      skillSelectionConfirmed: true,
+      skillReadyAts: { [skillId]: 0 },
+    };
     emitState(socket, room);
   });
   socket.on('devBattle:resetCooldown', () => {
@@ -190,7 +223,13 @@ export function registerDevBattleHandlers(socket) {
     const player = entry ? room.players[entry.controlledId] : null;
     if (!player) return;
     clearDevCombatArtifacts(room);
-    room.players[entry.controlledId] = { ...player, ...newPlayerSkillState(player.skillId) };
+    room.players[entry.controlledId] = {
+      ...player,
+      ...newPlayerSkillState(player.skillId),
+      skillIds: [player.skillId],
+      skillSelectionConfirmed: true,
+      skillReadyAts: { [player.skillId]: 0 },
+    };
     emitState(socket, room);
   });
   socket.on('devBattle:lowHp', () => {

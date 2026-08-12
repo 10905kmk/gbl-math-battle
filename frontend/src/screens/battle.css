@@ -3,7 +3,14 @@
   flex-direction: column;
   align-items: center;
   gap: 0.75rem;
-  width: min(var(--arena-width), 100%);
+  width: min(
+    var(--arena-width),
+    100%,
+    calc(133.333dvh - 9.333rem)
+  );
+  max-height: 100dvh;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 /* battle-arena 자체는 순수 Konva 마운트 지점(battle.js가 ref로만 씀, Preact 자식을 그
@@ -98,11 +105,6 @@
   touch-action: none;
 }
 
-.joystick-base.aim {
-  background: rgba(192, 57, 43, 0.12);
-  border-color: rgba(192, 57, 43, 0.4);
-}
-
 .joystick-knob {
   position: absolute;
   top: 50%;
@@ -115,8 +117,132 @@
   pointer-events: none;
 }
 
+.joystick-base.aim {
+  background: rgba(255, 74, 74, 0.13);
+  border-color: rgba(255, 98, 98, 0.72);
+}
+
 .joystick-base.aim .joystick-knob {
-  background: #c0392b;
+  background: rgba(255, 76, 76, 0.82);
+}
+
+.battle-attack-button {
+  width: 6rem;
+  height: 6rem;
+  flex: 0 0 6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  border: 2px solid rgba(255, 255, 255, 0.62);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 80ms ease, background-color 80ms ease, border-color 80ms ease;
+}
+
+.battle-attack-button small {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.battle-attack-button:active {
+  transform: scale(0.92);
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.battle-control-settings {
+  position: relative;
+  z-index: 12;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.battle-control-settings-toggle {
+  width: 4rem;
+  height: 3.15rem;
+  padding: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: #101b2e;
+  color: var(--text-dim);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.battle-control-settings-toggle span {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.battle-control-settings-toggle small {
+  font-size: 0.58rem;
+}
+
+.battle-control-settings-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.5rem);
+  width: min(20rem, calc(100vw - 1.5rem));
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: #101b2e;
+  box-shadow: var(--shadow);
+}
+
+.battle-control-settings-menu button {
+  display: grid;
+  gap: 0.12rem;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #0d1728;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.battle-control-settings-menu button.is-selected {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.battle-control-settings-menu strong {
+  font-size: 0.82rem;
+}
+
+.battle-control-settings-menu small {
+  color: var(--text-dim);
+  font-size: 0.68rem;
+}
+
+.battle-control-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* ── 아레나 위 오버레이(시작 카운트다운 / 사망) ──────────────────────────
@@ -337,7 +463,20 @@
   font-size: 0.72rem;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (hover: none) and (pointer: coarse) {
+  .battle-controls {
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 5.5rem;
+  }
+
+  .joystick-base,
+  .battle-attack-button {
+    width: 5.25rem;
+    height: 5.25rem;
+    flex-basis: 5.25rem;
+  }
+
   .battle-phase-overlay {
     align-items: flex-start;
   }
@@ -385,6 +524,13 @@
   cursor: pointer;
   overflow: hidden;
   touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.skill-btn.is-ready:active {
+  transform: scale(0.92);
 }
 
 /* 쿨타임 — 아래에서 차오르는 어두운 막으로 남은 시간을 보여준다. */
@@ -426,6 +572,29 @@
   font-weight: 800;
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px), (hover: none) and (pointer: coarse) {
+  /* Four skills stay large enough to tap without overflowing narrow phones. */
+  .battle-skill-slot {
+    display: grid;
+    grid-template-columns: repeat(2, 2.75rem);
+    gap: 0.3rem;
+    flex: 0 0 auto;
+  }
+
+  .skill-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .skill-btn-icon {
+    font-size: 1.15rem;
+  }
+
+  .skill-btn-label {
+    font-size: 0.55rem;
+  }
 }
 
 /* ── 판 종료 후 최종 순위 대시보드 ─────────────────────────────────────── */

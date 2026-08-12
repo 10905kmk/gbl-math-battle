@@ -90,6 +90,7 @@ body {
 .dev-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 11px 0 14px; }
 .dev-actions button { padding: 9px 7px; border: 1px solid #41536b; border-radius: 6px; background: #202d40; color: #eef3fb; font-weight: 700; cursor: pointer; }
 .dev-actions button:hover { background: #293a52; }
+.dev-actions .dev-weapon.is-selected { border-color: #45d6c4; background: #153b3b; color: #70f0de; box-shadow: inset 0 0 0 1px #45d6c4; }
 .dev-actions .dev-reset { grid-column: 1 / -1; color: #ff9e97; }
 
 .dev-skill-head { display: flex; justify-content: space-between; margin-bottom: 8px; }

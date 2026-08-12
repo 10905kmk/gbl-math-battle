@@ -38,6 +38,7 @@ function DevBattleApp() {
   const [players, setPlayers] = useState([]);
   const [selectedSkill, setSelectedSkill] = useState('heal');
   const [hp, setHp] = useState(null);
+  const [weaponType, setWeaponType] = useState('melee');
   const selected = SKILLS.find((skill) => skill.id === selectedSkill);
 
   useEffect(() => {
@@ -56,6 +57,7 @@ function DevBattleApp() {
       if (!me) return;
       setSelectedSkill(me.skillId ?? 'heal');
       setHp(me.hp);
+      setWeaponType(me.isRanged ? 'ranged' : 'melee');
     }
     realSocket.on('connect', start);
     realSocket.on('disconnect', onDisconnect);
@@ -84,6 +86,11 @@ function DevBattleApp() {
     controlledIdRef.current = playerId;
     setControlledId(playerId);
     realSocket.emit('devBattle:controlPlayer', playerId);
+  }
+
+  function chooseWeaponType(nextType) {
+    setWeaponType(nextType);
+    realSocket.emit('devBattle:setWeaponType', nextType);
   }
 
   return html`
@@ -132,6 +139,14 @@ function DevBattleApp() {
           </div>
 
           <div class="dev-actions">
+            <button
+              class=${`dev-weapon ${weaponType === 'melee' ? 'is-selected' : ''}`}
+              onClick=${() => chooseWeaponType('melee')}
+            >⚔ 근거리 무기</button>
+            <button
+              class=${`dev-weapon ${weaponType === 'ranged' ? 'is-selected' : ''}`}
+              onClick=${() => chooseWeaponType('ranged')}
+            >➶ 원거리 무기</button>
             <button onClick=${() => realSocket.emit('devBattle:resetCooldown')}>쿨타임·효과 초기화</button>
             <button onClick=${() => realSocket.emit('devBattle:lowHp')}>내 체력 15%로</button>
             <button class="dev-reset" onClick=${() => realSocket.emit('devBattle:reset')}>전체 테스트 초기화</button>

@@ -8,6 +8,7 @@ import {
   COUNTDOWN_MS,
   BATTLE_DURATION_MS,
   MELEE_DAMAGE_MULTIPLIER,
+  RANGED_DAMAGE_MULTIPLIER,
   HP_DAMAGE_MAX,
   HP_MAX,
   DEFAULT_MOVE_SPEED,
@@ -283,7 +284,8 @@ export function buildPlayer({
   const baseDamage = hpDamageFromWeaponDamage(weapon?.damage);
   // 근접은 가까이 가야 하는 위험을 감수하므로 원거리보다 세다 — 다만 보정을 곱한 뒤에도
   // 한 방 상한(HP_DAMAGE_MAX)은 반드시 지킨다. 이 clamp가 "최소 5대"를 보장한다.
-  const hpDamage = Math.min(HP_DAMAGE_MAX, isRanged ? baseDamage : Math.round(baseDamage * MELEE_DAMAGE_MULTIPLIER * 10) / 10);
+  const damageMultiplier = isRanged ? RANGED_DAMAGE_MULTIPLIER : MELEE_DAMAGE_MULTIPLIER;
+  const hpDamage = Math.min(HP_DAMAGE_MAX, Math.round(baseDamage * damageMultiplier * 10) / 10);
 
   return {
     id,
@@ -471,8 +473,8 @@ export function registerBattleHandlers(io, socket) {
   });
 
   // 공격은 더 이상 "누르고 있는 상태"가 아니라 1회성 요청이다 — PC는 마우스 클릭, 모바일은
-  // 조준 스틱을 놓는 순간 한 번만 emit된다(조작방식 재설계 스펙 참고). stepSimulation이 다음
-  // 틱에서 이 요청을 소비한다.
+  // 별도의 공격 버튼을 누를 때 한 번만 emit된다. stepSimulation이 다음 틱에서 이 요청을
+  // 소비한다.
   socket.on('battle:attack', () => {
     if (!battleRoom || !battleRoom.players[socket.id]) return;
     battleRoom.players[socket.id].attackRequested = true;

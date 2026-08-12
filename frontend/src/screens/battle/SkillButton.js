@@ -36,13 +36,29 @@ export function SkillButton({ skillId, readyAt, onUse, keyLabel }) {
   // 작은 화면에서도 한눈에 읽힌다).
   const fillPercent = ready ? 0 : Math.round((remainMs / total) * 100);
 
+  function activateFromPointer(event) {
+    // 모바일은 touch -> click 변환이 스크롤/미세한 손가락 이동 때문에 취소될 수 있으므로
+    // pointerdown에서 즉시 한 번 발동한다. 뒤이어 생성되는 click은 아래에서 무시한다.
+    event.preventDefault();
+    onUse();
+  }
+
+  function activateFromKeyboard(event) {
+    // 키보드로 버튼에 초점을 둔 뒤 Enter/Space를 누르면 detail=0인 click이 발생한다.
+    // 실제 포인터 click(detail>0)은 pointerdown에서 이미 처리했으므로 중복 발동하지 않는다.
+    if (event.detail === 0) onUse();
+  }
+
   return html`
     <button
+      type="button"
       class="skill-btn ${ready ? 'is-ready' : 'is-cooling'}"
       style=${{ '--skill-color': skill.color, '--cool-fill': `${fillPercent}%` }}
-      onClick=${onUse}
+      onPointerDown=${activateFromPointer}
+      onClick=${activateFromKeyboard}
       disabled=${!ready}
       title=${skill.desc}
+      aria-label=${`${keyLabel} ${skill.name} 발동`}
     >
       <span class="skill-btn-icon">${skill.icon}</span>
       <span class="skill-btn-label">${keyLabel} · ${ready ? skill.name : `${Math.ceil(remainMs / 1000)}`}</span>
