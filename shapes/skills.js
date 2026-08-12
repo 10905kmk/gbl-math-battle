@@ -50,7 +50,7 @@ export const SKILLS = [
   },
   {
     id: 'blink', name: '순간이동', icon: '🔮', kind: 'shot', activationDurationMs: 1000, cooldownMs: 40000,
-    desc: '하얀 진주를 던져 벽에 닿은 자리로 순간이동합니다.',
+    desc: '하얀 진주를 던져 벽에 닿거나 사거리가 끝난 자리로 순간이동합니다.',
     projectileSpeed: 26, maxRange: 12 * METER, color: '#ffffff',
   },
   {

@@ -51,6 +51,26 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+  /* 부스 기기는 Windows 터치스크린 노트북이라, 모바일 브라우저 전용인 뷰포트 메타
+     (maximum-scale/user-scalable)의 확대 차단이 먹히지 않는다 — 데스크톱/모바일 어디서나
+     동일하게 적용되는 touch-action으로 더블탭/핀치 확대를 막는다. 스크롤 자체는
+     막으면 안 되므로 none이 아니라 manipulation(팬은 허용, 확대만 차단). 길게 눌렀을 때 뜨는
+     텍스트 선택/콜아웃 메뉴도 화면 전체를 만지는 조작형 앱에서는 방해만 되므로 기본값을
+     꺼두고, 실제로 타이핑해야 하는 입력창(아래 input/textarea/[contenteditable])만 되살린다.
+     (2026-08-13 부스 실기기 재현 — 개별 요소에 touch-action:none을 몇 군데만 발라두는
+     방식으로는 캔버스 밖 화면 어디를 눌러도 새는 걸 못 막았다.) */
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea,
+[contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* 배경: 도형 격자 + 위아래 광원. fixed라 화면을 스크롤해도 따라오지 않는다. */
@@ -300,6 +320,21 @@ body::after {
 .slide-card--text {
   padding-top: clamp(2rem, 6vw, 3rem);
   padding-bottom: clamp(2rem, 6vw, 3rem);
+}
+
+/* 설명 없이 이미지만 있는 슬라이드 — PPT 원본 슬라이드를 그대로 캡처해 넣은 경우.
+   이미지 자체가 이미 완성된 화면이라 다른 슬라이드처럼 작은 썸네일로 줄이지 않고
+   카드를 넓혀서 최대한 크게 보여준다. */
+.slide-card--image {
+  width: min(64rem, 100%);
+  padding: 1.5rem;
+}
+
+.slide-card--image img {
+  max-width: 100%;
+  max-height: 72vh;
+  padding: 0;
+  background: none;
 }
 
 .slide-card--text .slide-desc {

@@ -369,6 +369,13 @@ export function startBattleRoom(io, participants, { onEnd } = {}) {
   };
 
   io.emit('battle:standings', null); // 이전 판의 대시보드를 내린다
+  // 아래 tickInterval의 shouldEmit은 "직전 틱과 status가 달라졌을 때"만 방송한다 — 룰렛은
+  // 매 틱 status가 그대로 'roulette'라 이 조건에 절대 안 걸린다. 첫 판은 stage가 방금
+  // 'battle'로 바뀌어 BattleScreen이 새로 마운트되며 battle:requestSync를 보내니 무관하지만,
+  // admin:newRound는 stage가 계속 'battle'이라 화면이 재마운트되지 않고 requestSync도 다시
+  // 나가지 않는다 — 여기서 강제로 한 번 방송하지 않으면 이미 떠 있는 화면은 새 판의 룰렛을
+  // 영영 못 받고 이전 판 마지막 화면에 소프트락된다(2026-08-13 실기기 재현).
+  emitBattleState(io, battleRoom);
   tickInterval = setInterval(() => {
     const previousStatus = battleRoom.status;
     const { room, winners, events } = stepSimulation(battleRoom, Date.now());

@@ -471,6 +471,26 @@ console.log('battle room carries weaponParts from participant weapon: OK');
   console.log('admin:newRound includes newcomers who joined/finished crafting mid-battle: OK');
   handlers.newcomer['disconnect']();
 
+  // 회귀 테스트(2026-08-13 실기기 소프트락 재현): stage는 'battle'에 계속 머무르므로
+  // BattleScreen은 새 판에서도 재마운트되지 않고, 그래서 마운트 시 한 번뿐인
+  // battle:requestSync도 다시 나가지 않는다. tickInterval의 shouldEmit은 status가
+  // active/countdown이 아니고 "직전 틱과 달라지지도" 않으면 방송을 건너뛰는데, 룰렛은
+  // 매 틱 status가 그대로 'roulette'라 이 조건에 영원히 걸리지 않는다 — admin:newRound가
+  // 방을 새로 만든 시점에 강제로 한 번 emitBattleState를 부르지 않으면, 이미 화면이 떠
+  // 있는 참가자는 새 판의 룰렛 상태를 영영 못 받고 이전 판 마지막 화면에 멈춘다.
+  {
+    emitted.length = 0;
+    handlers.p1['admin:newRound']();
+    const stateEvents = emitted.filter(([ev]) => ev === 'battle:state');
+    assert.ok(
+      stateEvents.length > 0,
+      'admin:newRound은 (이미 마운트된 화면을 위해) 새 방 상태를 즉시 방송해야 함',
+    );
+    const [, payload] = stateEvents[stateEvents.length - 1];
+    assert.strictEqual(payload.status, 'roulette', '즉시 방송된 상태는 새 판의 룰렛이어야 함');
+    console.log('admin:newRound immediately broadcasts fresh roulette state for already-mounted screens: OK');
+  }
+
   // 이동 속도는 판이 바뀌어도 유지된다 — 관리자가 매 판 다시 맞출 이유가 없다.
   const { registerBattleHandlers } = await import('./battle.js');
   const bh = {};
