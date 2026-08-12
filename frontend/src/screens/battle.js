@@ -557,15 +557,6 @@ export function BattleScreen({ socket, state }) {
     return () => socket.off('battle:standings', setStandings);
   }, [socket]);
 
-  // 마우스 같은 정밀 포인터가 있는 기기인지 — 대전 시작 시 한 번만 확인한다(중간에 마우스를
-  // 뽑았다 꽂는 극단적인 경우는 고려하지 않음, YAGNI). 터치 전용 기기(폰/태블릿)에서는
-  // updateAimFromPointer를 아예 끈다 — 안 그러면 손가락이 캔버스를 스치기만 해도 Konva가
-  // 그 좌표를 "포인터 위치"로 기억해뒀다가, 캐릭터가 움직일 때마다 그 고정된 화면 좌표를
-  // 향해 매 프레임 조준을 다시 계산해서 보내버려 가상 조이스틱 입력과 계속 충돌한다(모바일
-  // 조준이 "가끔 고정된 각도로 가려는" 것처럼 느껴지던 원인, 2026-08-11 실기기 테스트 피드백).
-  const hasFinePointerRef = useRef(
-    typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches === true,
-  );
   const inputRef = useRef({ moveX: 0, moveY: 0, aimX: 0, aimY: 0 });
   const keysRef = useRef({ up: false, down: false, left: false, right: false });
 
@@ -658,9 +649,6 @@ export function BattleScreen({ socket, state }) {
   // 시점의 조준 방향으로 공격을 1회 발사한다 — 누르고 있어도 추가로 발사되지 않는다(쿨다운마다
   // 다시 클릭해야 함).
   function updateAimFromPointer() {
-    // 터치 전용 기기에서는 아예 아무 것도 안 한다 — 조준은 가상 조이스틱(onAimStick)만
-    // 담당한다(위 hasFinePointerRef 주석 참고).
-    if (!hasFinePointerRef.current) return;
     const stage = stageRef.current;
     if (!stage || !renderSelfRef.current) return;
     const pointer = stage.getPointerPosition();
@@ -750,22 +738,30 @@ export function BattleScreen({ socket, state }) {
   }
 
   useEffect(() => {
+    // "터치 전용 기기인지"를 대전 시작 시 한 번(matchMedia('pointer: fine'))만 확인해서
+    // PC 마우스 조준을 켤지 껐었는데, S펜 등 스타일러스가 있는 태블릿/터치 노트북처럼
+    // 터치와 별개로 기기 어딘가에 정밀 포인터가 "존재하기만" 해도 그 검사를 통과해버려서,
+    // 화면을 손가락으로 한 번만 눌러도 브라우저가 같이 쏘는 호환용 mousemove/mousedown이
+    // updateAimFromPointer를 깨워 가상 조이스틱과 계속 충돌했다(모바일 조준이 "누르면 각도가
+    // 고정되려는" 것처럼 느껴지던 원인, 2026-08-12 실기기 재현). Pointer Events는 이벤트마다
+    // 실제 입력 종류(e.pointerType)를 알려주므로, 기기 단위가 아니라 "이 입력이 진짜
+    // 마우스였는가"를 매번 직접 물어보면 스타일러스/터치가 섞인 기기에서도 안전하다.
     function onMouseMove(e) {
-      if (e.sourceCapabilities?.firesTouchEvents) return;
+      if (e.pointerType !== 'mouse') return;
       aimInputSourceRef.current = 'mouse';
       updateAimFromPointer();
     }
     function onMouseDown(e) {
       if (e.button !== 0) return; // 좌클릭만 공격으로 취급(우클릭 컨텍스트 메뉴 등은 무시)
-      if (e.sourceCapabilities?.firesTouchEvents) return;
+      if (e.pointerType !== 'mouse') return;
       socket.emit('battle:attack');
     }
     const el = containerRef.current;
-    el?.addEventListener('mousemove', onMouseMove);
-    el?.addEventListener('mousedown', onMouseDown);
+    el?.addEventListener('pointermove', onMouseMove);
+    el?.addEventListener('pointerdown', onMouseDown);
     return () => {
-      el?.removeEventListener('mousemove', onMouseMove);
-      el?.removeEventListener('mousedown', onMouseDown);
+      el?.removeEventListener('pointermove', onMouseMove);
+      el?.removeEventListener('pointerdown', onMouseDown);
     };
   }, [socket]);
 
