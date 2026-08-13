@@ -176,6 +176,12 @@ export function BattleScreen({ socket, state }) {
       node.position({ x, y });
       return;
     }
+    // 죽어서 정지한 캐릭터처럼 목표와 현재 위치가 이미 같은 노드를 매 20Hz 상태 패킷마다
+    // 새 보간 작업으로 등록하면, 실제 이동은 없는데도 Konva.Animation이 계속 일을 한다.
+    // 기존 목표까지 같은 경우도 다시 시작 시각을 초기화하지 않는다.
+    const existing = motionTargetsRef.current.get(node);
+    if (existing && Math.abs(existing.toX - x) < 0.01 && Math.abs(existing.toY - y) < 0.01) return;
+    if (!existing && Math.abs(node.x() - x) < 0.01 && Math.abs(node.y() - y) < 0.01) return;
     motionTargetsRef.current.set(node, {
       fromX: node.x(), fromY: node.y(),
       toX: x, toY: y,
@@ -419,7 +425,7 @@ export function BattleScreen({ socket, state }) {
         entry.circle.shadowBlur(localHitFlash ? 18 : 0);
         entry.circle.opacity(opacity);
         if (!isSelf) moveNodeSmoothly(entry.label, p.x - CHARACTER_RADIUS, p.y - 7, isNewEntry);
-        entry.label.visible(!hiddenByCloak);
+        entry.label.visible(isAlive && !hiddenByCloak);
         entry.label.opacity(opacity);
 
         // 체력바 — 남은 비율만큼 채우고, 색으로도 위험도를 알린다(초록 → 노랑 → 빨강).
@@ -445,7 +451,9 @@ export function BattleScreen({ socket, state }) {
         entry.respawnLabel.visible(showRespawn && !hiddenByCloak);
         if (showRespawn) {
           if (!isSelf) moveNodeSmoothly(entry.respawnLabel, p.x - 60, barY - 2, isNewEntry);
-          entry.respawnLabel.text(`부활 ${Math.max(0, Math.ceil((p.respawnAt - serverNow) / 1000))}`);
+          const nextRespawnText = `부활 ${Math.max(0, Math.ceil((p.respawnAt - serverNow) / 1000))}`;
+          // 같은 초 안에는 텍스트 레이아웃을 다시 계산하지 않는다.
+          if (entry.respawnLabel.text() !== nextRespawnText) entry.respawnLabel.text(nextRespawnText);
         }
 
         // 무기 아이콘 위치/방향 — 조준 벡터(aimX/aimY)를 기준으로 캐릭터 중심에서 연속적으로
@@ -465,12 +473,14 @@ export function BattleScreen({ socket, state }) {
           DEFAULT_MAP.arenaSize.height,
           Math.max(0, p.y + aimY * handForward + aimX * handSide),
         );
-        if (!isSelf) moveNodeSmoothly(entry.rightHand, handX, handY, isNewEntry);
-        entry.rightHand.visible(!hiddenByCloak);
+        if (isAlive && !isSelf) moveNodeSmoothly(entry.rightHand, handX, handY, isNewEntry);
+        else if (!isAlive) motionTargetsRef.current.delete(entry.rightHand);
+        entry.rightHand.visible(isAlive && !hiddenByCloak);
         entry.rightHand.opacity(opacity);
-        if (!isSelf) moveNodeSmoothly(entry.weaponGroup, handX, handY, isNewEntry);
-        entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
-        entry.weaponGroup.visible(!hiddenByCloak);
+        if (isAlive && !isSelf) moveNodeSmoothly(entry.weaponGroup, handX, handY, isNewEntry);
+        else if (!isAlive) motionTargetsRef.current.delete(entry.weaponGroup);
+        if (isAlive) entry.weaponGroup.rotation((Math.atan2(aimY, aimX) * 180) / Math.PI);
+        entry.weaponGroup.visible(isAlive && !hiddenByCloak);
         entry.weaponGroup.opacity(opacity);
       });
 
