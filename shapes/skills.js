@@ -45,8 +45,8 @@ export const SKILLS = [
   },
   {
     id: 'dash', name: '대쉬', icon: '💨', kind: 'self', activationDurationMs: 500, cooldownMs: 60000,
-    desc: '7m 돌진하며 상대 원의 작은 절단 조각 면적 비율만큼 피해를 줍니다. 절단 피해가 40%를 넘으면 보너스 대쉬를 얻으며, 획득 후 10초 안에 쓰지 않으면 소멸합니다. 보너스는 최대 2회, 최초 대쉬까지 총 3회 가능합니다. 속도증가 또는 최후의 발악 중 대쉬를 사용할 경우 대쉬 피해가 1.5배입니다.',
-    distance: 7 * METER, color: '#7cc4ff',
+    desc: '7m 돌진하며 상대 원의 작은 절단 조각 면적 비율만큼 피해를 줍니다. 절단 피해가 35%를 넘으면 보너스 대쉬를 얻으며, 획득 후 10초 안에 쓰지 않으면 소멸합니다. 보너스는 최대 2회, 최초 대쉬까지 총 3회 가능합니다. 속도증가 또는 최후의 발악 중 대쉬를 사용할 경우 대쉬 피해가 1.5배입니다.',
+    distance: 7 * METER, bonusThresholdPercent: 35, color: '#7cc4ff',
   },
   {
     id: 'blink', name: '순간이동', icon: '🔮', kind: 'shot', activationDurationMs: 1000, cooldownMs: 40000,

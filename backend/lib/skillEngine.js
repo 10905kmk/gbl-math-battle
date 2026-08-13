@@ -330,7 +330,9 @@ export function activateSkill(room, playerId, now, random = Math.random, request
         strongestSliceDamage = Math.max(strongestSliceDamage, damagePercent);
       }
       s.dashCooldownUntil = now + skill.cooldownMs;
-      if (strongestSliceDamage > 40 && s.dashBonusUses < 2) s.dashBonusUntil = now + 10_000;
+      if (strongestSliceDamage > skill.bonusThresholdPercent && s.dashBonusUses < 2) {
+        s.dashBonusUntil = now + 10_000;
+      }
       s.invulnUntil = Math.max(s.invulnUntil, now + skill.activationDurationMs);
       pushEffect(room, { type: 'dash', fromX: from.x, fromY: from.y, x: to.x, y: to.y, endsAt: now + skill.activationDurationMs, color: skill.color });
       break;

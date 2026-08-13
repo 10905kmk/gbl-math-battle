@@ -168,10 +168,13 @@ console.log('shield/cloak fully block incoming damage: OK');
   console.log('dash moves forward with brief invulnerability and respects walls: OK');
 }
 
-// 대쉬 절단 피해 — 중앙 관통은 원의 절반이며, 40% 초과 시 보너스를 최대 2회까지 얻는다.
+// 대쉬 절단 피해 — 중앙 관통은 원의 절반이며, 35% 초과 시 보너스를 최대 2회까지 얻는다.
 {
+  assert.strictEqual(getSkill('dash').bonusThresholdPercent, 35, '보너스 대쉬 획득 기준은 35% 초과');
   assert.strictEqual(dashSliceDamagePercent(0, 0, 100, 0, 50, 0), 50, '중앙 관통은 50%');
   assert.strictEqual(dashSliceDamagePercent(0, 0, 100, 0, 50, 20), 0, '접선은 0%');
+  assert.ok(dashSliceDamagePercent(0, 0, 100, 0, 50, 4) > 35, '중심에서 조금 벗어나도 35% 초과 판정');
+  assert.ok(dashSliceDamagePercent(0, 0, 100, 0, 50, 5) < 35, '35% 미만 절단은 보너스 기준 미달');
   const caster = makePlayer('dash-caster', 'dash', { x: 500, y: 500, aimX: 1, aimY: 0 });
   const first = makePlayer('dash-first', 'heal', { x: 570, y: 500 });
   const second = makePlayer('dash-second', 'heal', { x: 850, y: 500 });
@@ -182,7 +185,7 @@ console.log('shield/cloak fully block incoming damage: OK');
   assert.strictEqual(caster.status.dashCooldownUntil, NOW + 60_000, '기본 60초 쿨타임도 함께 진행');
   assert.strictEqual(activateSkill(room, caster.id, NOW + 1), true, '보너스 대쉬 즉시 사용 가능');
   assert.strictEqual(second.hp, HP_MAX * 0.5, '보너스 대쉬도 절단 피해 적용');
-  assert.strictEqual(caster.status.dashBonusUntil, NOW + 10_001, '다시 40% 초과면 새 보너스 획득');
+  assert.strictEqual(caster.status.dashBonusUntil, NOW + 10_001, '다시 35% 초과면 새 보너스 획득');
 
   caster.x = 500;
   caster.y = 500;
@@ -193,7 +196,7 @@ console.log('shield/cloak fully block incoming damage: OK');
   second.hp = HP_MAX;
   assert.strictEqual(activateSkill(room, caster.id, NOW + 2), true, '두 번째 보너스 대쉬도 사용 가능');
   assert.strictEqual(caster.status.dashBonusUses, 2, '보너스 대쉬는 두 번 사용한 것으로 기록');
-  assert.strictEqual(caster.status.dashBonusUntil, 0, '두 번째 보너스 뒤에는 40% 초과여도 세 번째 보너스를 주지 않음');
+  assert.strictEqual(caster.status.dashBonusUntil, 0, '두 번째 보너스 뒤에는 35% 초과여도 세 번째 보너스를 주지 않음');
   assert.strictEqual(caster.skillReadyAt, NOW + 60_002, '총 3회 뒤에는 60초 재사용 대기로 전환');
   assert.strictEqual(activateSkill(room, caster.id, NOW + 3), false, '한 연속 대쉬에서 총 3회를 넘길 수 없음');
 
