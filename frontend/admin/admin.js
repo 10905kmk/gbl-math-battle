@@ -57,6 +57,9 @@ function AdminApp() {
     }
     socket.on('battle:state', onBattleState);
     socket.on('checkin:list', setCheckinList);
+    // checkin:list는 실명/외부 허브 uid가 담겨 있어 관리자 화면만 구독한다(서버가 구독
+    // 전에는 보내지 않는다) — 이 화면이 그 두 곳 중 하나다.
+    socket.emit('checkin:subscribe');
     return () => {
       socket.off('stage:change', setStage);
       socket.off('admin:participants', setParticipants);
@@ -88,14 +91,19 @@ function AdminApp() {
   }
 
   async function consumeCheckin() {
-    const res = await fetch('/api/checkin/consume', { method: 'POST' });
-    const data = await res.json();
-    const okCount = data.results.filter((r) => r.status === 'ok').length;
-    const failCount = data.results.length - okCount;
-    alert(
-      `체크인 등록 완료: 성공 ${okCount}건` +
-        (failCount > 0 ? `, 실패 ${failCount}건(목록에 남아 재시도 가능)` : ''),
-    );
+    try {
+      const res = await fetch('/api/checkin/consume', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `체크인 등록에 실패했습니다 (${res.status})`);
+      const okCount = data.results.filter((r) => r.status === 'ok').length;
+      const failCount = data.results.length - okCount;
+      alert(
+        `체크인 등록 완료: 성공 ${okCount}건` +
+          (failCount > 0 ? `, 실패 ${failCount}건(목록에 남아 재시도 가능)` : ''),
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '체크인 등록 중 네트워크 오류가 발생했습니다.');
+    }
   }
 
   return html`

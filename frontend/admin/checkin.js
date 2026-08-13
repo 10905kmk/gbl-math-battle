@@ -34,6 +34,9 @@ function CheckinApp() {
 
   useEffect(() => {
     socket.on('checkin:list', setCheckinList);
+    // checkin:list는 실명/외부 허브 uid가 담겨 있어 관리자 화면만 구독한다(서버가 구독
+    // 전에는 보내지 않는다) — 이 화면이 그 두 곳 중 하나다.
+    socket.emit('checkin:subscribe');
     return () => socket.off('checkin:list', setCheckinList);
   }, [socket]);
 

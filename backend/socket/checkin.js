@@ -21,7 +21,7 @@ export function initCheckinIo(io) {
 }
 
 function broadcastList() {
-  ioRef?.emit('checkin:list', checkinList);
+  ioRef?.to('checkin-admin').emit('checkin:list', checkinList);
 }
 
 export function removeByDeviceId(deviceId) {
@@ -45,7 +45,13 @@ function removeByUid(uid) {
 }
 
 export function registerCheckinHandlers(socket) {
-  socket.emit('checkin:list', checkinList);
+  // checkin:list는 실명/외부 허브 uid/프로필 이미지를 담고 있어 admin:participants보다
+  // 민감하다 — 이걸 필요로 하는 두 관리자 화면(checkin.js, admin.js)만 구독하도록, 연결
+  // 즉시 전체 브로드캐스트하는 대신 명시적으로 구독을 요청한 소켓에만 보낸다.
+  socket.on('checkin:subscribe', () => {
+    socket.join('checkin-admin');
+    socket.emit('checkin:list', checkinList);
+  });
 
   socket.on('checkin:confirmAssign', ({ uid, name, profile_image } = {}, ack) => {
     const respond = typeof ack === 'function' ? ack : () => {};
@@ -87,19 +93,26 @@ export function registerCheckinHandlers(socket) {
 // 관리자가 "체크인 목록 소진" 버튼을 누르면 호출된다(routes/checkin.js). 허브 쪽 부하를
 // 피하려고 병렬이 아니라 순차로 호출한다. 실패한 항목은 목록에 남겨 재시도할 수 있게 한다.
 export async function consumeCheckinList() {
+  // checkinList를 그대로 순회하면서 매번 await하면, 그 사이 다른 소켓 이벤트(confirmAssign/
+  // unlink/resetParticipant/disconnect)가 checkinList를 갈아끼울 수 있어 순회 중인 배열과
+  // 실제 배열이 어긋난다. 순회는 시작 시점 스냅샷(batch)으로 하고, 끝에서는 그 스냅샷으로
+  // 통째로 덮어쓰는 대신 "성공한 uid만" 현재 시점의 checkinList에서 제거한다 — 그래야 소진
+  // 도중에 새로 추가된 항목은 살아남고, 도중에 지워진 항목이 되살아나지 않는다.
+  const batch = [...checkinList];
   const results = [];
-  const remaining = [];
-  for (const entry of checkinList) {
+  const succeededUids = new Set();
+  for (const entry of batch) {
     const outcome = await addUser(entry.uid);
     if (outcome.ok) {
       results.push({ uid: entry.uid, name: entry.name, status: 'ok' });
+      succeededUids.add(entry.uid);
     } else {
       results.push({ uid: entry.uid, name: entry.name, status: 'error', message: outcome.message });
-      remaining.push(entry);
     }
   }
+  const surviving = checkinList.filter((entry) => !succeededUids.has(entry.uid));
   checkinList.length = 0;
-  checkinList.push(...remaining);
+  checkinList.push(...surviving);
   broadcastList();
   return results;
 }
