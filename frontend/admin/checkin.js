@@ -170,38 +170,40 @@ function CheckinApp() {
 
   return html`
     <${Fragment}>
-      <div class="card checkin-card">
-        <p class="eyebrow">수학 도형 무기 배틀</p>
-        <h2 class="title">부스 체크인</h2>
-        <p class="subtitle">참가자의 QR 배지를 카메라에 비춰주세요</p>
-        ${cameraError
-          ? html`<p class="checkin-camera-error">카메라를 사용할 수 없습니다: ${cameraError}</p>`
-          : html`
-              <div class="checkin-camera">
-                <video ref=${videoRef} playsinline muted></video>
-                <canvas ref=${canvasRef} style="display:none"></canvas>
-              </div>
-              ${cameras.length > 1
-                ? html`
-                    <button class="btn btn--sm checkin-switch-camera" onClick=${switchCamera}>
-                      카메라 전환 (${cameraIndex + 1}/${cameras.length})
-                    </button>
-                  `
-                : null}
-            `}
-      </div>
+      <div class="checkin-layout">
+        <div class="card checkin-card">
+          <p class="eyebrow">수학 도형 무기 배틀</p>
+          <h2 class="title">부스 체크인</h2>
+          <p class="subtitle">참가자의 QR 배지를 카메라에 비춰주세요</p>
+          ${cameraError
+            ? html`<p class="checkin-camera-error">카메라를 사용할 수 없습니다: ${cameraError}</p>`
+            : html`
+                <div class="checkin-camera">
+                  <video ref=${videoRef} playsinline muted></video>
+                  <canvas ref=${canvasRef} style="display:none"></canvas>
+                </div>
+                ${cameras.length > 1
+                  ? html`
+                      <button class="btn btn--sm checkin-switch-camera" onClick=${switchCamera}>
+                        카메라 전환 (${cameraIndex + 1}/${cameras.length})
+                      </button>
+                    `
+                  : null}
+              `}
+        </div>
 
-      <div class="card checkin-list-card">
-        <p class="eyebrow">체크인 목록</p>
-        <h2 class="title">${checkinList.length}명</h2>
-        <p class="subtitle">연결 해제 등 관리는 관리자 대시보드에서 해주세요</p>
-        ${checkinList.length === 0
-          ? html`<p class="checkin-list-empty">아직 체크인된 참가자가 없습니다.</p>`
-          : html`
-              <ul class="checkin-list">
-                ${checkinList.map((entry) => html`<li key=${entry.uid}><span>${entry.name}</span></li>`)}
-              </ul>
-            `}
+        <div class="card checkin-list-card">
+          <p class="eyebrow">체크인 목록</p>
+          <h2 class="title">${checkinList.length}명</h2>
+          <p class="subtitle">연결 해제 등 관리는 관리자 대시보드에서 해주세요</p>
+          ${checkinList.length === 0
+            ? html`<p class="checkin-list-empty">아직 체크인된 참가자가 없습니다.</p>`
+            : html`
+                <ul class="checkin-list">
+                  ${checkinList.map((entry) => html`<li key=${entry.uid}><span>${entry.name}</span></li>`)}
+                </ul>
+              `}
+        </div>
       </div>
 
       ${toast ? html`<div class="checkin-toast">${toast}</div>` : null}

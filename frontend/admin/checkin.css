@@ -1,13 +1,34 @@
 /* 토큰/카드/버튼 기본기는 ../style.css(참가자 메인 화면)에서 그대로 가져온다 —
    여기는 체크인 화면 전용 레이아웃(카메라 프레임, 확인 모달, 목록)만 추가한다. */
 
+/* 세로(포트레이트)일 땐 카메라 위, 목록 아래로 쌓고, 가로(랜드스케이프)일 땐
+   카메라·목록을 좌우로 나란히 둔다 — 부스 노트북은 보통 가로로 놓지만, 스태프가
+   아이패드를 들고 돌아다니며 스캔할 땐 세로로 쥐는 경우가 많아서 화면 방향에
+   맞춰 자동으로 바뀌어야 둘 다 자연스럽다. */
+.checkin-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  width: 100%;
+}
+
+@media (orientation: landscape) {
+  .checkin-layout {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+}
+
 .checkin-card {
   width: min(28rem, 100%);
 }
 
 .checkin-list-card {
   width: min(28rem, 100%);
-  margin-top: 1rem;
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
 .checkin-camera {
