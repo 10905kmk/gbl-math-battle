@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   startBattleRoom,
   startNextRound,
@@ -7,6 +10,13 @@ import {
 import { saveParticipantResults } from '../lib/resultStorage.js';
 import { fallbackDamage, fallbackAttackRange } from '../routes/weaponEvaluate.js';
 import { logError, getErrorLog } from '../lib/errorLog.js';
+
+// admin:nextSlide 상한을 정하려면 슬라이드 개수를 알아야 한다 — 프론트가 렌더링에 쓰는
+// 원본 JSON을 그대로 읽어서 슬라이드 콘텐츠를 중복 관리하지 않는다.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SLIDE_COUNT = JSON.parse(
+  readFileSync(path.join(__dirname, '../../frontend/src/content/shapes-slides.json'), 'utf-8'),
+).length;
 
 // 세션(코호트) 상태 — 부스 참가자들이 공유하는 stage, slideIndex, 참가자 진행도.
 // 목표 인원(expectedParticipants)은 고정값이 아니라 admin:startSession 시점에 그때까지
@@ -212,7 +222,10 @@ export function registerSessionHandlers(io, socket) {
   });
 
   socket.on('admin:nextSlide', () => {
-    cohort.slideIndex += 1;
+    // SLIDE_COUNT(마지막 슬라이드 다음 한 칸, "마지막 슬라이드입니다" 상태)에서 멈춘다 —
+    // 클램프가 없으면 다음 버튼을 계속 누를 때마다 끝없이 커져서 이전 버튼을 그만큼
+    // 여러 번 눌러야 슬라이드 목록으로 돌아오게 된다.
+    cohort.slideIndex = Math.min(SLIDE_COUNT, cohort.slideIndex + 1);
     io.emit('learn:slide', cohort.slideIndex);
   });
 

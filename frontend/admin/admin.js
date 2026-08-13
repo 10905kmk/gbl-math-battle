@@ -126,10 +126,70 @@ function AdminApp() {
   `;
 }
 
+// 슬라이드 1장 미리보기 — "현재"/"다음" 두 칸에서 재사용한다. total===0(아직 fetch 전)과
+// index가 범위를 넘은 경우("다음"이 없거나 마지막을 넘겨 넘긴 경우)를 구분해야, 로딩 중을
+// "마지막 슬라이드"로 잘못 표시하지 않는다.
+function SlidePreviewCard({ label, slides, index }) {
+  const total = slides.length;
+  const slide = slides[index];
+  return html`
+    <div class="slide-preview-card">
+      <p class="slide-preview-label">${label}${total > 0 ? html` <span>${Math.min(index + 1, total)} / ${total}</span>` : ''}</p>
+      ${total === 0
+        ? html`<p class="slide-preview-status">학습 준비 중...</p>`
+        : !slide
+          ? html`<p class="slide-preview-status">마지막 슬라이드입니다</p>`
+          : html`
+              <div class="slide-preview-content">
+                ${slide.title ? html`<h3>${slide.title}</h3>` : null}
+                ${slide.image ? html`<img src=${slide.image} alt=${slide.title || `슬라이드 ${index + 1}`} />` : null}
+                ${slide.description ? html`<p>${slide.description}</p>` : null}
+              </div>
+            `}
+    </div>
+  `;
+}
+
 function PresenterPanel({ socket }) {
+  const [slides, setSlides] = useState([]);
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  useEffect(() => {
+    fetch('../src/content/shapes-slides.json')
+      .then((res) => res.json())
+      .then(setSlides);
+  }, []);
+
+  useEffect(() => {
+    socket.on('learn:slide', setSlideIndex);
+    return () => socket.off('learn:slide', setSlideIndex);
+  }, [socket]);
+
+  useEffect(() => {
+    // PPT 리모컨(클리커)은 대부분 화살표/PageUp·Down/Space를 표준 키보드 이벤트로 보낸다 —
+    // 별도 기기 연동 없이 이 리스너 하나로 커버된다. 다른 입력 필드에 포커스가 있으면
+    // 방해하지 않도록 무시(지금 이 패널엔 텍스트 입력이 없지만 방어적으로 둔다).
+    function onKeyDown(event) {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+      if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+        event.preventDefault();
+        socket.emit('admin:nextSlide');
+      } else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || event.key === 'Backspace') {
+        event.preventDefault();
+        socket.emit('admin:prevSlide');
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [socket]);
+
   return html`
     <div class="presenter-panel">
-      <div class="slide-preview">현재 슬라이드 미리보기</div>
+      <div class="slide-preview-row">
+        <${SlidePreviewCard} label="현재 슬라이드" slides=${slides} index=${slideIndex} />
+        <${SlidePreviewCard} label="다음 슬라이드" slides=${slides} index=${slideIndex + 1} />
+      </div>
       <div class="slide-controls">
         <button onClick=${() => socket.emit('admin:prevSlide')}>이전 슬라이드</button>
         <button class="primary" onClick=${() => socket.emit('admin:nextSlide')}>다음 슬라이드</button>

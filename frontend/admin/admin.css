@@ -775,17 +775,61 @@ button.kick:hover {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-width: 720px;
+  max-width: 960px;
 }
 
-.slide-preview {
-  min-height: 12rem;
+.slide-preview-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  gap: 1rem;
+}
+
+.slide-preview-card {
+  flex: 1;
+  min-width: 0;
+  min-height: 12rem;
+  padding: 0.75rem;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
+}
+
+.slide-preview-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.slide-preview-label span {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.slide-preview-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 9rem;
+  margin: 0;
+  color: var(--muted);
+}
+
+.slide-preview-content h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.slide-preview-content img {
+  display: block;
+  max-width: 100%;
+  max-height: 9rem;
+  margin: 0 auto;
+  border-radius: 6px;
+}
+
+.slide-preview-content p {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
   color: var(--muted);
 }
 

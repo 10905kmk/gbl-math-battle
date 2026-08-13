@@ -155,6 +155,9 @@ export function BattleMapView({ socket }) {
         }
         // 연결이 끊겼거나 죽어서 부활 대기 중이면 흐리게 — 참가자 화면(battle.js)과 같은 규칙.
         node.opacity(p.connected === false ? 0.2 : p.alive === false ? 0.28 : 1);
+        // 투명망토는 은신 스킬이다 — 참가자 화면은 본인에게만 흐리게 보여주지만, 공용화면은
+        // "본인" 개념이 없는 관전 시점이라 전원에게 완전히 숨겨야 은신 위치가 새지 않는다.
+        node.visible((p.status?.cloakUntil ?? 0) <= serverNow);
       });
 
       // Konva.Animation이 브라우저 주사율로 레이어를 그리므로 별도 draw는 하지 않는다.

@@ -22,9 +22,13 @@ export function LearnScreen({ socket }) {
 
   const slide = slides[slideIndex];
   if (!slide) {
+    // slides가 아직 비어 있으면(fetch 전) "준비 중", 이미 로드됐는데 index가 범위를 넘었으면
+    // 마지막 슬라이드를 지나쳤다는 뜻이므로 서로 다른 문구를 보여준다.
     return html`
       <div class="card slide-card">
-        <p class="subtitle">학습 준비 중<span class="dots"><i></i><i></i><i></i></span></p>
+        ${slides.length > 0
+          ? html`<p class="subtitle">마지막 슬라이드입니다</p>`
+          : html`<p class="subtitle">학습 준비 중<span class="dots"><i></i><i></i><i></i></span></p>`}
       </div>
     `;
   }
