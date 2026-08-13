@@ -440,7 +440,7 @@ function DashboardPanel({ socket, stage, participants, errors }) {
   function resetDevice(participantId, name) {
     if (
       !confirm(
-        `"${name}" 기기를 초기화하고 새 참가자를 받을까요?\n\n이름/제작 진행 상태가 모두 지워지고, 체크인 연결도 함께 해제됩니다.`,
+        `"${name}" 기기를 초기화하고 새 참가자를 받을까요?\n\n이름과 제작 진행 상태가 모두 지워집니다. 이 참가자의 체크인 방문 기록은 유지되어 체크인 화면에서 별도로 관리됩니다.`,
       )
     ) {
       return;

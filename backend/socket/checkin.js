@@ -85,7 +85,7 @@ export function registerCheckinHandlers(socket) {
 // 피하려고 병렬이 아니라 순차로 호출한다. 실패한 항목은 목록에 남겨 재시도할 수 있게 한다.
 export async function consumeCheckinList() {
   // checkinList를 그대로 순회하면서 매번 await하면, 그 사이 다른 소켓 이벤트(confirmAssign/
-  // unlink/resetParticipant/disconnect)가 checkinList를 갈아끼울 수 있어 순회 중인 배열과
+  // unlink) 또는 consumeCheckinList의 동시 호출이 checkinList를 갈아끼울 수 있어 순회 중인 배열과
   // 실제 배열이 어긋난다. 순회는 시작 시점 스냅샷(batch)으로 하고, 끝에서는 그 스냅샷으로
   // 통째로 덮어쓰는 대신 "성공한 uid만" 현재 시점의 checkinList에서 제거한다 — 그래야 소진
   // 도중에 새로 추가된 항목은 살아남고, 도중에 지워진 항목이 되살아나지 않는다.
