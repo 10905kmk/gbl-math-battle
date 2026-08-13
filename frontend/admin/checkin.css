@@ -114,29 +114,11 @@
 }
 
 .checkin-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
   padding: 0.6rem 0.85rem;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.22);
-}
-
-.checkin-list li span {
   font-weight: 600;
-}
-
-.btn--danger {
-  border-color: var(--danger);
-  color: var(--danger);
-  background: rgba(255, 128, 128, 0.08);
-}
-
-.btn--danger:hover:not(:disabled) {
-  background: rgba(255, 128, 128, 0.18);
-  border-color: var(--danger);
 }
 
 .btn--sm {

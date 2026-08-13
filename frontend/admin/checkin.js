@@ -168,10 +168,6 @@ function CheckinApp() {
     });
   }
 
-  function unlink(uid) {
-    socket.emit('checkin:unlink', uid);
-  }
-
   return html`
     <${Fragment}>
       <div class="card checkin-card">
@@ -198,18 +194,12 @@ function CheckinApp() {
       <div class="card checkin-list-card">
         <p class="eyebrow">체크인 목록</p>
         <h2 class="title">${checkinList.length}명</h2>
+        <p class="subtitle">연결 해제 등 관리는 관리자 대시보드에서 해주세요</p>
         ${checkinList.length === 0
           ? html`<p class="checkin-list-empty">아직 체크인된 참가자가 없습니다.</p>`
           : html`
               <ul class="checkin-list">
-                ${checkinList.map(
-                  (entry) => html`
-                    <li key=${entry.uid}>
-                      <span>${entry.name}</span>
-                      <button class="btn btn--danger btn--sm" onClick=${() => unlink(entry.uid)}>연결 해제</button>
-                    </li>
-                  `,
-                )}
+                ${checkinList.map((entry) => html`<li key=${entry.uid}><span>${entry.name}</span></li>`)}
               </ul>
             `}
       </div>
