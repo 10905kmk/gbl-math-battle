@@ -231,9 +231,32 @@ function PresenterPanel({ socket }) {
 // 참가자 1명 = 카드 1장. 이름/상태만 나열하던 목록으로는 "누가 무엇을 만들었는지"를 볼 수
 // 없어서, 실수로 평가받은 참가자를 구제할 때 그 사람이 맞는지 확인할 방법이 없었다 —
 // 무기 썸네일/이름/전투력까지 같이 보여주고 개별 조치 버튼을 카드 안에 둔다.
-function ParticipantCard({ participant, canReopen, canResetDevice, onForceFinish, onReopen, onKick, onResetDevice }) {
-  const { name, createDone, weapon } = participant;
+function ParticipantCard({
+  participant,
+  canReopen,
+  canResetDevice,
+  onForceFinish,
+  onReopen,
+  onKick,
+  onResetDevice,
+  onSetDeviceNumber,
+}) {
+  const { name, createDone, weapon, deviceNumber } = participant;
   const label = name ?? '이름 없음';
+  const [numberDraft, setNumberDraft] = useState(String(deviceNumber ?? ''));
+
+  // 접속 순서대로 자동 배정된 번호를 관리자가 직접 고칠 수 있게 한다 — 세션 시작
+  // 전에 "몇 번 기기가 어느 자리냐"를 미리 정리해두려는 용도. 키 입력마다 서버로
+  // 보내지 않고 blur/Enter에서만 커밋한다(타이핑 중 다른 관리자 창의 갱신으로
+  // 값이 덮어써지는 걸 피하기 위함).
+  function commitDeviceNumber() {
+    const parsed = Number(numberDraft);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      onSetDeviceNumber(participant.id, parsed);
+    } else {
+      setNumberDraft(String(deviceNumber ?? ''));
+    }
+  }
 
   return html`
     <li class="participant-card ${createDone ? 'is-done' : 'is-working'}">
@@ -245,6 +268,18 @@ function ParticipantCard({ participant, canReopen, canResetDevice, onForceFinish
 
       <div class="participant-info">
         <div class="participant-head">
+          <input
+            class="device-number-input"
+            type="number"
+            min="1"
+            title="기기 번호"
+            value=${numberDraft}
+            onInput=${(e) => setNumberDraft(e.target.value)}
+            onBlur=${commitDeviceNumber}
+            onKeyDown=${(e) => {
+              if (e.key === 'Enter') e.target.blur();
+            }}
+          />
           <span class="participant-name">${label}</span>
           <span class="badge ${createDone ? 'badge--done' : 'badge--working'}">
             ${createDone ? '제작 완료' : '제작 중'}
@@ -437,6 +472,10 @@ function DashboardPanel({ socket, stage, participants, errors }) {
     socket.emit('admin:kickParticipant', participantId);
   }
 
+  function setDeviceNumber(participantId, number) {
+    socket.emit('admin:setDeviceNumber', participantId, number);
+  }
+
   function resetDevice(participantId, name) {
     if (
       !confirm(
@@ -473,6 +512,7 @@ function DashboardPanel({ socket, stage, participants, errors }) {
                       onReopen=${reopen}
                       onKick=${kick}
                       onResetDevice=${resetDevice}
+                      onSetDeviceNumber=${setDeviceNumber}
                     />
                   `,
                 )}

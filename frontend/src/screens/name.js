@@ -36,6 +36,14 @@ export function NameScreen({ socket, onNameSubmit }) {
     setSubmitted(true);
   }
 
+  // 제출 후 화면에서 다시 입력폼으로 돌아간다 — 체크인 QR로 배정된 이름이 오탈자가
+  // 있거나 본인이 아닌 경우 등, 제출 후에도 고칠 길을 열어둔다. submittedRef도 같이
+  // 되돌려야 이 동안 도착하는 name:prefill을 다시 받아들일 수 있다.
+  function handleEdit() {
+    submittedRef.current = false;
+    setSubmitted(false);
+  }
+
   if (submitted) {
     return html`
       <div class="card name-screen">
@@ -45,6 +53,7 @@ export function NameScreen({ socket, onNameSubmit }) {
           진행자가 시작하면 자동으로 넘어가요
           <span class="dots"><i></i><i></i><i></i></span>
         </p>
+        <button class="btn btn--block" onClick=${handleEdit} style="margin-top: 0.75rem">이름 수정</button>
       </div>
     `;
   }

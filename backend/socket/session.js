@@ -128,10 +128,19 @@ function resetRoundFields() {
   });
 }
 
+// 기기 번호는 접속 순서대로 자동 배정되고(admin:setDeviceNumber로 관리자가 언제든
+// 덮어쓸 수 있음), admin:reset/admin:startSession을 거쳐도 유지된다 — resetRoundFields가
+// 참가자 엔트리 자체는 남기고 이번 라운드 필드만 지우는 것과 같은 이유로, 기기 번호는
+// "이번 라운드"가 아니라 "이 물리적 기기"에 대한 정보이기 때문이다. 단, 와이파이
+// 순단 등으로 소켓이 완전히 끊겼다 재연결되면 새 엔트리(새 socket.id)로 취급돼 새
+// 번호를 받는다 — 그 경우엔 관리자가 admin:setDeviceNumber로 다시 맞춰주면 된다.
+let nextDeviceNumber = 1;
+
 function findOrCreateParticipant(id) {
   let entry = cohort.participants.find((p) => p.id === id);
   if (!entry) {
-    entry = { id, name: null, createDone: false, weapon: null };
+    entry = { id, name: null, createDone: false, weapon: null, deviceNumber: nextDeviceNumber };
+    nextDeviceNumber += 1;
     cohort.participants.push(entry);
   }
   return entry;
@@ -343,6 +352,19 @@ export function registerSessionHandlers(io, socket) {
   // 아래 'disconnect' 핸들러가 그대로 처리한다 — 로직을 여기 따로 둘 필요가 없다.
   socket.on('admin:kickParticipant', (participantId) => {
     connectedSockets.get(participantId)?.disconnect(true);
+  });
+
+  // 자동 배정된 기기 번호를 관리자가 덮어쓴다(세션 시작 전 기기 관리용) — 유효한
+  // 양의 정수가 아니거나 이미 다른 기기가 쓰는 번호면 조용히 무시한다(번호 중복은
+  // "몇 번 기기냐"는 식별 목적 자체를 무너뜨리므로).
+  socket.on('admin:setDeviceNumber', (participantId, number) => {
+    const entry = cohort.participants.find((p) => p.id === participantId);
+    if (!entry) return;
+    if (!Number.isInteger(number) || number <= 0) return;
+    const alreadyUsed = cohort.participants.some((p) => p.id !== participantId && p.deviceNumber === number);
+    if (alreadyUsed) return;
+    entry.deviceNumber = number;
+    broadcastParticipants(io);
   });
 
   // 참가자가 완전히 연결을 끊으면(기기를 끄거나 브라우저를 닫는 등) 명단에서 제거한다.
