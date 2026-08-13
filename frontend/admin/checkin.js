@@ -1,4 +1,4 @@
-import { h, render } from 'preact';
+import { h, render, Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import htm from 'htm';
 import { io } from 'socket.io-client';
@@ -143,53 +143,60 @@ function CheckinApp() {
   }
 
   return html`
-    <div class="checkin-shell">
-      <header class="checkin-header"><h1>부스 체크인</h1></header>
-      ${cameraError
-        ? html`<p class="checkin-camera-error">카메라를 사용할 수 없습니다: ${cameraError}</p>`
-        : html`
-            <div class="checkin-camera">
-              <video ref=${videoRef} playsinline muted></video>
-              <canvas ref=${canvasRef} style="display:none"></canvas>
-            </div>
-          `}
-      ${toast ? html`<div class="checkin-toast">${toast}</div>` : null}
-      ${pending
-        ? html`
-            <div class="checkin-modal-backdrop">
-              <div class="checkin-modal">
-                ${pending.profile_image
-                  ? html`<img class="checkin-modal-photo" src=${pending.profile_image} alt=${pending.name} />`
-                  : null}
-                <p class="checkin-modal-name">${pending.name}</p>
-                <p>본인이 맞나요?</p>
-                <div class="checkin-modal-actions">
-                  <button onClick=${cancelPending}>아니오</button>
-                  <button class="primary" onClick=${confirmPending}>예</button>
-                </div>
+    <${Fragment}>
+      <div class="card checkin-card">
+        <p class="eyebrow">수학 도형 무기 배틀</p>
+        <h2 class="title">부스 체크인</h2>
+        <p class="subtitle">참가자의 QR 배지를 카메라에 비춰주세요</p>
+        ${cameraError
+          ? html`<p class="checkin-camera-error">카메라를 사용할 수 없습니다: ${cameraError}</p>`
+          : html`
+              <div class="checkin-camera">
+                <video ref=${videoRef} playsinline muted></video>
+                <canvas ref=${canvasRef} style="display:none"></canvas>
               </div>
-            </div>
-          `
-        : null}
-      <section class="checkin-list-panel">
-        <h2>체크인 목록 (${checkinList.length}건)</h2>
+            `}
+      </div>
+
+      <div class="card checkin-list-card">
+        <p class="eyebrow">체크인 목록</p>
+        <h2 class="title">${checkinList.length}명</h2>
         ${checkinList.length === 0
-          ? html`<p class="empty">아직 체크인된 참가자가 없습니다.</p>`
+          ? html`<p class="checkin-list-empty">아직 체크인된 참가자가 없습니다.</p>`
           : html`
               <ul class="checkin-list">
                 ${checkinList.map(
                   (entry) => html`
                     <li key=${entry.uid}>
                       <span>${entry.name}</span>
-                      <button class="kick" onClick=${() => unlink(entry.uid)}>연결 해제</button>
+                      <button class="btn btn--danger btn--sm" onClick=${() => unlink(entry.uid)}>연결 해제</button>
                     </li>
                   `,
                 )}
               </ul>
             `}
-      </section>
-    </div>
+      </div>
+
+      ${toast ? html`<div class="checkin-toast">${toast}</div>` : null}
+      ${pending
+        ? html`
+            <div class="checkin-modal-backdrop">
+              <div class="card checkin-modal">
+                ${pending.profile_image
+                  ? html`<img class="checkin-modal-photo" src=${pending.profile_image} alt=${pending.name} />`
+                  : null}
+                <h2 class="checkin-modal-name">${pending.name}</h2>
+                <p class="subtitle">본인이 맞나요?</p>
+                <div class="checkin-modal-actions">
+                  <button class="btn" onClick=${cancelPending}>아니오</button>
+                  <button class="btn btn--primary" onClick=${confirmPending}>예</button>
+                </div>
+              </div>
+            </div>
+          `
+        : null}
+    <//>
   `;
 }
 
-render(html`<${CheckinApp} />`, document.getElementById('checkin-app'));
+render(html`<${CheckinApp} />`, document.getElementById('app'));

@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>부스 체크인 - 수학 도형 무기 온라인 베틀</title>
-  <link rel="stylesheet" href="admin.css" />
+  <!-- 관리자 대시보드(admin.css)가 아니라 참가자용 메인 화면(../style.css)의 디자인
+       토큰/카드 컴포넌트를 그대로 쓴다 — 이 화면도 부스 스태프가 "게임처럼" 느끼도록
+       참가자 화면과 톤을 맞춘다. -->
+  <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="checkin.css" />
   <script type="importmap">
   {
@@ -19,7 +22,7 @@
   </script>
 </head>
 <body>
-  <div id="checkin-app"></div>
+  <div id="app"></div>
   <script type="module" src="checkin.js"></script>
 </body>
 </html>
