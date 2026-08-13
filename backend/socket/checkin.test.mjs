@@ -124,24 +124,30 @@ function ack() {
   console.log('checkin:unlink removes only the targeted entry: OK');
 }
 
-// admin:resetParticipant — s2를 초기화하면 이름도 지워지고, 연결된 체크인 항목(uid-2)도
-// 같이 사라진다 — s2는 다시 findUnassignedParticipant 대상이 된다.
+// admin:resetParticipant — s2를 초기화하면 세션 쪽 이름(findUnassignedParticipant 대상이
+// 되는 것)은 리셋되지만, checkinList는 방문 기록이라 건드리지 않는다 — uid-2 항목은
+// 그대로 남는다(deviceId는 참고 정보로만 남는다).
 {
+  const before = checkinList.length;
   fire('s1', 'admin:resetParticipant', 's2');
-  assert.strictEqual(checkinList.length, 0, '기기 초기화 시 체크인 항목도 같이 지워져야 함');
-  assert.strictEqual(findUnassignedParticipant()?.id, 's2', '초기화된 기기는 다시 배정 대상이 되어야 함');
-  console.log('admin:resetParticipant cascades into checkinList cleanup: OK');
+  assert.strictEqual(checkinList.length, before, 'checkinList는 방문 기록이라 기기 초기화로 지워지면 안 됨');
+  assert.ok(checkinList.some((entry) => entry.uid === 'uid-2'), 'uid-2 체크인 항목이 그대로 남아 있어야 함');
+  assert.strictEqual(findUnassignedParticipant()?.id, 's2', '초기화된 기기는 다시 배정 대상이 되어야 함(세션 상태는 리셋됨)');
+  console.log('admin:resetParticipant resets session state but leaves checkinList untouched: OK');
 }
 
-// disconnect — 배정된 기기(s2)의 연결이 끊기면 그 체크인 항목도 같이 정리된다
+// disconnect — checkinList는 방문 기록이라 소켓 연결이 끊겨도(와이파이 순단 등으로 인한
+// 재연결 포함) 지워지지 않는다. 위 시나리오에서 s2가 리셋되어 다시 배정 대상이 됐으므로,
+// 새 uid로 s2에 배정한 뒤 disconnect를 흉내내 그 항목이 살아남는지 확인한다.
 {
   fire('s1', 'checkin:confirmAssign', { uid: 'uid-4', name: '누구2', profile_image: null }, ack());
-  assert.strictEqual(checkinList.length, 1);
-  assert.strictEqual(checkinList[0].deviceId, 's2');
+  const before = checkinList.length;
+  assert.ok(checkinList.some((entry) => entry.uid === 'uid-4' && entry.deviceId === 's2'));
 
   fire('s2', 'disconnect');
-  assert.strictEqual(checkinList.length, 0, 'disconnect 시 그 기기의 체크인 항목이 정리되어야 함');
-  console.log('disconnect cleans up the disconnected device checkin entry: OK');
+  assert.strictEqual(checkinList.length, before, 'disconnect 시 checkinList 항목이 지워지면 안 됨');
+  assert.ok(checkinList.some((entry) => entry.uid === 'uid-4'), 'uid-4 체크인 항목이 disconnect 후에도 그대로 남아 있어야 함');
+  console.log('disconnect leaves checkinList entries untouched: OK');
 }
 
 // consumeCheckinList — 성공한 uid만 목록에서 제거, 실패분은 남는다

@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-13-booth-checkin-qr-design.md`
 
+> **Post-implementation revision (2026-08-13):** Task 3/7의 코드 블록은 이 계획을
+> 최초 구현할 당시의 동작(`admin:resetParticipant`와 `disconnect`가 각각
+> `removeByDeviceId`를 호출해 `checkinList`에서 해당 기기 항목을 연쇄 삭제)을
+> 그대로 보여준다. 이는 이후 제품 결정으로 뒤집혔다: `checkinList` 항목은
+> "이 사람이 부스를 방문했다"는 방문 기록이므로, 기기 초기화나 소켓 재연결
+> 같은 부수 효과로 지워지면 안 된다. 현재 구현(`backend/socket/checkin.js`)은
+> `removeByDeviceId`를 완전히 제거했고, `checkinList`를 지우는 경로는
+> `checkin:unlink`(명시적 "연결 해제")와 `consumeCheckinList`의 성공 등록
+> 처리 두 가지뿐이다. 아래 Task 3/7의 코드 블록은 최초 구현 당시 기록이므로
+> 그대로 남겨두되, 이 문단을 최신 동작의 기준으로 삼을 것.
+
 ## Global Constraints
 
 - 외부 허브 base URL: `BOOTH_API_URL`(기본값 `https://34-227-8-239.sslip.io`), 부스 비밀번호: `BOOTH_PASSWORD`(값 `Y00DeJZsJZrCA4Qd`) — 둘 다 `backend/.env`에만 두고 `backend/.env.example`에는 플레이스홀더만 커밋한다. 브라우저로 절대 전달하지 않는다.

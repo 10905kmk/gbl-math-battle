@@ -103,14 +103,15 @@ const checkinList = [];
      추가, `io.emit('checkin:list', checkinList)` 브로드캐스트, `ack({ok:true})`.
 - `checkin:unlink` `(uid)`: `checkinList`에서 해당 uid 제거 + 브로드캐스트(부스
   중도 이탈 대응).
-- `admin:resetParticipant` `(participantId)`: `sessionApi.resetParticipant(id)` 호출 후
-  성공했으면 `checkinList`에서 `deviceId === participantId`인 항목도 제거(연쇄
-  정리 — 안 그러면 그 기기가 새 uid로 재배정됐을 때 옛 체크인 항목이 남아 중복
-  등록됨) + `checkin:list` 브로드캐스트.
-- `disconnect`: `connectedSockets`와 별개로, 해당 소켓의 `checkinList` 항목이
-  있으면 제거 + 브로드캐스트(기존 `session.js`의 disconnect 정리 패턴과 동일한
-  이유 — 새로고침도 기존 소켓 disconnect를 먼저 태우므로 옛 항목이 유령으로
-  남지 않게 함).
+- `admin:resetParticipant` `(participantId)`: `sessionApi.resetParticipant(id)` 호출만
+  한다 — `checkinList`는 건드리지 않는다. `checkinList` 항목은 "이 사람이 부스를
+  방문했다"는 방문 기록이라, 기기 초기화(재사용을 위한 세션 리셋)만으로는 그
+  사실이 사라지지 않는다는 것이 제품 결정이다(post-launch 변경, 2026-08-13).
+  `deviceId`는 체크인 당시 어느 기기였는지 보여주는 참고 정보로만 남는다.
+- `disconnect`: `checkinList`를 건드리지 않는다. 와이파이 순단 등으로 인한
+  재연결도 방문 사실을 취소할 이유가 되지 않는다는 것이 제품 결정이다(위와
+  동일한 변경). `checkinList` 항목을 지우는 경로는 이제 `checkin:unlink`(명시적
+  "연결 해제")와 `consumeCheckinList`의 성공 등록 처리, 이 두 가지뿐이다.
 
 `server.js`에서 `registerCheckinHandlers(io, socket, sessionApi)` 호출을
 `registerSessionHandlers` 뒤에 추가.
@@ -167,8 +168,8 @@ QR 디코딩은 `jsqr`(`https://esm.sh/jsqr@1`)를 importmap에 추가해 사용
 | 빈 기기 없음 | "빈 기기 없음" 에러 토스트, 스캔 재개 (재시도는 관리자 수동) |
 | `/api/checkin/consume` 부분 실패 | 성공분만 제거, 실패분은 목록에 남아 재시도 가능 |
 | `boothApi.login()` 실패 | 캐싱 안 함(다음 호출 재시도), 라우트는 502 반환 |
-| 이름 입력 후 기기 방치 이탈 | 관리자가 "기기 초기화" → 이름 초기화 + 체크인 항목 연쇄 제거 |
-| 체크인 항목 있는 기기가 완전히 연결 종료 | `disconnect` 핸들러에서 체크인 항목 자동 정리 |
+| 이름 입력 후 기기 방치 이탈 | 관리자가 "기기 초기화" → 이름만 초기화, 체크인 항목(방문 기록)은 유지 |
+| 체크인 항목 있는 기기가 완전히 연결 종료 | `disconnect`는 체크인 항목을 건드리지 않음(방문 기록 유지) — 정리하려면 관리자가 명시적으로 "연결 해제"(`checkin:unlink`) |
 
 ## 테스트
 
@@ -178,8 +179,8 @@ QR 디코딩은 `jsqr`(`https://esm.sh/jsqr@1`)를 importmap에 추가해 사용
 - `backend/lib/boothApi.test.mjs`: `fetch`를 목(mock)으로 주입해 URL 조립, bid
   캐싱, 로그인 실패 시 미캐싱, `fetchUser`/`addUser` 에러 처리를 검증.
 - `backend/socket/checkin.test.mjs`: `findUnassignedParticipant`/`resetParticipant`
-  연동, 중복 uid 거부, `disconnect`/`admin:resetParticipant` 시 `checkinList`
-  연쇄 정리를 순수 모듈 상태로 검증(실제 소켓 없이 mock io/socket 사용, 기존
-  `session.js` 테스트 방식과 동일).
+  연동, 중복 uid 거부, `disconnect`/`admin:resetParticipant`가 `checkinList`를
+  건드리지 않고 그대로 보존함을 순수 모듈 상태로 검증(실제 소켓 없이 mock
+  io/socket 사용, 기존 `session.js` 테스트 방식과 동일).
 - 카메라·실제 QR 스캔·실제 허브 API 연동은 수동 테스트 대상(자동화된 브라우저
   검증 없이 코드 검증 후 실기기로 확인).

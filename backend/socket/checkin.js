@@ -24,16 +24,6 @@ function broadcastList() {
   ioRef?.to('checkin-admin').emit('checkin:list', checkinList);
 }
 
-export function removeByDeviceId(deviceId) {
-  const before = checkinList.length;
-  const remaining = checkinList.filter((entry) => entry.deviceId !== deviceId);
-  if (remaining.length === before) return false;
-  checkinList.length = 0;
-  checkinList.push(...remaining);
-  broadcastList();
-  return true;
-}
-
 function removeByUid(uid) {
   const before = checkinList.length;
   const remaining = checkinList.filter((entry) => entry.uid !== uid);
@@ -77,17 +67,18 @@ export function registerCheckinHandlers(socket) {
     removeByUid(uid);
   });
 
+  // checkinList 항목은 "이 사람이 부스를 방문했다"는 방문 기록이다 — 기기 초기화(재사용을
+  // 위해 staff가 세션만 리셋하는 것)만으로는 그 방문 사실이 사라지지 않는다. resetParticipant는
+  // session.js가 소유한 이름/스킬 등 세션 상태만 되돌리고, checkinList는 건드리지 않는다.
   socket.on('admin:resetParticipant', (participantId) => {
-    if (resetParticipant(ioRef, participantId)) {
-      removeByDeviceId(participantId);
-    }
+    resetParticipant(ioRef, participantId);
   });
 
-  // 새로고침 없이 완전히 연결이 끊긴 기기(부스를 그냥 나가버린 경우)는 체크인 목록에서도
-  // 같이 정리해야 한다 — 안 그러면 게임 종료 시 소진 등록에 유령 uid가 섞여 들어간다.
-  socket.on('disconnect', () => {
-    removeByDeviceId(socket.id);
-  });
+  // 의도적으로 여기엔 'disconnect' 핸들러가 없다 — 소켓 연결이 끊기는 것(와이파이 순단
+  // 등으로 인한 재연결 포함)은 방문 사실을 취소할 이유가 되지 않는다. checkinList의
+  // deviceId는 체크인 당시 어느 기기였는지 보여주는 참고 정보로만 남는다. 이 항목을
+  // 지우는 유일한 경로는 명시적인 checkin:unlink(staff가 "연결 해제"를 누른 경우)와
+  // consumeCheckinList의 성공 등록 처리뿐이다.
 }
 
 // 관리자가 "체크인 목록 소진" 버튼을 누르면 호출된다(routes/checkin.js). 허브 쪽 부하를
