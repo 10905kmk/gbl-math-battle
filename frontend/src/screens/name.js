@@ -1,5 +1,5 @@
 import { h } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import htm from 'htm';
 
 const html = htm.bind(h);
@@ -12,9 +12,25 @@ const html = htm.bind(h);
 export function NameScreen({ socket, onNameSubmit }) {
   const [name, setName] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const submittedRef = useRef(false);
+
+  useEffect(() => {
+    // 관리자가 부스 입구에서 이 참가자의 QR 배지를 스캔해 이 기기에 배정하면, 서버가
+    // 이름을 미리 채워준다 — 참가자는 그대로 제출하거나 자유롭게 고쳐서 제출할 수 있다.
+    // 이미 제출한 뒤에 도착하면 무시한다(다음 화면으로 이미 넘어간 참가자를 건드리지
+    // 않기 위함 — submittedRef로 확인하는 이유는 이 클로저가 마운트 시점에 한 번만
+    // 만들어져 최신 submitted 값을 모르기 때문).
+    function onPrefill(prefillName) {
+      if (submittedRef.current) return;
+      setName(prefillName ?? '');
+    }
+    socket.on('name:prefill', onPrefill);
+    return () => socket.off('name:prefill', onPrefill);
+  }, [socket]);
 
   function handleSubmit(e) {
     e.preventDefault();
+    submittedRef.current = true;
     onNameSubmit(name);
     socket.emit('participant:name', name);
     setSubmitted(true);
