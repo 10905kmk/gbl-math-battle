@@ -1,8 +1,9 @@
 // backend/lib/aiClient.js — Gemini 연동: 무기 채팅 해석 + 무기 채점
 import { cacheKey, seededPick, getCached, setCached, seedCache } from './weaponCache.js';
 import { SAMPLES } from './weaponEvaluationSamples.js';
-import { getAllApiCredentials } from './apiKeys.js';
+import { getAllApiCredentials, maskApiKey } from './apiKeys.js';
 import { runInAiSlot } from './aiSlotManager.js';
+import { logError } from './errorLog.js';
 import { RANGE_DISTANCE_MIN, RANGE_DISTANCE_MAX, classifyWeaponRangeFallback } from '../../shapes/attackGeometry.js';
 import { computeWeaponBounds } from '../../shapes/weaponRenderer.js';
 import { getShapeById, partScale, SCALE_MIN, SCALE_MAX } from '../../shapes/registry.js';
@@ -83,6 +84,9 @@ export async function callGeminiWithRotation(
       lastError = err;
       // HTTP 상태(400/401/403/429/5xx), 시간 초과, 네트워크 오류, JSON/응답 형식 오류를
       // 구분하지 않고 다음 키로 넘긴다. 참가자 화면에는 모든 키가 실패한 뒤에만 오류가 간다.
+      // 다만 관리자는 개별 키가 왜 계속 실패하는지 봐야 하므로(슬롯 카드의 "최근 오류"는
+      // 한 단어뿐이라 진단이 안 됨), 전체 요청 성공 여부와 무관하게 시도마다 기록한다.
+      logError(`aiClient:${credential.provider}:${maskApiKey(credential.apiKey)}`, err);
     }
   }
   if (lastError && typeof lastError === 'object') lastError.attemptedApiKeys = attempted;
@@ -122,6 +126,13 @@ function buildEvaluationPrompt(weaponState) {
     `"ranged"라면 사거리(attackRangeDistance)도 ${RANGE_DISTANCE_MIN}~${RANGE_DISTANCE_MAX} 범위의`,
     '정수로 함께 판단하라(짧은 사거리 무기처럼 보이면 낮은 값, 긴 사거리 무기처럼 보이면 높은',
     `값). "melee"라면 attackRangeDistance는 ${RANGE_DISTANCE_MIN}으로 고정해서 답하라.`,
+    '',
+    // Gemini는 responseMimeType/responseSchema(구조화 출력) 설정만으로는 가끔 "Here is the
+    // JSON requested:" 같은 설명 문구만 내놓고 실제 JSON은 빼먹는다(2026-08-13 실전 로그로
+    // 확인 — 관리자 에러 로그에 원본 응답을 그대로 남기게 만든 뒤 처음 잡힘). 호환 provider
+    // (GitHub/OpenRouter)는 시스템 메시지로 "JSON만 출력하라"를 명시해서 이 문제가 덜한데,
+    // Gemini 쪽 프롬프트에는 그 지시가 아예 없었다 — 여기 추가한다.
+    '다른 설명이나 인사말 없이 JSON 객체 하나만 출력하라. 마크다운 코드블록도 쓰지 마라.',
   ].join('\n');
 }
 
@@ -134,7 +145,14 @@ export async function requestWeaponEvaluation(apiKey, weaponState, signal) {
     body: JSON.stringify({
       contents: [{ parts: [{ text: buildEvaluationPrompt(weaponState) }] }],
       generationConfig: {
-        maxOutputTokens: 256,
+        // 회귀(2026-08-13) — 실제 키로 라이브 검증해서 원인 확정: gemini-flash-latest는
+        // "thinking" 모델이라 응답에 thoughtSignature가 붙고, 안 보이는 사고 토큰도
+        // maxOutputTokens에서 깎인다. 256으로는 사고 토큰만으로 예산이 다 닳아서 실제 답변이
+        // "Here is the JSON requested:\n```"에서 뚝 끊기거나(사고 검증 A) 아예 텅 비었다.
+        // 1024로 올리니 정상적으로 JSON을 끝까지 냈다(검증 B). thinkingConfig로 사고를
+        // 끄는 건 이 모델이 그 필드 자체를 지원하지 않아 400(INVALID_ARGUMENT)만 돌려준다
+        // (검증 C) — 넣지 않는다.
+        maxOutputTokens: 1024,
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'OBJECT',
@@ -152,13 +170,30 @@ export async function requestWeaponEvaluation(apiKey, weaponState, signal) {
   if (!res.ok) {
     const err = new Error(`Gemini weapon evaluation request failed with ${res.status}`);
     err.status = res.status;
+    err.responseBody = typeof res.text === 'function' ? await res.text().catch(() => null) : null;
     throw err;
   }
   const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  const parsed = extractJsonObject(text);
+  const candidate = data.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text;
+  let parsed;
+  try {
+    parsed = extractJsonObject(text);
+  } catch (err) {
+    // 다음에 또 실패하면 원본 텍스트만으로는 "왜"(안전 필터? 토큰 부족?)를 못 알아내니
+    // finishReason/promptFeedback도 같이 남긴다 — MAX_TOKENS면 예산 부족, SAFETY/RECITATION
+    // 이면 필터링, 둘 다 아니면 다른 원인을 봐야 한다는 게 바로 드러난다.
+    err.responseBody = JSON.stringify(
+      { text: text ?? null, finishReason: candidate?.finishReason ?? null, promptFeedback: data.promptFeedback ?? null },
+      null,
+      2,
+    );
+    throw err;
+  }
   if (!Number.isFinite(parsed.min) || !Number.isFinite(parsed.max)) {
-    throw new Error('Gemini weapon evaluation response missing numeric min/max');
+    const err = new Error('Gemini weapon evaluation response missing numeric min/max');
+    err.responseBody = JSON.stringify({ text, finishReason: candidate?.finishReason ?? null }, null, 2);
+    throw err;
   }
   // attackRange/attackRangeDistance는 min/max와 달리 안전한 기본값이 있으므로(멀쩡한 데미지
   // 평가 자체를 무효화할 정도는 아님), 이상한 값이 와도 던지지 않고 조용히 대체한다.
@@ -185,10 +220,14 @@ function extractJsonObject(text) {
   } catch (err) {
     const start = stripped.indexOf('{');
     const end = stripped.lastIndexOf('}');
-    if (start === -1 || end <= start) throw err;
+    if (start === -1 || end <= start) {
+      err.responseBody = text;
+      throw err;
+    }
     try {
       return JSON.parse(stripped.slice(start, end + 1));
     } catch {
+      err.responseBody = text;
       throw err;
     }
   }
@@ -218,6 +257,7 @@ async function callOpenAiCompatible(provider, apiKey, body, signal) {
   if (!res.ok) {
     const err = new Error(`${provider} AI request failed with ${res.status}`);
     err.status = res.status;
+    err.responseBody = typeof res.text === 'function' ? await res.text().catch(() => null) : null;
     throw err;
   }
   return res.json();
@@ -232,9 +272,12 @@ export async function requestCompatibleWeaponEvaluation(provider, apiKey, weapon
     temperature: 0.2,
     max_tokens: 256,
   }, signal);
-  const parsed = extractJsonObject(data.choices?.[0]?.message?.content);
+  const content = data.choices?.[0]?.message?.content;
+  const parsed = extractJsonObject(content);
   if (!Number.isFinite(parsed.min) || !Number.isFinite(parsed.max)) {
-    throw new Error(`${provider} weapon evaluation response missing numeric min/max`);
+    const err = new Error(`${provider} weapon evaluation response missing numeric min/max`);
+    err.responseBody = content;
+    throw err;
   }
   return {
     min: parsed.min,

@@ -575,10 +575,10 @@
 }
 
 @media (max-width: 640px), (hover: none) and (pointer: coarse) {
-  /* Four skills stay large enough to tap without overflowing narrow phones. */
+  /* 좁은 폰에서도 4개가 넘치지 않게 버튼만 줄인다 — 배치 자체는 PC와 같은 한 줄(flex)
+     유지. 예전엔 여기서 grid 2열로 강제해서 아이패드처럼 폭이 넉넉한 기기에서도 스킬
+     "사용" 버튼 4개가 2x2로 눌려 나왔다(2026-08-13, 선택 화면과는 다른 버그). */
   .battle-skill-slot {
-    display: grid;
-    grid-template-columns: repeat(2, 2.75rem);
     gap: 0.3rem;
     flex: 0 0 auto;
   }

@@ -591,6 +591,21 @@ button.kick:hover {
   word-break: break-all;
 }
 
+/* AI 응답 파싱 실패 등에서 원본 응답 본문을 붙여둔 경우 — 진단용이라 접지 않고 그대로
+   보여주되, 너무 길면 안에서만 스크롤되게 해서 로그 목록 전체 레이아웃은 안 밀리게 한다. */
+.error-log-detail {
+  margin: 0.3rem 0 0;
+  padding: 0.4rem 0.5rem;
+  background: #f7f8fb;
+  border: 1px solid #e2e5ec;
+  border-radius: 4px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
 /* ── 긴급 Gemini API 키 관리 ─────────────────────────────────────── */
 .api-key-panel {
   border-left: 4px solid #d18b18;

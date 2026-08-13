@@ -14,6 +14,9 @@ export function logError(context, err) {
   const entry = {
     context,
     message: err instanceof Error ? err.message : String(err),
+    // AI 응답 파싱 실패처럼 "무엇이 왜" 실패했는지가 원문 응답에 있는 경우, 호출부가
+    // err.responseBody에 그 원문을 붙여두면 여기서 그대로 담아 관리자 로그에 노출한다.
+    detail: err && typeof err === 'object' && err.responseBody != null ? String(err.responseBody) : null,
     timestamp: new Date().toISOString(),
   };
   entries = [entry, ...entries].slice(0, MAX_ENTRIES);

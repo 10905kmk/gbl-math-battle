@@ -374,7 +374,12 @@ function DashboardPanel({ socket, stage, participants, errors }) {
         <div class="panel-head"><h2>에러 로그</h2></div>
         ${errors.length === 0
           ? html`<p class="empty">없음</p>`
-          : html`<ul class="error-log">${errors.map((e) => html`<li>[${e.context}] ${e.message}</li>`)}</ul>`}
+          : html`<ul class="error-log">${errors.map((e) => html`
+              <li>
+                [${e.context}] ${e.message}
+                ${e.detail ? html`<pre class="error-log-detail">${e.detail}</pre>` : null}
+              </li>
+            `)}</ul>`}
       </section>
     <//>
   `;

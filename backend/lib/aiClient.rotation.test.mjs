@@ -1,5 +1,6 @@
 import assert from 'node:assert';
 import { callGeminiWithRotation, requestWeaponEvaluation, requestToolCalls } from './aiClient.js';
+import { getErrorLog } from './errorLog.js';
 
 // callGeminiWithRotation — 429면 다음 키로 재시도, 그 외 에러는 즉시 던짐. 실제 fetch 없이
 // pool/requestFn을 직접 주입해서 로테이션 로직만 검증한다(DI 패턴 —
@@ -20,6 +21,31 @@ import { callGeminiWithRotation, requestWeaponEvaluation, requestToolCalls } fro
   assert.deepStrictEqual(calls, ['bad-key', 'good-key']);
 }
 console.log('callGeminiWithRotation retries the next key on 429: OK');
+
+// 회귀 테스트(2026-08-13): 전체 요청이 결국 성공해도(다음 키로 넘어가 회복) 실패한 개별 키
+// 시도는 관리자 에러 로그에 남아야 한다 — 예전엔 슬롯 카드의 "최근 오류" 한 단어만 남고
+// 실제 로그에는 아무것도 안 남아서, 참가자에게 보이는 결과는 정상인데 특정 키가 계속
+// 실패하는 원인을 관리자가 진단할 방법이 없었다.
+{
+  const before = getErrorLog().length;
+  const result = await callGeminiWithRotation(async (apiKey) => {
+    if (apiKey === 'dead-key-AAAA') {
+      const err = new Error('Unexpected token in JSON');
+      err.name = 'SyntaxError';
+      throw err;
+    }
+    return 'recovered-via-next-key';
+  }, [
+    { provider: 'gemini', apiKey: 'dead-key-AAAA' },
+    { provider: 'gemini', apiKey: 'live-key-BBBB' },
+  ]);
+  assert.strictEqual(result, 'recovered-via-next-key', '전체 요청은 다음 키로 정상 성공해야 함');
+  const log = getErrorLog();
+  assert.strictEqual(log.length, before + 1, '실패한 첫 키 시도가 관리자 에러 로그에 한 건 남아야 함');
+  assert.strictEqual(log[0].context, 'aiClient:gemini:****AAAA', '어떤 provider/키인지(마스킹) 구분할 수 있어야 함');
+  assert.strictEqual(log[0].message, 'Unexpected token in JSON');
+  console.log('callGeminiWithRotation logs individual key failures even when a later key recovers: OK');
+}
 
 // 회귀 테스트: 503("high demand" 일시적 과부하)도 429와 같이 다음 키로 재시도해야 한다 —
 // 실제 라이브 호출에서 4개 중 2개가 503으로 통째로 실패하는 걸 확인한 뒤 추가함.

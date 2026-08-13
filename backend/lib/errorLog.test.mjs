@@ -34,6 +34,17 @@ console.log('getErrorLog caps at MAX_ENTRIES and keeps newest first: OK');
 // err가 Error 인스턴스가 아니어도(문자열 등) 죽지 않아야 한다
 logError('weird', 'just a string');
 assert.strictEqual(getErrorLog()[0].message, 'just a string');
+
+// detail — err.responseBody가 있으면(예: AI 응답 파싱 실패의 원본 텍스트) 그대로 남아서
+// 관리자가 "무엇이 왜" 실패했는지 볼 수 있어야 한다. 없는 일반 에러는 detail이 없어야 한다.
+const parseFailure = new Error('parse failed');
+parseFailure.responseBody = '{"broken": true';
+logError('detailed', parseFailure);
+assert.strictEqual(getErrorLog()[0].detail, '{"broken": true', 'responseBody가 있으면 detail로 남아야 함');
+
+logError('plain', new Error('no body'));
+assert.ok(!getErrorLog()[0].detail, 'responseBody가 없으면 detail이 없어야 함');
+console.log('logError captures optional response-body detail: OK');
 console.log('logError tolerates non-Error values: OK');
 
 console.log('errorLog.test.mjs: OK');
