@@ -25,12 +25,16 @@ function CheckinApp() {
   const [pending, setPending] = useState(null);
   const [toast, setToast] = useState(null);
   const [cameraError, setCameraError] = useState(null);
+  const [cameras, setCameras] = useState([]);
+  const [cameraIndex, setCameraIndex] = useState(0);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const scanningRef = useRef(true);
   const lastScanRef = useRef(0);
   const lastUidRef = useRef(null);
   const rafRef = useRef(null);
+  const streamRef = useRef(null);
+  const camerasEnumeratedRef = useRef(false);
 
   useEffect(() => {
     socket.on('checkin:list', setCheckinList);
@@ -46,9 +50,43 @@ function CheckinApp() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  useEffect(() => {
-    let stream;
+  // deviceId 없이 부르면 후면(environment) 카메라로 시작 — 전환 버튼(switchCamera)이
+  // 이후 명시적 deviceId로 다시 호출한다. 기존 스트림은 새로 붙이기 전에 반드시
+  // 정지해야 한다 — 안 그러면 아이패드/노트북 카메라가 "사용 중" 상태로 남아 다음
+  // getUserMedia 호출이 실패하거나 두 카메라가 동시에 켜진 채로 남는다.
+  async function startStream(deviceId) {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    const constraints = deviceId
+      ? { video: { deviceId: { exact: deviceId } } }
+      : { video: { facingMode: 'environment' } };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraError(null);
+      // 카메라 label은 권한을 승인받기 전까지 브라우저가 빈 문자열로 감춘다 — 최초
+      // 스트림을 딴 뒤 딱 한 번만 다시 열거해서 전환 버튼에 쓸 실제 목록을 채운다.
+      if (!camerasEnumeratedRef.current) {
+        camerasEnumeratedRef.current = true;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setCameras(devices.filter((d) => d.kind === 'videoinput'));
+      }
+    } catch (err) {
+      setCameraError(err.message || '카메라를 열 수 없습니다');
+    }
+  }
 
+  function switchCamera() {
+    if (cameras.length < 2) return;
+    const nextIndex = (cameraIndex + 1) % cameras.length;
+    setCameraIndex(nextIndex);
+    startStream(cameras[nextIndex].deviceId);
+  }
+
+  useEffect(() => {
     function tick() {
       rafRef.current = requestAnimationFrame(tick);
       const now = Date.now();
@@ -68,20 +106,6 @@ function CheckinApp() {
       if (!uid || uid === lastUidRef.current) return;
       lastUidRef.current = uid;
       handleScan(uid);
-    }
-
-    async function startCamera() {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-      } catch (err) {
-        setCameraError(err.message || '카메라를 열 수 없습니다');
-        return;
-      }
-      tick();
     }
 
     async function handleScan(uid) {
@@ -107,11 +131,17 @@ function CheckinApp() {
       scanningRef.current = true;
     }
 
-    startCamera();
+    // rAF 루프는 카메라 준비 여부와 무관하게 마운트 시 한 번만 시작한다 — tick()이
+    // video.readyState를 매번 확인하므로 스트림이 아직 없거나 전환 중이어도 안전하게
+    // 건너뛴다. 이러면 switchCamera()가 스트림만 교체해도(루프 재시작 없이) 다음
+    // 프레임부터 바로 새 카메라를 읽는다.
+    startStream();
+    rafRef.current = requestAnimationFrame(tick);
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      stream?.getTracks().forEach((track) => track.stop());
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     };
+    // eslint-disable-next-line
   }, []);
 
   function cancelPending() {
@@ -155,6 +185,13 @@ function CheckinApp() {
                 <video ref=${videoRef} playsinline muted></video>
                 <canvas ref=${canvasRef} style="display:none"></canvas>
               </div>
+              ${cameras.length > 1
+                ? html`
+                    <button class="btn btn--sm checkin-switch-camera" onClick=${switchCamera}>
+                      카메라 전환 (${cameraIndex + 1}/${cameras.length})
+                    </button>
+                  `
+                : null}
             `}
       </div>
 
