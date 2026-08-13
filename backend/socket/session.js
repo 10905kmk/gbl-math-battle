@@ -359,3 +359,37 @@ export function registerSessionHandlers(io, socket) {
     }
   });
 }
+
+// 부스 QR 체크인(backend/socket/checkin.js)이 쓰는 헬퍼 — cohort.participants를
+// 직접 export하지 않고 이 세 함수로만 접근을 허용해, checkin.js가 cohort 내부 구조를
+// 몰라도 되게 한다.
+
+// 아직 이름을 받지 않은 기기(=참가자가 QR로 배정될 수 있는 기기)를 찾는다.
+export function findUnassignedParticipant() {
+  return cohort.participants.find((p) => p.name === null) ?? null;
+}
+
+export function assignParticipantName(io, id, name) {
+  const entry = cohort.participants.find((p) => p.id === id);
+  if (!entry) return false;
+  entry.name = sanitizeParticipantName(name);
+  if (cohort.stage !== 'idle') broadcastProgress(io);
+  broadcastParticipants(io);
+  return true;
+}
+
+// 이름까지 입력했지만 부스를 나간 참가자의 기기를 새 참가자에게 다시 내줄 때 쓴다.
+// battle 단계에서는 거부한다 — 이미 대전 시작 시점의 참가자 스냅샷(cohort.battleRoster)이
+// 떠 있어서, 여기서 지워봐야 진행 중인 대전에는 반영되지 않고 다음 판 로스터 계산만
+// 어긋난다(admin:reopenCreate가 create 단계로 제한하는 것과 같은 이유).
+export function resetParticipant(io, id) {
+  if (cohort.stage === 'battle') return false;
+  const entry = cohort.participants.find((p) => p.id === id);
+  if (!entry) return false;
+  entry.name = null;
+  entry.createDone = false;
+  entry.weapon = null;
+  if (cohort.stage !== 'idle') broadcastProgress(io);
+  broadcastParticipants(io);
+  return true;
+}
