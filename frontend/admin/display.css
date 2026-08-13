@@ -171,6 +171,18 @@ body {
   max-height: 44vh;
 }
 
+/* 설명 없이 이미지만 있는 슬라이드 — PPT 원본을 그대로 캡처해 넣은 경우, 작은 삽화가
+   아니라 화면을 채우는 진짜 슬라이드로 보여준다. */
+.display-slide--image {
+  width: min(1400px, 96vw);
+  padding: 1rem;
+}
+
+.display-slide--image img {
+  max-width: 100%;
+  max-height: 84vh;
+}
+
 .display-slide p {
   font-size: clamp(1.2rem, 2.5vw, 2rem);
   max-width: 70vw;
@@ -184,11 +196,11 @@ body {
 .battle-map-view {
   display: flex;
   align-items: flex-start;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 .battle-display {
-  width: min(1180px, 100%);
+  width: min(1240px, 100%);
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
@@ -285,10 +297,10 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
-  min-width: 430px;
+  min-width: 360px;
   max-height: 600px;
   overflow-y: auto;
-  padding: 0.75rem;
+  padding: 0.6rem;
   border: 2px solid #304b69;
   border-radius: 10px;
   background: #14243a;
@@ -297,11 +309,11 @@ body {
 
 .leaderboard li {
   display: grid;
-  grid-template-columns: 3rem 1.5rem minmax(8rem, 1fr) repeat(3, 3rem) 4rem;
+  grid-template-columns: 2rem 1.1rem minmax(6rem, 1fr) repeat(3, 2.2rem) 2.8rem;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 1.5rem;
-  padding: 0.5rem 0;
+  gap: 0.45rem;
+  font-size: 1.3rem;
+  padding: 0.4rem 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -328,14 +340,20 @@ body {
 }
 
 .leaderboard-swatch {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 1rem;
+  height: 1rem;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
+/* 이름이 길어서 줄바꿈되면 행 높이가 늘어나고, 인원이 많을 땐 그게 누적돼 목록 전체가
+   .leaderboard의 max-height를 넘겨 아래쪽 행이 스크롤 없인 안 보이게 된다(관전용 화면이라
+   아무도 스크롤하지 않음) — 한 줄로 고정하고 넘치면 말줄임표로 자른다. */
 .leaderboard-name {
-  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* 킬/데스/어시스트 — 종합 점수 왼쪽에 작게. 어떤 판인지 한눈에 읽히도록 고정폭 숫자. */

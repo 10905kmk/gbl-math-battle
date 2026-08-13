@@ -182,7 +182,7 @@ function applyAim(player) {
 
 // 부활 지점은 "살아 있는 다른 플레이어에게서 가장 먼 스폰"을 고른다 — 고정 순번으로 돌리면
 // 부활하자마자 같은 사람에게 다시 맞는 스폰 캠핑이 그대로 성립한다. 후보가 10개뿐이고
-// 참가자도 최대 8명이라 매번 전수 계산해도 비용이 없다.
+// 참가자도 최대 10명이라 매번 전수 계산해도 비용이 없다.
 function pickRespawnPoint(spawnPoints, players, selfId) {
   const others = Object.values(players).filter((p) => p.id !== selfId && p.alive && p.connected);
   if (others.length === 0) return spawnPoints[0];

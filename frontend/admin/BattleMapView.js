@@ -21,6 +21,7 @@ const CHARACTER_COLORS = {
   char1: '#e74c3c', char2: '#3498db', char3: '#2ecc71',
   char4: '#f1c40f', char5: '#9b59b6', char6: '#e67e22',
   char7: '#1abc9c', char8: '#34495e',
+  char9: '#ff1493', char10: '#95a5a6',
 };
 
 function characterLabel(characterId) {

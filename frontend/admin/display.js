@@ -88,10 +88,10 @@ function DisplayApp() {
     const slide = slides[slideIndex];
     if (!slide) return html`<div class="display-wait">슬라이드 준비 중...</div>`;
     return html`
-      <div class="display-slide">
-        <h1>${slide.title}</h1>
-        <img src=${slide.image} alt=${slide.title} />
-        <p>${slide.description}</p>
+      <div class="display-slide ${slide.image && !slide.description ? 'display-slide--image' : ''}">
+        ${slide.title ? html`<h1>${slide.title}</h1>` : null}
+        ${slide.image ? html`<img src=${slide.image} alt=${slide.title || `슬라이드 ${slideIndex + 1}`} />` : null}
+        ${slide.description ? html`<p>${slide.description}</p>` : null}
       </div>
     `;
   }

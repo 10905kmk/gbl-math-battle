@@ -59,6 +59,7 @@ const CHARACTER_COLORS = {
   char1: '#e74c3c', char2: '#3498db', char3: '#2ecc71',
   char4: '#f1c40f', char5: '#9b59b6', char6: '#e67e22',
   char7: '#1abc9c', char8: '#34495e',
+  char9: '#ff1493', char10: '#95a5a6',
 };
 // battle:input을 보낼지 말지 판단하는 임계값 — 연속값(moveX/moveY/aimX/aimY)은 불리언처럼
 // 정확히 같은지 비교할 수 없어서, 이 값보다 작게 변하면 "그대로"로 본다(마우스 좌표가 1px만

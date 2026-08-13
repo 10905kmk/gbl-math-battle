@@ -22,7 +22,7 @@ import {
 import { drawSkillChoices } from '../../shapes/skills.js';
 import { newPlayerSkillState, activateSkill } from '../lib/skillEngine.js';
 
-const CHARACTER_IDS = ['char1', 'char2', 'char3', 'char4', 'char5', 'char6', 'char7', 'char8'];
+const CHARACTER_IDS = ['char1', 'char2', 'char3', 'char4', 'char5', 'char6', 'char7', 'char8', 'char9', 'char10'];
 const TICK_MS = 50;
 export const BATTLE_TIME_EXTENSION_MS = 30_000;
 export const BATTLE_DURATION_MIN_MS = 30_000;
