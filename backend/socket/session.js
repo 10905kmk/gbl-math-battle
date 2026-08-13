@@ -136,12 +136,16 @@ function resetRoundFields() {
 // 번호를 받는다 — 그 경우엔 관리자가 admin:setDeviceNumber로 다시 맞춰주면 된다.
 let nextDeviceNumber = 1;
 
-function findOrCreateParticipant(id) {
+function findOrCreateParticipant(io, id) {
   let entry = cohort.participants.find((p) => p.id === id);
   if (!entry) {
     entry = { id, name: null, createDone: false, weapon: null, deviceNumber: nextDeviceNumber };
     nextDeviceNumber += 1;
     cohort.participants.push(entry);
+    // 참가자 기기 화면 한구석에 자기 번호를 계속 띄워두려는 용도 — 스태프가 그
+    // 노트북 화면만 보고도 몇 번 기기인지 바로 알 수 있게 한다(admin:setDeviceNumber로
+    // 나중에 바뀌면 그때도 다시 쏴준다, 아래 핸들러 참고).
+    io.to(id).emit('device:number', entry.deviceNumber);
   }
   return entry;
 }
@@ -194,7 +198,7 @@ export function registerSessionHandlers(io, socket) {
   // 참가자 화면만 보내는 신호 — 관리자/공용화면은 이 이벤트를 보내지 않으므로
   // cohort.participants에 안 잡힌다.
   socket.on('participant:join', (payload) => {
-    const entry = findOrCreateParticipant(socket.id);
+    const entry = findOrCreateParticipant(io, socket.id);
     // 새로고침/네트워크 재연결 때 브라우저가 보존한 이름을 참가 등록과 동시에 복원한다.
     // payload가 없는 기존 클라이언트는 현재 이름을 덮어쓰지 않아 하위 호환된다.
     if (payload && Object.prototype.hasOwnProperty.call(payload, 'name')) {
@@ -210,7 +214,7 @@ export function registerSessionHandlers(io, socket) {
     // participant:join과 별개 신호라 도착 순서를 100% 보장할 수 없다 — 엔트리가 아직
     // 없으면(이론상으론 join이 먼저 오지만) findOrCreateParticipant로 만들어서 이름을
     // 잃어버리지 않는다.
-    const entry = findOrCreateParticipant(socket.id);
+    const entry = findOrCreateParticipant(io, socket.id);
     entry.name = sanitizeParticipantName(name);
     if (cohort.stage !== 'idle') broadcastProgress(io);
     broadcastParticipants(io);
@@ -295,7 +299,7 @@ export function registerSessionHandlers(io, socket) {
   });
 
   socket.on('create:done', (weapon) => {
-    const entry = findOrCreateParticipant(socket.id);
+    const entry = findOrCreateParticipant(io, socket.id);
     entry.createDone = true;
     entry.weapon =
       weapon && typeof weapon === 'object'
@@ -364,6 +368,7 @@ export function registerSessionHandlers(io, socket) {
     const alreadyUsed = cohort.participants.some((p) => p.id !== participantId && p.deviceNumber === number);
     if (alreadyUsed) return;
     entry.deviceNumber = number;
+    io.to(entry.id).emit('device:number', entry.deviceNumber);
     broadcastParticipants(io);
   });
 

@@ -1,4 +1,4 @@
-import { h, render } from 'preact';
+import { h, render, Fragment } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import htm from 'htm';
 import { io } from 'socket.io-client';
@@ -59,6 +59,15 @@ function App() {
   // 무관하게 항상 떠 있어서 놓치지 않는다. 실제 UI 갱신(ResultScreen 리렌더)이 일어나려면
   // Preact state여야 하므로 state.js가 아니라 useState로 들고 내려준다.
   const [resultId, setResultId] = useState(null);
+  // 스태프가 이 노트북 화면만 보고 "몇 번 기기"인지 바로 알 수 있도록, 어느 stage든
+  // 상관없이 화면 한구석에 계속 띄워둔다(backend/socket/session.js가 접속 순서대로
+  // 자동 배정하고, 관리자가 admin:setDeviceNumber로 바꾸면 다시 이 이벤트로 알려준다).
+  const [deviceNumber, setDeviceNumber] = useState(null);
+
+  useEffect(() => {
+    socket.on('device:number', setDeviceNumber);
+    return () => socket.off('device:number', setDeviceNumber);
+  }, [socket]);
 
   useEffect(() => {
     function onStageChange(nextStage) {
@@ -99,14 +108,19 @@ function App() {
   }, [socket]);
 
   const Screen = SCREENS[stage] ?? LearnScreen;
-  return html`<${Screen}
-    socket=${socket}
-    state=${state}
-    resultId=${resultId}
-    onNameSubmit=${(n) => {
-      nameRef.current = saveNickname(n);
-    }}
-  />`;
+  return html`
+    <${Fragment}>
+      ${deviceNumber != null ? html`<div class="device-number-badge">${deviceNumber}</div>` : null}
+      <${Screen}
+        socket=${socket}
+        state=${state}
+        resultId=${resultId}
+        onNameSubmit=${(n) => {
+          nameRef.current = saveNickname(n);
+        }}
+      />
+    <//>
+  `;
 }
 
 render(html`<${App} />`, document.getElementById('app'));

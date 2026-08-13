@@ -17,31 +17,38 @@ function makeSocket(id) {
 }
 
 const emitted = [];
+const targeted = [];
 const io = {
   emit: (ev, payload) => emitted.push([ev, payload]),
-  to: (id) => ({ emit: () => {} }),
+  to: (id) => ({ emit: (ev, payload) => targeted.push([id, ev, payload]) }),
 };
 
 const latestParticipants = () => emitted.filter(([ev]) => ev === 'admin:participants').at(-1)?.[1] ?? [];
 const entryOf = (id) => latestParticipants().find((p) => p.id === id);
 const participantEmitCount = () => emitted.filter(([ev]) => ev === 'admin:participants').length;
+const deviceNumberEventsFor = (id) => targeted.filter(([target, ev]) => target === id && ev === 'device:number').map(([, , payload]) => payload);
 
 for (const id of ['s1', 's2', 's3']) registerSessionHandlers(io, makeSocket(id));
 
-// 접속 순서대로 1, 2, 3...이 자동 배정된다
+// 접속 순서대로 1, 2, 3...이 자동 배정되고, 각 기기는 자기 번호를 타겟 이벤트로 받는다
+// (기기 화면 한구석에 상시 표시하기 위함 — device:number)
 {
   for (const id of ['s1', 's2', 's3']) handlers[id]['participant:join']();
   assert.strictEqual(entryOf('s1').deviceNumber, 1);
   assert.strictEqual(entryOf('s2').deviceNumber, 2);
   assert.strictEqual(entryOf('s3').deviceNumber, 3);
-  console.log('device numbers auto-assign in join order: OK');
+  assert.deepStrictEqual(deviceNumberEventsFor('s1'), [1]);
+  assert.deepStrictEqual(deviceNumberEventsFor('s2'), [2]);
+  assert.deepStrictEqual(deviceNumberEventsFor('s3'), [3]);
+  console.log('device numbers auto-assign in join order and are pushed to each device: OK');
 }
 
-// 관리자가 번호를 덮어쓸 수 있다
+// 관리자가 번호를 덮어쓰면, 그 기기에 새 번호가 다시 타겟 전송된다
 {
   handlers.s1['admin:setDeviceNumber']('s3', 10);
   assert.strictEqual(entryOf('s3').deviceNumber, 10);
-  console.log('admin:setDeviceNumber overwrites the number: OK');
+  assert.deepStrictEqual(deviceNumberEventsFor('s3'), [3, 10], '덮어쓴 뒤에도 그 기기에 새 번호가 다시 전송되어야 함');
+  console.log('admin:setDeviceNumber overwrites the number and re-notifies the device: OK');
 }
 
 // 유효하지 않은 값(정수가 아님/0 이하)은 무시된다

@@ -110,6 +110,27 @@ body::after {
   gap: 1rem;
 }
 
+/* 기기 번호 배지 — 스태프가 이 노트북 화면만 보고 몇 번 기기인지 알 수 있게, 어느
+   stage든 화면 왼쪽 위 구석에 계속 떠 있는다. 참가자 시선을 끌 필요는 없는 운영용
+   정보라 눈에 띄지 않게 작고 옅게 둔다. */
+.device-number-badge {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 50;
+  min-width: 1.6rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(20, 36, 58, 0.7);
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 /* ── 공통 컴포넌트 ──────────────────────────────────────────────────────── */
 
 .card {
