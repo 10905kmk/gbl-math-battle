@@ -7,3 +7,4 @@ backend/config/apiKeys.json
 .superpowers/
 backend/data/
 .test-scratch/
+backend/certs/
