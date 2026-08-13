@@ -195,6 +195,25 @@ button.kick:hover {
 }
 
 /* ── 참가자 개별 카드 ───────────────────────────────────────────────── */
+.checkin-admin-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.checkin-admin-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .participant-list {
   list-style: none;
   padding: 0;

@@ -148,7 +148,13 @@ function AdminApp() {
                       battleState=${battleState}
                     />`
                   : null}
-                <${DashboardPanel} socket=${socket} stage=${stage} participants=${participants} errors=${errors} />
+                <${DashboardPanel}
+                  socket=${socket}
+                  stage=${stage}
+                  participants=${participants}
+                  errors=${errors}
+                  checkinList=${checkinList}
+                />
               </div>
             `}
       </main>
@@ -448,7 +454,7 @@ function ApiKeyPanel() {
   `;
 }
 
-function DashboardPanel({ socket, stage, participants, errors }) {
+function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
   // 되돌리기는 create 단계에서만 의미가 있다(서버도 같은 조건으로 막는다) — battle로
   // 넘어간 뒤엔 이미 대전 시작 시점의 참가자 스냅샷이 떠 있어서 되돌려도 반영되지 않는다.
   const canReopen = stage === 'create';
@@ -487,6 +493,13 @@ function DashboardPanel({ socket, stage, participants, errors }) {
     socket.emit('admin:resetParticipant', participantId);
   }
 
+  function unlinkCheckin(uid, name) {
+    if (!confirm(`"${name}"님을 체크인 목록에서 연결 해제할까요?\n\n부스를 중간에 나간 경우 등에 씁니다 — 목록에서 제거되면 소진 시 허브에 등록되지 않습니다.`)) {
+      return;
+    }
+    socket.emit('checkin:unlink', uid);
+  }
+
   // 바깥(AdminApp)이 .dashboard-panel 컨테이너를 들고 있으므로 여기서는 section들만 낸다 —
   // 대전 단계에서는 BattlePanel이 같은 컨테이너 안에 형제로 함께 들어간다.
   return html`
@@ -521,6 +534,27 @@ function DashboardPanel({ socket, stage, participants, errors }) {
         ${!canReopen && doneCount > 0
           ? html`<p class="panel-note">제작 완료 취소는 <strong>제작(create) 단계</strong>에서만 할 수 있어요.</p>`
           : null}
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>체크인 목록 (${checkinList.length}건)</h2>
+          <span class="panel-sub">체크인 화면을 열지 않아도 여기서 연결 해제할 수 있어요</span>
+        </div>
+        ${checkinList.length === 0
+          ? html`<p class="empty">아직 체크인된 참가자가 없습니다.</p>`
+          : html`
+              <ul class="checkin-admin-list">
+                ${checkinList.map(
+                  (entry) => html`
+                    <li key=${entry.uid}>
+                      <span>${entry.name}</span>
+                      <button class="kick" onClick=${() => unlinkCheckin(entry.uid, entry.name)}>연결 해제</button>
+                    </li>
+                  `,
+                )}
+              </ul>
+            `}
       </section>
 
       <section class="panel">
