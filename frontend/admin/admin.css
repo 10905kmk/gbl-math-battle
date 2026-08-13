@@ -837,3 +837,9 @@ button.kick:hover {
   display: flex;
   gap: 0.5rem;
 }
+
+/* 체크인 목록 소진 버튼 — 대기 건수가 0이면 눌러도 할 일이 없으므로 비활성화 표시. */
+.topbar-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

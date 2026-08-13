@@ -30,6 +30,7 @@ function AdminApp() {
   const [moveSpeed, setMoveSpeed] = useState(8);
   const [battleDuration, setBattleDuration] = useState(180_000);
   const [battleState, setBattleState] = useState(null);
+  const [checkinList, setCheckinList] = useState([]);
   const battleUiUpdateRef = useRef({ at: 0, status: null });
 
   useEffect(() => {
@@ -55,6 +56,7 @@ function AdminApp() {
       }
     }
     socket.on('battle:state', onBattleState);
+    socket.on('checkin:list', setCheckinList);
     return () => {
       socket.off('stage:change', setStage);
       socket.off('admin:participants', setParticipants);
@@ -65,6 +67,7 @@ function AdminApp() {
       socket.off('battle:moveSpeed', setMoveSpeed);
       socket.off('battle:duration', setBattleDuration);
       socket.off('battle:state', onBattleState);
+      socket.off('checkin:list', setCheckinList);
     };
   }, [socket]);
 
@@ -80,6 +83,21 @@ function AdminApp() {
     window.open('/admin/dev-battle.html', 'gbl-dev-battle', 'width=1280,height=900');
   }
 
+  function openCheckin() {
+    window.open('/admin/checkin.html', 'gbl-checkin', 'width=480,height=800');
+  }
+
+  async function consumeCheckin() {
+    const res = await fetch('/api/checkin/consume', { method: 'POST' });
+    const data = await res.json();
+    const okCount = data.results.filter((r) => r.status === 'ok').length;
+    const failCount = data.results.length - okCount;
+    alert(
+      `체크인 등록 완료: 성공 ${okCount}건` +
+        (failCount > 0 ? `, 실패 ${failCount}건(목록에 남아 재시도 가능)` : ''),
+    );
+  }
+
   return html`
     <div class="admin-shell">
       <header class="admin-topbar">
@@ -90,6 +108,10 @@ function AdminApp() {
           <button onClick=${() => socket.emit('admin:prevStage')}>이전 단계</button>
           <button class="primary" onClick=${() => socket.emit('admin:nextStage')}>다음 단계</button>
           <button onClick=${openDisplay}>공용 화면 열기</button>
+          <button onClick=${openCheckin}>체크인 화면 열기</button>
+          <button disabled=${checkinList.length === 0} onClick=${consumeCheckin}>
+            체크인 목록 소진 (${checkinList.length}건)
+          </button>
           <button class="developer" onClick=${openDevBattle}>개발자 게임 테스트</button>
           <button
             class="danger"
@@ -201,7 +223,7 @@ function PresenterPanel({ socket }) {
 // 참가자 1명 = 카드 1장. 이름/상태만 나열하던 목록으로는 "누가 무엇을 만들었는지"를 볼 수
 // 없어서, 실수로 평가받은 참가자를 구제할 때 그 사람이 맞는지 확인할 방법이 없었다 —
 // 무기 썸네일/이름/전투력까지 같이 보여주고 개별 조치 버튼을 카드 안에 둔다.
-function ParticipantCard({ participant, canReopen, onForceFinish, onReopen, onKick }) {
+function ParticipantCard({ participant, canReopen, canResetDevice, onForceFinish, onReopen, onKick, onResetDevice }) {
   const { name, createDone, weapon } = participant;
   const label = name ?? '이름 없음';
 
@@ -243,6 +265,16 @@ function ParticipantCard({ participant, canReopen, onForceFinish, onReopen, onKi
             onClick=${() => onReopen(participant.id, label)}
           >
             ↩ 제작 완료 취소
+          </button>
+        `}
+        ${canResetDevice &&
+        html`
+          <button
+            class="rescue"
+            title="이 기기의 이름/제작 상태를 지우고 새 참가자를 받을 수 있게 합니다(체크인 연결도 함께 해제)"
+            onClick=${() => onResetDevice(participant.id, label)}
+          >
+            ⟲ 기기 초기화
           </button>
         `}
         <button
@@ -397,6 +429,17 @@ function DashboardPanel({ socket, stage, participants, errors }) {
     socket.emit('admin:kickParticipant', participantId);
   }
 
+  function resetDevice(participantId, name) {
+    if (
+      !confirm(
+        `"${name}" 기기를 초기화하고 새 참가자를 받을까요?\n\n이름/제작 진행 상태가 모두 지워지고, 체크인 연결도 함께 해제됩니다.`,
+      )
+    ) {
+      return;
+    }
+    socket.emit('admin:resetParticipant', participantId);
+  }
+
   // 바깥(AdminApp)이 .dashboard-panel 컨테이너를 들고 있으므로 여기서는 section들만 낸다 —
   // 대전 단계에서는 BattlePanel이 같은 컨테이너 안에 형제로 함께 들어간다.
   return html`
@@ -417,9 +460,11 @@ function DashboardPanel({ socket, stage, participants, errors }) {
                       key=${p.id}
                       participant=${p}
                       canReopen=${canReopen}
+                      canResetDevice=${stage !== 'battle'}
                       onForceFinish=${forceFinish}
                       onReopen=${reopen}
                       onKick=${kick}
+                      onResetDevice=${resetDevice}
                     />
                   `,
                 )}
