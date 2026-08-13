@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
 
 import resultRoutes from './routes/result.js';
+import checkinRoutes from './routes/checkin.js';
 import adminRoutes from './routes/admin.js';
 import weaponChatRoutes from './routes/weaponChat.js';
 import weaponEvaluateRoutes from './routes/weaponEvaluate.js';
 import { registerSessionHandlers } from './socket/session.js';
 import { registerBattleHandlers } from './socket/battle.js';
 import { registerDevBattleHandlers } from './socket/devBattle.js';
+import { registerCheckinHandlers, initCheckinIo } from './socket/checkin.js';
 import { initErrorLog } from './lib/errorLog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,15 +36,18 @@ app.use('/api/result', resultRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/weapon/chat', weaponChatRoutes);
 app.use('/api/weapon/evaluate', weaponEvaluateRoutes);
+app.use('/api/checkin', checkinRoutes);
 
 const server = http.createServer(app);
 const io = new Server(server);
 initErrorLog(io);
+initCheckinIo(io);
 
 io.on('connection', (socket) => {
   registerSessionHandlers(io, socket);
   registerBattleHandlers(io, socket);
   registerDevBattleHandlers(socket);
+  registerCheckinHandlers(socket);
 });
 
 server.listen(PORT, () => {
