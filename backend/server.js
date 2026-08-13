@@ -64,6 +64,29 @@ app.use('/api/weapon/evaluate', weaponEvaluateRoutes);
 app.use('/api/checkin', checkinRoutes);
 
 const server = http.createServer(app);
+// Cloudflare Tunnel(무료 quick tunnel)이 프록시 과정에서 "/socket.io/"의 끝 슬래시를
+// 지워버리는 현상이 있다("/socket.io"로 도착). engine.io는 path 옵션 값(끝 슬래시가
+// 항상 강제로 붙는다 — 옵션으로 뗄 수 없음, engine.io의 _computePath 구현이 그렇게
+// 고정돼 있다)과 요청 경로를 완전 문자열 일치로 비교하므로, 슬래시가 빠지면 그 즉시
+// 매칭에 실패해 체크인 화면(터널로 접속하는 쪽)의 소켓 연결이 아예 안 된다.
+// Socket.IO(engine.io)가 http.Server의 'request' 이벤트에 대해 유일한 리스너로
+// 등록되는 구조라(자신이 처리 못하는 요청만 원래 리스너로 위임) 보통의 Express
+// 미들웨어로는 이 판정보다 먼저 개입할 방법이 없다 — 그래서 http.Server.emit 자체를
+// 감싸서 'request' 이벤트가 실제로 전파되기 직전에 req.url을 정규화한다(Socket.IO의
+// 리스너 등록보다 반드시 먼저 걸어야 하므로 new Server(...) 호출 전에 적용).
+function normalizeSocketIoTrailingSlash(server) {
+  const originalEmit = server.emit.bind(server);
+  server.emit = (event, ...args) => {
+    if (event === 'request') {
+      const req = args[0];
+      if (req.url === '/socket.io' || req.url.startsWith('/socket.io?')) {
+        req.url = req.url.replace('/socket.io', '/socket.io/');
+      }
+    }
+    return originalEmit(event, ...args);
+  };
+}
+normalizeSocketIoTrailingSlash(server);
 const io = new Server(server);
 initErrorLog(io);
 initCheckinIo(io);
@@ -90,6 +113,9 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) },
     app,
   );
+  // http 쪽과 같은 이유로, io.attach()가 'request' 리스너를 다시 갈아끼우기 전에
+  // 정규화를 걸어둔다.
+  normalizeSocketIoTrailingSlash(httpsServer);
   io.attach(httpsServer);
   httpsServer.listen(HTTPS_PORT, () => {
     console.log(`GBL local server also listening on https://localhost:${HTTPS_PORT} (camera-capable devices)`);

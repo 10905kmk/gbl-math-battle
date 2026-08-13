@@ -108,3 +108,63 @@ GBL local server also listening on https://localhost:3443 (camera-capable device
 
 설치 후 `https://<부스서버-IP>:3443/admin/checkin.html`로 접속하면 경고 없이
 바로 열리고, 카메라 권한 요청이 정상적으로 뜬다.
+
+## 폴백 — CA 설치가 막힌 기기(학교 관리 아이패드 등)를 위한 터널 방식
+
+MDM으로 프로파일 설치 자체가 막혀 있으면 위 방법은 아예 시도조차 안 될 수 있다.
+이 경우 **Cloudflare Tunnel**로 로컬 서버를 임시 공개 HTTPS 주소로 노출시키면,
+Cloudflare가 이미 모든 브라우저가 신뢰하는 진짜 인증서로 서비스해주므로 기기
+쪽 설정이 아예 필요 없다.
+
+### 준비
+
+1. [cloudflared 다운로드 페이지](https://github.com/cloudflare/cloudflared/releases/latest)에서
+   `cloudflared-windows-amd64.exe`를 받아 `cloudflared.exe`로 이름을 바꿔 아무
+   폴더에나 둔다(관리자 권한, 설치 절차 필요 없음).
+2. 그 폴더를 PATH에 추가하거나, 아래 명령을 그 폴더에서 직접 실행한다.
+
+### 실행
+
+```powershell
+cloudflared tunnel --url http://localhost:3000
+```
+
+(`backend/package.json`에 `npm run tunnel`로도 등록해 뒀다 — `cloudflared`가
+PATH에 잡혀 있으면 그냥 `npm run tunnel`로 실행 가능.)
+
+콘솔에 아래처럼 임시 URL이 뜬다:
+
+```
+Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):
+https://<임의문자열>.trycloudflare.com
+```
+
+그 뒤에 `/admin/checkin.html`을 붙여서 접속하면 된다(예:
+`https://retain-bonus-socks-dive.trycloudflare.com/admin/checkin.html`). 카메라
+권한 요청이 바로 뜬다 — 인증서 경고도, 기기 설정도 없다.
+
+### 실제로 검증된 사항
+
+- **HTTP(3000) 쪽을 그대로 가리키면 된다** — HTTPS(3443, mkcert 인증서) 쪽을
+  가리킬 필요 없다. 터널 자체가 이미 진짜 HTTPS를 제공하므로 로컬 인증서가
+  이중으로 개입할 이유가 없다(오히려 자체서명 인증서를 또 거치면 설정이
+  복잡해진다).
+- **소켓 통신(체크인 목록 실시간 갱신 등)은 polling 트랜스포트로 정상 동작한다**
+  — 무료 quick tunnel은 구조상(HTTP/2 프록시) 웹소켓 업그레이드가 안 되지만,
+  Socket.IO가 자동으로 polling으로 남아서 계속 통신한다. 실제 연결 테스트로
+  확인함 — 체감 지연은 거의 없다.
+- **`backend/server.js`에 이미 필요한 처리가 들어있다** — Cloudflare Tunnel이
+  `/socket.io/` 요청의 끝 슬래시를 지워버리는 현상이 있어서(`/socket.io/` →
+  `/socket.io`) 서버가 그 요청을 못 알아보는 문제가 있었는데, 이미 고쳐져 있다
+  (`server.js`의 `normalizeSocketIoTrailingSlash` 참고). 별도 조치 불필요.
+
+### 주의
+
+- 계정 없는 "quick tunnel"은 Cloudflare 스스로 "테스트용, 프로덕션 사용
+  비권장"이라고 명시한다 — 하루짜리 부스 이벤트에는 적합하지만, `cloudflared`
+  프로세스가 죽으면 URL도 같이 사라진다(재실행하면 새 URL이 발급됨 — 이전
+  URL은 못 씀).
+- 인터넷 연결이 필요하다(로컬 LAN만으로는 안 됨) — 학교 와이파이가 이 트래픽을
+  막고 있지 않은지 미리 확인해두면 좋다.
+- `cloudflared` 프로세스를 켜둔 콘솔 창을 닫으면 터널도 끊긴다 — 부스 운영
+  중에는 그 창을 계속 띄워둘 것.
