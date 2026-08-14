@@ -106,8 +106,8 @@ export const SKILLS = [
   // ── 설치/은신 ──────────────────────────────────────────────────────
   {
     id: 'mine', name: '지뢰', icon: '💣', kind: 'place', activationDurationMs: 15000, cooldownMs: 35000,
-    desc: '발밑에 지뢰를 15초 동안 설치합니다. 적이 1.5m 안에 들어오면 폭발해 50% 피해.',
-    triggerRadius: 1.5 * METER, damagePercent: 50, knockback: 1.5 * METER, color: '#ff6b6b',
+    desc: '발밑에 지뢰를 15초 동안 설치합니다. 적이 1.5m 안에 들어오면 폭발해 최대 HP의 30% 피해를 줍니다.',
+    triggerRadius: 1.5 * METER, damagePercent: 30, knockback: 1.5 * METER, color: '#ff6b6b',
   },
   {
     id: 'cloak', name: '투명망토', icon: '👻', kind: 'self', activationDurationMs: 10000, cooldownMs: 40000,

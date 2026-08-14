@@ -380,8 +380,8 @@ console.log('shield/cloak fully block incoming damage: OK');
   room.players.e.y = 500;
   tickSkillWorld(room, NOW + 200, []);
   assert.strictEqual(room.mines.length, 0, '적이 밟으면 터져서 사라짐');
-  assert.strictEqual(getSkill('mine').damagePercent, 50, '지뢰 폭발은 최대 체력의 50% 피해');
-  assert.strictEqual(room.players.e.hp, HP_MAX - 50);
+  assert.strictEqual(getSkill('mine').damagePercent, 30, '지뢰 폭발은 최대 체력의 30% 피해');
+  assert.strictEqual(room.players.e.hp, 63, '최대 체력 90에서 지뢰를 밟으면 30%인 27만 잃어야 함');
 
   const expiryRoom = makeRoom([makePlayer('owner2', 'mine'), makePlayer('far2', 'heal', { x: 1500, y: 1500 })]);
   activateSkill(expiryRoom, 'owner2', NOW);

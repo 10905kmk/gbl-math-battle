@@ -551,7 +551,9 @@ export function tickSkillWorld(room, now, events) {
     victim.x = to.x;
     victim.y = to.y;
     pushEffect(room, { type: 'mineBoom', x: mine.x, y: mine.y, endsAt: now + 600, color: mineSkill.color });
-    applySkillDamage(room, mine.ownerId, victim, mineSkill.damagePercent, now, events);
+    // damagePercent는 이름 그대로 최대 체력 기준 비율이다. 현재 최대 체력이 90이므로
+    // 30을 그대로 빼면 33.3% 피해가 되어 안내와 어긋난다.
+    applySkillDamage(room, mine.ownerId, victim, mineSkill.damagePercent * MAX_HP / 100, now, events);
   }
   room.mines = remainingMines;
 
