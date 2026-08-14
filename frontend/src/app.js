@@ -63,10 +63,28 @@ function App() {
   // 상관없이 화면 한구석에 계속 띄워둔다(backend/socket/session.js가 접속 순서대로
   // 자동 배정하고, 관리자가 admin:setDeviceNumber로 바꾸면 다시 이 이벤트로 알려준다).
   const [deviceNumber, setDeviceNumber] = useState(null);
+  // 관리자가 "기기 초기화"를 누르면 서버가 이 값을 올려 Screen을 강제로 다시 마운트한다 —
+  // NameScreen의 submitted나 CreateScreen의 캔버스 도형처럼 각 화면이 들고 있는 로컬
+  // state는 stage가 안 바뀌면 리렌더만으로는 안 지워지므로, key를 바꿔 완전히 새로 만든다.
+  const [resetSeq, setResetSeq] = useState(0);
 
   useEffect(() => {
     socket.on('device:number', setDeviceNumber);
     return () => socket.off('device:number', setDeviceNumber);
+  }, [socket]);
+
+  useEffect(() => {
+    function onParticipantReset() {
+      nameRef.current = saveNickname(null);
+      state.participantId = null;
+      state.selectedShape = null;
+      state.weapon = null;
+      state.battleResult = null;
+      setResultId(null);
+      setResetSeq((n) => n + 1);
+    }
+    socket.on('participant:reset', onParticipantReset);
+    return () => socket.off('participant:reset', onParticipantReset);
   }, [socket]);
 
   useEffect(() => {
@@ -112,6 +130,7 @@ function App() {
     <${Fragment}>
       ${deviceNumber != null ? html`<div class="device-number-badge">${deviceNumber}</div>` : null}
       <${Screen}
+        key=${resetSeq}
         socket=${socket}
         state=${state}
         resultId=${resultId}

@@ -416,6 +416,10 @@ export function resetParticipant(io, id) {
   entry.name = null;
   entry.createDone = false;
   entry.weapon = null;
+  // 서버 데이터만 지우고 끝나면 그 기기의 화면은 이전 참가자가 보던 그대로(완료 카드,
+  // 만들던 무기 등) 남아있는다 — 이 기기 소켓에 신호를 보내 로컬 화면도 현재 stage의
+  // 처음 상태로 되돌리게 한다(admin:reopenCreate의 create:reopen과 같은 패턴).
+  io.to(entry.id).emit('participant:reset');
   if (cohort.stage !== 'idle') broadcastProgress(io);
   broadcastParticipants(io);
   return true;

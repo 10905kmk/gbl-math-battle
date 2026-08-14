@@ -5,6 +5,35 @@ import { io } from 'socket.io-client';
 import { SKILLS, formatSkillTiming } from '../shapes/skills.js';
 
 const html = htm.bind(h);
+
+// 관리자 대시보드는 부스 현장 LAN에서 평문 HTTP로도 열리는 경우가 있어
+// navigator.clipboard가 보안 컨텍스트 제약으로 막힐 수 있다 — execCommand로 폴백한다.
+async function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // 폴백으로 넘어간다
+    }
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(textarea);
+  return ok;
+}
+
 const SKILL_KIND_LABELS = {
   self: '자기 강화',
   aura: '범위 효과',
@@ -459,6 +488,7 @@ function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
   // 넘어간 뒤엔 이미 대전 시작 시점의 참가자 스냅샷이 떠 있어서 되돌려도 반영되지 않는다.
   const canReopen = stage === 'create';
   const doneCount = participants.filter((p) => p.createDone).length;
+  const [copiedKey, setCopiedKey] = useState(null);
 
   function forceFinish(participantId) {
     socket.emit('admin:forceFinish', participantId);
@@ -498,6 +528,32 @@ function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
       return;
     }
     socket.emit('checkin:unlink', uid);
+  }
+
+  function flashCopied(key) {
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1200);
+  }
+
+  // 만일의 사고(체크인 목록 꼬임, 수기 대조 등) 대비용 — uid를 그대로 복사해둘 수 있게 한다.
+  async function copyUid(entry) {
+    const ok = await copyToClipboard(entry.uid);
+    if (ok) {
+      flashCopied(entry.uid);
+    } else {
+      alert('복사에 실패했습니다. 브라우저 클립보드 권한을 확인해주세요.');
+    }
+  }
+
+  // 스프레드시트 등에 그대로 붙여넣을 수 있게 "이름\tuid" 줄바꿈 형식으로 전체를 복사한다.
+  async function copyAllUids() {
+    const text = checkinList.map((entry) => `${entry.name}\t${entry.uid}`).join('\n');
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      flashCopied('__all__');
+    } else {
+      alert('복사에 실패했습니다. 브라우저 클립보드 권한을 확인해주세요.');
+    }
   }
 
   // 바깥(AdminApp)이 .dashboard-panel 컨테이너를 들고 있으므로 여기서는 section들만 낸다 —
@@ -540,6 +596,11 @@ function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
         <div class="panel-head">
           <h2>체크인 목록 (${checkinList.length}건)</h2>
           <span class="panel-sub">체크인 화면을 열지 않아도 여기서 연결 해제할 수 있어요</span>
+          <div class="panel-head-actions">
+            <button class="copy" disabled=${checkinList.length === 0} onClick=${copyAllUids}>
+              ${copiedKey === '__all__' ? '복사됨' : '전체 UID 복사'}
+            </button>
+          </div>
         </div>
         ${checkinList.length === 0
           ? html`<p class="empty">아직 체크인된 참가자가 없습니다.</p>`
@@ -549,7 +610,12 @@ function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
                   (entry) => html`
                     <li key=${entry.uid}>
                       <span>${entry.name}</span>
-                      <button class="kick" onClick=${() => unlinkCheckin(entry.uid, entry.name)}>연결 해제</button>
+                      <div class="checkin-admin-list-actions">
+                        <button class="copy" onClick=${() => copyUid(entry)}>
+                          ${copiedKey === entry.uid ? '복사됨' : 'UID 복사'}
+                        </button>
+                        <button class="kick" onClick=${() => unlinkCheckin(entry.uid, entry.name)}>연결 해제</button>
+                      </div>
                     </li>
                   `,
                 )}

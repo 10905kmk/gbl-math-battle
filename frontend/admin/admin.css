@@ -140,6 +140,16 @@ button.kick:hover {
   background: #fbe9e7;
 }
 
+/* uid 복사 — 되돌릴 것도 없는 조회성 조작이라 rescue와 같은 accent 톤을 쓴다. */
+button.copy {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button.copy:hover {
+  background: #e8f1fb;
+}
+
 /* ── 본문 ───────────────────────────────────────────────────────────── */
 .admin-body {
   flex: 1;
@@ -178,6 +188,13 @@ button.kick:hover {
   color: var(--muted);
 }
 
+.panel-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .panel-note {
   margin: 0.9rem 0 0;
   padding: 0.6rem 0.75rem;
@@ -212,6 +229,11 @@ button.kick:hover {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.checkin-admin-list-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .participant-list {
