@@ -399,6 +399,33 @@ button.copy:hover {
   padding: 0.4rem 0.7rem;
 }
 
+.swap-name-form {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.swap-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 3.4rem;
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 0.15rem 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--accent);
+  background: #eef5fc;
+}
+
+.swap-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.swap-name-form button {
+  flex: none;
+}
+
 /* ── 대전 진행 패널 ─────────────────────────────────────────────────── */
 .speed-row {
   display: flex;

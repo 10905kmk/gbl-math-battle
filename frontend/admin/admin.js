@@ -270,27 +270,53 @@ function ParticipantCard({
   participant,
   canReopen,
   canResetDevice,
+  canSwapName,
   onForceFinish,
   onReopen,
   onKick,
   onResetDevice,
   onSetDeviceNumber,
+  onSwapName,
 }) {
   const { name, createDone, weapon, deviceNumber } = participant;
   const label = name ?? '이름 없음';
   const [numberDraft, setNumberDraft] = useState(String(deviceNumber ?? ''));
+  // 지금 이 입력창에 포커스가 있는지 — 있으면 아래 useEffect가 서버 갱신으로 draft를
+  // 덮어쓰지 않는다(타이핑 중 다른 관리자 창의 갱신으로 값이 덮어써지는 걸 피하기 위함).
+  const isEditingRef = useRef(false);
+
+  // admin:setDeviceNumber가 스왑으로 처리되면서(기기 번호 관리) 내가 지금 타이핑 중이
+  // 아닌 "다른" 카드의 번호가 서버에서 바뀔 수 있다 — 그 카드는 blur를 거치지 않으므로
+  // 여기서 deviceNumber prop이 바뀔 때 draft를 다시 맞춰준다.
+  useEffect(() => {
+    if (!isEditingRef.current) setNumberDraft(String(deviceNumber ?? ''));
+  }, [deviceNumber]);
 
   // 접속 순서대로 자동 배정된 번호를 관리자가 직접 고칠 수 있게 한다 — 세션 시작
   // 전에 "몇 번 기기가 어느 자리냐"를 미리 정리해두려는 용도. 키 입력마다 서버로
-  // 보내지 않고 blur/Enter에서만 커밋한다(타이핑 중 다른 관리자 창의 갱신으로
-  // 값이 덮어써지는 걸 피하기 위함).
+  // 보내지 않고 blur/Enter에서만 커밋한다. 이미 다른 기기가 쓰는 번호를 넣으면
+  // 서버가 그 기기와 번호를 맞바꾼다(기기 스위치).
   function commitDeviceNumber() {
+    isEditingRef.current = false;
     const parsed = Number(numberDraft);
     if (Number.isInteger(parsed) && parsed > 0) {
       onSetDeviceNumber(participant.id, parsed);
     } else {
       setNumberDraft(String(deviceNumber ?? ''));
     }
+  }
+
+  // 이름 스위치 — 기기 번호는 그대로 두고, 입력한 번호의 기기와 "이름"만 맞바꾼다
+  // (admin:swapName). 매번 새로 고를 값이라 device-number-input처럼 서버 값과 동기화해
+  // 유지할 필요 없이, 시도할 때마다 비운다.
+  const [swapTargetDraft, setSwapTargetDraft] = useState('');
+  function commitSwapName(e) {
+    e.preventDefault();
+    const parsed = Number(swapTargetDraft);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      onSwapName(participant.id, parsed);
+    }
+    setSwapTargetDraft('');
   }
 
   return html`
@@ -309,6 +335,7 @@ function ParticipantCard({
             min="1"
             title="기기 번호"
             value=${numberDraft}
+            onFocus=${() => { isEditingRef.current = true; }}
             onInput=${(e) => setNumberDraft(e.target.value)}
             onBlur=${commitDeviceNumber}
             onKeyDown=${(e) => {
@@ -332,6 +359,24 @@ function ParticipantCard({
       </div>
 
       <div class="participant-actions">
+        ${canSwapName &&
+        html`
+          <form
+            class="swap-name-form"
+            title="기기 번호는 그대로 두고, 입력한 번호의 기기와 이름만 맞바꿉니다"
+            onSubmit=${commitSwapName}
+          >
+            <input
+              class="swap-name-input"
+              type="number"
+              min="1"
+              placeholder="기기#"
+              value=${swapTargetDraft}
+              onInput=${(e) => setSwapTargetDraft(e.target.value)}
+            />
+            <button type="submit" class="rescue">🔀 이름 스위치</button>
+          </form>
+        `}
         ${!createDone &&
         html`<button onClick=${() => onForceFinish(participant.id)}>기본 무기로 마감</button>`}
         ${createDone &&
@@ -487,6 +532,10 @@ function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
   // 되돌리기는 create 단계에서만 의미가 있다(서버도 같은 조건으로 막는다) — battle로
   // 넘어간 뒤엔 이미 대전 시작 시점의 참가자 스냅샷이 떠 있어서 되돌려도 반영되지 않는다.
   const canReopen = stage === 'create';
+  // 이름 스위치는 name 스테이지에서만 의미가 있다(서버도 같은 조건으로 막는다) — 체크인
+  // QR로 배정된 이름이 실제 앉은 물리 기기와 어긋났을 때 그 자리에서 바로잡는 용도라,
+  // create로 넘어간 뒤에는 자리를 다시 바꿀 이유가 없다.
+  const canSwapName = stage === 'name';
   const doneCount = participants.filter((p) => p.createDone).length;
   const [copiedKey, setCopiedKey] = useState(null);
 
@@ -510,6 +559,10 @@ function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
 
   function setDeviceNumber(participantId, number) {
     socket.emit('admin:setDeviceNumber', participantId, number);
+  }
+
+  function swapName(participantId, targetDeviceNumber) {
+    socket.emit('admin:swapName', participantId, targetDeviceNumber);
   }
 
   function resetDevice(participantId, name) {
@@ -577,11 +630,13 @@ function DashboardPanel({ socket, stage, participants, errors, checkinList }) {
                       participant=${p}
                       canReopen=${canReopen}
                       canResetDevice=${stage !== 'battle'}
+                      canSwapName=${canSwapName}
                       onForceFinish=${forceFinish}
                       onReopen=${reopen}
                       onKick=${kick}
                       onResetDevice=${resetDevice}
                       onSetDeviceNumber=${setDeviceNumber}
+                      onSwapName=${swapName}
                     />
                   `,
                 )}

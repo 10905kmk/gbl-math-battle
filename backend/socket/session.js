@@ -134,13 +134,21 @@ function resetRoundFields() {
 // "이번 라운드"가 아니라 "이 물리적 기기"에 대한 정보이기 때문이다. 단, 와이파이
 // 순단 등으로 소켓이 완전히 끊겼다 재연결되면 새 엔트리(새 socket.id)로 취급돼 새
 // 번호를 받는다 — 그 경우엔 관리자가 admin:setDeviceNumber로 다시 맞춰주면 된다.
-let nextDeviceNumber = 1;
+//
+// 그냥 계속 증가하는 카운터가 아니라, 지금 아무도 안 쓰는 가장 작은 양의 정수를 찾는다 —
+// 안 그러면 기기 하나가 연결 끊겨 번호가 비어도(disconnect가 참가자를 명단에서 지운다,
+// 아래 참고) 다음에 새로 붙는 기기는 그 빈 번호를 다시 안 받고 계속 늘어나기만 한다.
+function nextAvailableDeviceNumber() {
+  const used = new Set(cohort.participants.map((p) => p.deviceNumber));
+  let n = 1;
+  while (used.has(n)) n += 1;
+  return n;
+}
 
 function findOrCreateParticipant(io, id) {
   let entry = cohort.participants.find((p) => p.id === id);
   if (!entry) {
-    entry = { id, name: null, createDone: false, weapon: null, deviceNumber: nextDeviceNumber };
-    nextDeviceNumber += 1;
+    entry = { id, name: null, createDone: false, weapon: null, deviceNumber: nextAvailableDeviceNumber() };
     cohort.participants.push(entry);
     // 참가자 기기 화면 한구석에 자기 번호를 계속 띄워두려는 용도 — 스태프가 그
     // 노트북 화면만 보고도 몇 번 기기인지 바로 알 수 있게 한다(admin:setDeviceNumber로
@@ -350,6 +358,30 @@ export function registerSessionHandlers(io, socket) {
     broadcastParticipants(io);
   });
 
+  // name 스테이지에서만 — 두 기기의 "이름"을 맞바꾼다(기기 번호는 그대로 둔다). 체크인
+  // QR로 배정된 이름이 참가자가 실제로 앉은 물리 기기와 어긋났을 때(자리를 착각한 경우
+  // 등) 쓴다 — admin:setDeviceNumber(번호를 옮김)와는 반대로 여기선 번호는 고정하고
+  // 데이터(이름)만 옮긴다. participant:name으로 서버 값만 바꾸면 그 기기 화면은 여전히
+  // 예전 이름으로 "완료" 화면에 멈춰 있으므로(submitted는 NameScreen.js의 로컬 상태라
+  // 서버가 직접 못 건드림), 체크인 배정과 같은 name:prefill을 다시 쏴서 두 기기 모두
+  // 바뀐 이름으로 완료 화면에 서게 만든다.
+  socket.on('admin:swapName', (participantId, targetDeviceNumber) => {
+    if (cohort.stage !== 'name') return;
+    const entry = cohort.participants.find((p) => p.id === participantId);
+    if (!entry) return;
+    if (!Number.isInteger(targetDeviceNumber) || targetDeviceNumber <= 0) return;
+    const other = cohort.participants.find(
+      (p) => p.id !== participantId && p.deviceNumber === targetDeviceNumber,
+    );
+    if (!other) return;
+    const previousName = entry.name;
+    entry.name = other.name;
+    other.name = previousName;
+    io.to(entry.id).emit('name:prefill', entry.name);
+    io.to(other.id).emit('name:prefill', other.name);
+    broadcastParticipants(io);
+  });
+
   // 유령/불필요한 연결을 관리자가 즉시 끊을 때 쓴다 — 이름 없이 오래 떠 있는 소켓이나
   // 자리를 뜬 참가자가 핑퐁 타임아웃(자연 disconnect)을 기다리지 않고 명단에서 바로
   // 빠지게 한다. 대상 소켓의 연결을 실제로 끊으므로(disconnect(true)) 정리/재브로드캐스트는
@@ -359,16 +391,23 @@ export function registerSessionHandlers(io, socket) {
   });
 
   // 자동 배정된 기기 번호를 관리자가 덮어쓴다(세션 시작 전 기기 관리용) — 유효한
-  // 양의 정수가 아니거나 이미 다른 기기가 쓰는 번호면 조용히 무시한다(번호 중복은
-  // "몇 번 기기냐"는 식별 목적 자체를 무너뜨리므로).
+  // 양의 정수가 아니면 무시한다. 이미 다른 기기가 쓰는 번호를 넣으면 그냥 막지 않고
+  // 두 기기의 번호를 맞바꾼다(기기 스위치) — 번호 중복은 "몇 번 기기냐"는 식별 목적
+  // 자체를 무너뜨리므로 항상 유일해야 하지만, 자리를 맞바꾸고 싶은 게 보통의 의도이므로
+  // 거부 대신 스왑으로 처리한다.
   socket.on('admin:setDeviceNumber', (participantId, number) => {
     const entry = cohort.participants.find((p) => p.id === participantId);
     if (!entry) return;
     if (!Number.isInteger(number) || number <= 0) return;
-    const alreadyUsed = cohort.participants.some((p) => p.id !== participantId && p.deviceNumber === number);
-    if (alreadyUsed) return;
+    if (entry.deviceNumber === number) return;
+    const other = cohort.participants.find((p) => p.id !== participantId && p.deviceNumber === number);
+    const previousNumber = entry.deviceNumber;
     entry.deviceNumber = number;
     io.to(entry.id).emit('device:number', entry.deviceNumber);
+    if (other) {
+      other.deviceNumber = previousNumber;
+      io.to(other.id).emit('device:number', other.deviceNumber);
+    }
     broadcastParticipants(io);
   });
 
