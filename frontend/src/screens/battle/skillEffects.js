@@ -223,6 +223,12 @@ function buildEffectNode(Konva, fx) {
       cloak.add(new Konva.Circle({
         radius: 33, stroke: '#d5dbe6', strokeWidth: 3, dash: [7, 5],
         fill: 'rgba(213, 219, 230, 0.08)', shadowColor: '#d5dbe6', shadowBlur: 14,
+        // fill+stroke+shadowBlur가 같이 있으면 Konva가 정확한 합성을 위해 오프스크린
+        // 버퍼에 두 번 그린다(perfectDrawEnabled 기본값 true) — 게다가 이 노드는
+        // animateEffect의 default 분기로 10초 내내 매 프레임 opacity가 계속 바뀐다(자기 상태
+        // 효과 중 가장 긴 지속시간). 구형 기기에서 프레임이 끊긴다는 제보가 있어 이 조합만
+        // 근사 렌더로 낮춘다 — 얇은 점선 링이라 시각적 차이는 거의 없다.
+        perfectDrawEnabled: false,
       }));
       cloak.add(new Konva.Text({ text: '👻', fontSize: 18, offsetX: 9, offsetY: 48, opacity: 0.9 }));
       return cloak;
