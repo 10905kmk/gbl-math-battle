@@ -11,7 +11,15 @@ export const RANGE_DISTANCE_MAX = 600;
 // AI 평가/저장 값은 유지하되, 원거리 우세를 줄이기 위해 실전 배율을 기존 3배의 절반으로 조정.
 export const RANGED_COMBAT_RANGE_MULTIPLIER = 1.5;
 export const ASPECT_RATIO_THRESHOLD = 2.5;
-export const PROJECTILE_SPEED = 12;
+// 총알 속도는 더 이상 고정값이 아니라 발사자의 그 순간 이동속도에 비례한다(느린/빠른
+// 캐릭터가 체감상 다르게 느껴지도록) — 다만 얼거나 크게 느려진 상태에서 쏴도 총알이 거의
+// 안 나가는 건 이상하므로 바닥값(PROJECTILE_SPEED_MIN)을 둔다. 기본 이동속도(8)·배율 1
+// 기준으로 8*1.75=14로, 기존 고정값(12)보다 살짝 빠르다(실기기 체감상 총알이 느려
+// 보인다는 피드백으로 1.5에서 상향, 2026-08-14). backend/lib/battleSimulation.js의
+// 투사체 스폰 지점에서 이 둘로 실제 projectile.speed를 계산해 저장한다(비행 중에는 그
+// 값 그대로 — 발사자가 이후 느려지거나 빨라져도 이미 날아간 총알에는 영향을 주지 않는다).
+export const PROJECTILE_SPEED_MIN = 8;
+export const PROJECTILE_SPEED_FACTOR = 1.75;
 export const PROJECTILE_RADIUS = 8;
 
 // frontend/src/screens/create/CanvasEditor.js의 CANVAS_SIZE(480x480)와 일치 — 무기 제작

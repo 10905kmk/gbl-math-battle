@@ -1,4 +1,4 @@
-import { meleeHitboxRect, circleOverlapsRotatedRect, PROJECTILE_SPEED, PROJECTILE_RADIUS, RANGE_DISTANCE_MIN } from '../../shapes/attackGeometry.js';
+import { meleeHitboxRect, circleOverlapsRotatedRect, PROJECTILE_SPEED_MIN, PROJECTILE_SPEED_FACTOR, PROJECTILE_RADIUS, RANGE_DISTANCE_MIN } from '../../shapes/attackGeometry.js';
 import { MAX_HP } from '../../shapes/combatRules.js';
 import { circleOverlapsAnyWall, resolveCircleFromWalls } from '../../shapes/collision.js';
 import {
@@ -199,12 +199,13 @@ function pickRespawnPoint(spawnPoints, players, selfId) {
 }
 
 // 투사체 하나를 한 틱만큼 이동시킨 다음 상태를 반환한다 — 순수 함수, room 자체를 안 건드림.
+// 속도(proj.speed)는 스폰 시점에 발사자의 그 순간 이동속도로 정해져 고정된다(PROJECTILE_SPEED_MIN 참고).
 function moveProjectile(proj) {
   return {
     ...proj,
-    x: proj.x + proj.aimX * PROJECTILE_SPEED,
-    y: proj.y + proj.aimY * PROJECTILE_SPEED,
-    traveled: proj.traveled + PROJECTILE_SPEED,
+    x: proj.x + proj.aimX * proj.speed,
+    y: proj.y + proj.aimY * proj.speed,
+    traveled: proj.traveled + proj.speed,
   };
 }
 
@@ -385,6 +386,9 @@ export function stepSimulation(room, now) {
       // 위 "기존 투사체" 루프에서 처리된다. 사거리(maxRange)는 AI(또는 폴백)가 이 무기에
       // 대해 정한 값을 그대로 쓰되, 값이 없거나 이상하면 최소 사거리로 방어한다.
       const maxRange = Number.isFinite(attacker.rangeDistance) ? attacker.rangeDistance : RANGE_DISTANCE_MIN;
+      // 발사자의 그 순간 이동속도(속도버프/슬로우/시간정지 반영)에 비례한 총알 속도 —
+      // 최소값 아래로는 안 떨어지게 한다. 기본 설정에서는 기존 고정값(12)과 같다.
+      const speed = Math.max(PROJECTILE_SPEED_MIN, moveSpeed * speedMultiplier(attacker, now) * PROJECTILE_SPEED_FACTOR);
       projectiles.push({
         id: `${id}-${now}-${Math.random().toString(36).slice(2, 8)}`,
         ownerId: id,
@@ -395,6 +399,7 @@ export function stepSimulation(room, now) {
         traveled: 0,
         hpDamage: attacker.hpDamage,
         maxRange,
+        speed,
       });
       events.push({ type: 'attack', playerId: id, ranged: true, x: attacker.x, y: attacker.y });
     } else {
@@ -408,6 +413,14 @@ export function stepSimulation(room, now) {
         }
       }
       events.push({ type: 'attack', playerId: id, ranged: false, x: attacker.x, y: attacker.y });
+      // 근접 공격 파티클 — 스킬 이펙트와 같은 파이프라인(room.effects)에 태워서 모두에게
+      // 같은 연출이 보이게 한다. 히트박스와 같은 좌표계/크기를 써서 실제 판정 범위와
+      // 시각이 어긋나지 않는다.
+      pushEffect(room, {
+        type: 'meleeSlash', playerId: id, x: attacker.x, y: attacker.y,
+        aimX: attacker.aimX ?? 0, aimY: attacker.aimY ?? 1,
+        endsAt: now + 180,
+      });
     }
     players[id] = { ...players[id], lastAttackAt: now };
   }

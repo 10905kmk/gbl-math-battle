@@ -1,3 +1,5 @@
+import { MELEE_ATTACK_LENGTH, ATTACK_HITBOX_SIZE } from '../../../../shapes/attackGeometry.js';
+
 // 특수 스킬의 시각 효과를 Konva로 그린다.
 //
 // 서버가 room.effects / room.mines / room.blackholes / room.pearls에 "무엇이 어디에 언제까지
@@ -276,6 +278,26 @@ function buildEffectNode(Konva, fx) {
         fill: fx.type === 'timeStop' ? 'rgba(213,219,230,0.12)' : 'rgba(143,211,255,0.1)',
       });
 
+    // 근접 공격 파티클 — 실제 히트박스(meleeHitboxRect, shapes/attackGeometry.js)와 같은
+    // 크기/좌표계를 써서 조준 방향으로 뻗는 쐐기. 흰색은 어두운 아레나 배경/캐릭터와
+    // 대비가 약해 잘 안 보인다는 피드백으로 채도 높은 주황으로 바꾸고, 테두리를 더해
+    // 배경이 밝을 때도 윤곽이 살게 했다 — 그래도 옅다는 피드백으로 불투명도를 더 올렸다
+    // (2026-08-14). 플레이어를 따라다녀야 하므로(공격 중 이동해도 캐릭터에 붙어 있게)
+    // playerId가 있는 이펙트는 drawSkillEffects가 매 프레임 위치를 자동으로 갱신한다.
+    case 'meleeSlash': {
+      const angleDeg = (Math.atan2(fx.aimY ?? 1, fx.aimX ?? 0) * 180) / Math.PI;
+      const halfAngleDeg = (Math.atan2(ATTACK_HITBOX_SIZE / 2, MELEE_ATTACK_LENGTH) * 180) / Math.PI;
+      const wedge = new Konva.Wedge({
+        radius: MELEE_ATTACK_LENGTH,
+        angle: halfAngleDeg * 2,
+        rotation: angleDeg - halfAngleDeg,
+        fill: 'rgba(255,90,0,0.92)',
+        stroke: '#fff3e0',
+        strokeWidth: 3,
+      });
+      return wedge;
+    }
+
     // 부채꼴(연행영장/콜드플레이/사형선고)
     case 'cone': {
       const angleDeg = ((fx.halfAngle ?? 0.6) * 2 * 180) / Math.PI;
@@ -336,6 +358,11 @@ function animateEffect(node, fx, t, now) {
     case 'cone':
     case 'reflect':
       node.opacity(Math.max(0, 0.85 * (1 - t)));
+      break;
+    case 'meleeSlash':
+      // 짧게(180ms) 확 뻗었다 빠르게 사그라든다 — 히트박스가 순간 판정이라 파티클도 잔상처럼.
+      node.scale({ x: 0.6 + t * 0.5, y: 0.6 + t * 0.5 });
+      node.opacity(Math.max(0, 1 - t * 0.85));
       break;
     case 'timeStop':
       // 시계 바늘이 도는 느낌으로 천천히 회전.
